@@ -17,6 +17,7 @@ import {
 } from '../db/repo.js';
 import { ClaudeRunner, findTranscript } from '../runner/claude.js';
 import { CodexRunner } from '../runner/codex.js';
+import { CursorRunner } from '../runner/cursor.js';
 import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
 import { SessionEngine } from './engine.js';
 import { writeCheckpoint } from '../hydration/checkpoint.js';
@@ -55,6 +56,7 @@ interface LiveSession {
 const runners: Record<string, Runner> = {
   claude: new ClaudeRunner(),
   codex: new CodexRunner(),
+  'cursor-agent': new CursorRunner(),
 };
 
 export class SessionManager extends EventEmitter {

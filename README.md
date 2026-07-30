@@ -29,6 +29,25 @@ Working and verified end to end on this machine:
   button.
 - **Deny-list enforcement** as a `PreToolUse` hook, since sessions run with
   permissions bypassed.
+- **Codex adapter**, verified with a real session. **Cross-tool failover works
+  end to end** — Claude to Codex, with the receiving session inheriting the
+  working tree and recovering its state through the MCP tools.
+- **Inter-agent router**: TTL expiry, hop limits, loop detection, per-pair flood
+  control, escalation to Simba. Verified against a seeded circular exchange.
+- **Cursor adapter** written but unverified — see below.
+
+## Brains: current state
+
+| Brain | Status | Notes |
+|---|---|---|
+| claude-a | available | verified working |
+| claude-b | logged_out | needs your login; see below |
+| codex | usable | verified; models read from the account's own cache |
+| cursor | logged_out | CLI reports no models available for the account |
+
+Capabilities genuinely differ and the runner contract says so rather than
+pretending otherwise. Claude supports real mid-turn steering via streaming
+stdin. Codex and Cursor are one turn per process, so messages queue instead.
 
 ## Waiting on you
 
@@ -46,6 +65,25 @@ Working and verified end to end on this machine:
    ```bash
    npm run ingest -- chatgpt-export <path>
    ```
+
+3. **A Supabase service key**, to ingest your knowledge corpus. It holds **5,288
+   rows** — it is not empty. The Worker API in front of it returns empty results
+   for every read because it checks response status on its write paths but not
+   its read paths, so an auth failure surfaces as `[]` with HTTP 200. Every
+   agent that followed `CLAUDE.md` and searched it has been silently getting
+   nothing. `readSupabaseKnowledge` bypasses the Worker and treats a failed read
+   as an error:
+   ```bash
+   SIMBA_SUPABASE_KEY=<service-key> npm run ingest -- knowledge-api
+   ```
+   The Worker still deserves the two-line fix, since other things use it.
+
+4. **Sign in to `cursor-agent`** if you want Cursor in the chain. Its adapter is
+   written, but the event mapping is unverified against a live stream and will
+   likely need a correction on first real run.
+
+5. **Audit the atlas project slugged `api-keys`.** Atlas has attached
+   "Migrate to GitHub" to it. See `research/legacy-inventory.md`.
 
 3. **Rotate the OpenClaw secrets.** `~/.openclaw/openclaw.json` currently holds
    a live Discord bot token and a Brave API key in plaintext, with

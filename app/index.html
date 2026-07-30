@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>Simba</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  :root{
+    --bg:#0b0d10; --panel:#12151a; --panel2:#171b21; --line:#242a33;
+    --fg:#e6e9ef; --dim:#8b95a5; --faint:#5c6675;
+    --accent:#f5a524; --ok:#3ecf8e; --warn:#f5a524; --err:#f5555a; --info:#5b9bf8;
+    --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+  }
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--fg);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  header{
+    display:flex;align-items:center;gap:12px;padding:10px 14px;
+    padding-top:calc(10px + env(safe-area-inset-top));
+    background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;
+  }
+  .brand{font-weight:700;letter-spacing:.5px;color:var(--accent);font-size:16px}
+  .stats{display:flex;gap:12px;font-size:11px;color:var(--dim);flex-wrap:wrap;flex:1}
+  .stats b{color:var(--fg);font-weight:600}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
+  .dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)} .dot.off{background:var(--faint)}
+  button{
+    font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;padding:6px 11px;cursor:pointer
+  }
+  button:active{transform:translateY(1px)}
+  button.danger{border-color:#5a2226;color:#ff8a8e;background:#1c1113}
+  button.primary{background:var(--accent);color:#1a1206;border-color:var(--accent);font-weight:600}
+
+  nav{display:flex;gap:2px;padding:8px 10px 0;background:var(--panel);flex-shrink:0;overflow-x:auto}
+  nav button{
+    border:none;border-radius:7px 7px 0 0;background:transparent;color:var(--dim);
+    padding:8px 14px;white-space:nowrap
+  }
+  nav button.sel{background:var(--bg);color:var(--fg);font-weight:600}
+
+  main{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px;-webkit-overflow-scrolling:touch}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px}
+  .card h3{font-size:14px;display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .card .sub{color:var(--dim);font-size:12px;margin-bottom:9px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .meta{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-top:8px}
+  .meta b{color:var(--dim);font-weight:500}
+
+  .pill{
+    font-size:10px;padding:2px 7px;border-radius:99px;border:1px solid var(--line);
+    color:var(--dim);text-transform:uppercase;letter-spacing:.4px;font-weight:600
+  }
+  .pill.running{background:#0f2a1e;color:var(--ok);border-color:#1c5138}
+  .pill.idle{background:#1a1d24;color:var(--dim)}
+  .pill.waiting_limit,.pill.limited{background:#2a2110;color:var(--warn);border-color:#5a441a}
+  .pill.failed,.pill.error,.pill.logged_out{background:#2a1315;color:var(--err);border-color:#5a2226}
+  .pill.available{background:#0f2a1e;color:var(--ok);border-color:#1c5138}
+  .pill.t0{background:#2a1f0c;color:var(--accent);border-color:#5c451a}
+  .pill.high{color:var(--accent)} .pill.mid{color:var(--info)} .pill.cheap{color:var(--dim)}
+
+  .bar{height:4px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-top:7px}
+  .bar > i{display:block;height:100%;background:var(--info)}
+
+  .thread{display:flex;flex-direction:column;height:100%}
+  .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-bottom:8px}
+  .msg{border-radius:9px;padding:9px 11px;max-width:92%;white-space:pre-wrap;word-break:break-word}
+  .msg.user{align-self:flex-end;background:#1b2a3f;border:1px solid #24405e}
+  .msg.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+  .msg.system{align-self:center;background:transparent;border:1px dashed var(--line);color:var(--dim);font-size:12px}
+  .msg .who{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .tool{
+    align-self:flex-start;font-family:var(--mono);font-size:11.5px;
+    background:#0e1116;border:1px solid var(--line);border-left:2px solid var(--info);
+    border-radius:6px;padding:7px 9px;color:var(--dim);max-width:92%;
+    overflow-x:auto;white-space:pre
+  }
+  .tool.err{border-left-color:var(--err);color:#ffb0b3}
+  .swap{
+    align-self:center;font-size:11.5px;color:var(--accent);background:#231a09;
+    border:1px solid #5c451a;border-radius:7px;padding:6px 11px;text-align:center
+  }
+  .composer{display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--line);flex-shrink:0}
+  .composer textarea{
+    flex:1;background:var(--panel);color:var(--fg);border:1px solid var(--line);
+    border-radius:9px;padding:9px 11px;font:inherit;resize:none;min-height:42px;max-height:130px
+  }
+  .composer textarea:focus{outline:none;border-color:var(--info)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line)}
+  th{color:var(--faint);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px}
+  td.mono{font-family:var(--mono);font-size:11px}
+  .scroll-x{overflow-x:auto}
+
+  .empty{color:var(--faint);text-align:center;padding:36px 16px;font-size:13px}
+  .back{color:var(--info);cursor:pointer;font-size:12px;margin-bottom:10px;display:inline-block}
+  .sev-warn{color:var(--warn)} .sev-error,.sev-critical{color:var(--err)} .sev-debug{color:var(--faint)}
+  .hide{display:none !important}
+  @media(max-width:520px){ main{padding:9px} .grid{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand">SIMBA</span>
+  <div class="stats" id="stats"></div>
+  <button class="danger" id="panic">Panic</button>
+</header>
+
+<nav>
+  <button data-tab="agents" class="sel">Agents</button>
+  <button data-tab="sessions">Sessions</button>
+  <button data-tab="brains">Brains</button>
+  <button data-tab="events">Events</button>
+</nav>
+
+<main id="main"></main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (p, opts) => {
+  const r = await fetch(p, { headers: { 'content-type': 'application/json' }, ...opts });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.status === 204 ? null : r.json();
+};
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const ago = (t) => {
+  if (!t) return 'never';
+  const s = (Date.now() - new Date(t)) / 1000;
+  if (s < 60) return `${s | 0}s ago`;
+  if (s < 3600) return `${(s / 60) | 0}m ago`;
+  if (s < 86400) return `${(s / 3600) | 0}h ago`;
+  return `${(s / 86400) | 0}d ago`;
+};
+const until = (t) => {
+  if (!t) return '';
+  const s = (new Date(t) - Date.now()) / 1000;
+  if (s <= 0) return 'now';
+  if (s < 3600) return `${(s / 60) | 0}m`;
+  return `${(s / 3600) | 0}h ${((s % 3600) / 60) | 0}m`;
+};
+const usd = (n) => '$' + Number(n || 0).toFixed(4);
+
+let tab = 'agents';
+let openSession = null;
+let live = { messages: [], sessionId: null };
+
+// ---------------------------------------------------------------------------
+// Live stream. Brain swaps and limit events surface inline in the thread so a
+// model change is visible where it happened, not buried in a log.
+// ---------------------------------------------------------------------------
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onmessage = (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.type === 'session_event' && msg.sessionId === openSession) {
+      appendLive(msg.event);
+    }
+    if (msg.type === 'brain_swapped' || msg.type === 'exhausted' || msg.type === 'panic') {
+      if (openSession) appendSwapNotice(msg);
+      refreshStats();
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 3000);
+}
+
+function appendLive(e) {
+  const box = $('msgs');
+  if (!box) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+  const el = document.createElement('div');
+
+  if (e.kind === 'text' && !e.partial && e.text?.trim()) {
+    el.className = `msg ${e.role}`;
+    el.innerHTML = `<div class="who">${e.role}</div>${esc(e.text)}`;
+  } else if (e.kind === 'tool_call') {
+    el.className = 'tool';
+    el.textContent = `▸ ${e.name}(${JSON.stringify(e.args ?? {}).slice(0, 220)})`;
+  } else if (e.kind === 'tool_result') {
+    el.className = 'tool' + (e.isError ? ' err' : '');
+    el.textContent = `${e.isError ? '✕' : '✓'} ${(e.resultText ?? '').slice(0, 300)}`;
+  } else if (e.kind === 'rate_limit' && e.status !== 'allowed') {
+    el.className = 'swap';
+    el.textContent = `⚠ usage limit (${e.limitType ?? '?'}) — resets ${until(e.resetsAt)}`;
+  } else {
+    return;
+  }
+  box.appendChild(el);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+function appendSwapNotice(msg) {
+  const box = $('msgs');
+  if (!box) return;
+  const el = document.createElement('div');
+  el.className = 'swap';
+  el.textContent =
+    msg.type === 'exhausted'
+      ? `⏸ every brain exhausted — sleeping until ${msg.sleepUntil ? new Date(msg.sleepUntil).toLocaleTimeString() : 'reset'}, work resumes automatically`
+      : msg.type === 'panic'
+        ? `■ panic stop — ${msg.killed} sessions killed`
+        : `⇄ brain swapped (${msg.mode === 'resume' ? 'lossless resume' : 'rehydrated'}) — continuing the same work`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ---------------------------------------------------------------------------
+// Views
+// ---------------------------------------------------------------------------
+async function refreshStats() {
+  try {
+    const s = await api('/api/stats');
+    $('stats').innerHTML = `
+      <span><span class="dot on"></span><b>${s.active_sessions}</b> active</span>
+      <span><b>${s.agents}</b> agents</span>
+      <span><b>${s.brains_available}</b> brains up${s.brains_limited ? ` / <b>${s.brains_limited}</b> limited` : ''}</span>
+      <span><b>${s.total_sessions}</b> sessions</span>
+      <span><b>${s.messages}</b> msgs</span>
+      <span><b>${s.embeddings}</b> vectors</span>
+      <span><b>${usd(s.total_cost)}</b></span>`;
+  } catch { /* gateway restarting */ }
+}
+
+async function renderAgents() {
+  const agents = await api('/api/agents');
+  $('main').innerHTML = `<div class="grid">${agents.map((a) => `
+    <div class="card">
+      <div class="row">
+        <h3>${esc(a.name)} <span class="pill ${a.tier === 0 ? 't0' : ''}">T${a.tier}</span></h3>
+        <span class="pill ${a.status}">${a.status.replace('_', ' ')}</span>
+      </div>
+      <div class="sub">${esc(a.description ?? a.domain ?? '')}</div>
+      <div class="row" style="gap:6px">
+        <select data-model="${a.slug}" style="flex:1;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px">
+          ${['high', 'mid', 'cheap'].map((t) => `<option value="${t}" ${a.model_tier === t ? 'selected' : ''}>${t} tier</option>`).join('')}
+        </select>
+        <button class="primary" data-start="${a.slug}">Start</button>
+      </div>
+      <div class="meta">
+        <span><b>${a.active_sessions}</b> live</span>
+        <span><b>${usd(a.total_cost)}</b> spent</span>
+        ${a.project ? `<span>${esc(a.project)}</span>` : ''}
+        <span>${ago(a.last_active_at)}</span>
+      </div>
+    </div>`).join('')}</div>`;
+
+  $('main').querySelectorAll('[data-start]').forEach((b) =>
+    b.onclick = async () => {
+      const slug = b.dataset.start;
+      const prompt = window.prompt(`What should ${slug} do?`);
+      if (!prompt) return;
+      b.disabled = true; b.textContent = '…';
+      try {
+        const r = await api(`/api/agents/${slug}/start`, { method: 'POST', body: JSON.stringify({ prompt }) });
+        if (r.sessionId) { tab = 'sessions'; openSession = r.sessionId; render(); }
+        else alert(r.error + (r.sleepUntil ? `\nSleeping until ${new Date(r.sleepUntil).toLocaleString()}` : ''));
+      } catch (e) { alert(e.message); }
+      finally { b.disabled = false; b.textContent = 'Start'; }
+    });
+
+  $('main').querySelectorAll('[data-model]').forEach((sel) =>
+    sel.onchange = () => api(`/api/agents/${sel.dataset.model}/model`, {
+      method: 'POST', body: JSON.stringify({ modelTier: sel.value }),
+    }));
+}
+
+async function renderBrains() {
+  const brains = await api('/api/brains');
+  $('main').innerHTML = `<div class="grid">${brains.map((b) => {
+    const cost5h = Number(b.cost_5h || 0);
+    const pct = Math.min(100, cost5h * 12);
+    return `
+    <div class="card">
+      <div class="row">
+        <h3>${esc(b.label)}</h3>
+        <span class="pill ${b.status}">${b.status.replace('_', ' ')}</span>
+      </div>
+      <div class="sub">${esc(b.provider)} · ${esc(b.cli)} · priority ${b.priority}</div>
+      ${b.limit_resets_at ? `<div style="color:var(--warn);font-size:12px">resets in ${until(b.limit_resets_at)}</div>` : ''}
+      ${b.status === 'logged_out' ? `<div style="color:var(--err);font-size:12px">not logged in — run <code>claude</code> with CLAUDE_CONFIG_DIR set to this account's directory</div>` : ''}
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="meta">
+        <span><b>5h</b> ${usd(b.cost_5h)}</span>
+        <span><b>7d</b> ${usd(b.cost_7d)}</span>
+        <span>${Number(b.output_7d || 0).toLocaleString()} out tok/7d</span>
+      </div>
+      ${b.last_error ? `<div class="meta sev-error">${esc(String(b.last_error).slice(0, 160))}</div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function renderSessions() {
+  if (openSession) return renderThread();
+  const sessions = await api('/api/sessions');
+  if (!sessions.length) { $('main').innerHTML = `<div class="empty">No sessions yet. Start an agent.</div>`; return; }
+
+  $('main').innerHTML = `<div class="grid">${sessions.map((s) => `
+    <div class="card" data-open="${s.id}" style="cursor:pointer">
+      <div class="row">
+        <h3>${esc(s.title ?? s.agent)}</h3>
+        <span class="pill ${s.status}">${s.status.replace('_', ' ')}</span>
+      </div>
+      <div class="sub">${esc(s.description ?? s.cwd ?? '')}</div>
+      <div class="meta">
+        <span><b>${esc(s.agent)}</b></span>
+        <span>${esc(s.brain ?? '—')}</span>
+        ${s.swap_count > 0 ? `<span style="color:var(--accent)">⇄ ${s.swap_count} swap${s.swap_count > 1 ? 's' : ''}</span>` : ''}
+        ${s.hydrated_from_session_id ? `<span style="color:var(--accent)">continued</span>` : ''}
+        <span>${usd(s.total_cost_usd)}</span>
+        <span>${ago(s.last_activity_at ?? s.created_at)}</span>
+      </div>
+    </div>`).join('')}</div>`;
+
+  $('main').querySelectorAll('[data-open]').forEach((c) =>
+    c.onclick = () => { openSession = c.dataset.open; render(); });
+}
+
+async function renderThread() {
+  const id = openSession;
+  const [messages, tools, turns, checkpoints] = await Promise.all([
+    api(`/api/sessions/${id}/messages`),
+    api(`/api/sessions/${id}/tools`),
+    api(`/api/sessions/${id}/turns`),
+    api(`/api/sessions/${id}/checkpoints`),
+  ]);
+
+  // Interleave messages and tool calls chronologically.
+  const items = [
+    ...messages.map((m) => ({ t: new Date(m.created_at), kind: 'msg', d: m })),
+    ...tools.map((x) => ({ t: new Date(x.created_at), kind: 'tool', d: x })),
+  ].sort((a, b) => a.t - b.t);
+
+  const brainsUsed = [...new Set(turns.map((t) => t.brain).filter(Boolean))];
+  const cp = checkpoints[0];
+
+  $('main').innerHTML = `
+    <div class="thread" style="height:calc(100vh - 190px)">
+      <span class="back" id="back">← all sessions</span>
+      ${brainsUsed.length > 1 ? `<div class="swap" style="margin-bottom:10px">This session ran across ${brainsUsed.length} brains: ${brainsUsed.join(' → ')}</div>` : ''}
+      ${cp && cp.work_remaining ? `<div class="card" style="margin-bottom:10px">
+        <div class="sub" style="margin:0 0 5px">Latest checkpoint — ${esc(cp.reason)}</div>
+        <div style="font-size:12.5px"><b>Remaining:</b> ${esc(String(cp.work_remaining).slice(0, 300))}</div>
+        ${cp.failures ? `<div style="font-size:12.5px;color:var(--warn);margin-top:5px"><b>Already failed:</b> ${esc(String(cp.failures).slice(0, 300))}</div>` : ''}
+      </div>` : ''}
+      <div class="msgs" id="msgs">
+        ${items.map((it) => it.kind === 'msg'
+          ? (it.d.content?.trim()
+              ? `<div class="msg ${it.d.role}"><div class="who">${it.d.role}</div>${esc(it.d.content)}</div>`
+              : '')
+          : `<div class="tool${it.d.is_error ? ' err' : ''}">${it.d.is_error ? '✕' : '▸'} ${esc(it.d.name)}(${esc(JSON.stringify(it.d.args ?? {}).slice(0, 200))})</div>`
+        ).join('')}
+      </div>
+      <div class="composer">
+        <textarea id="input" placeholder="Message this agent…" rows="1"></textarea>
+        <button class="primary" id="send">Send</button>
+        <button class="danger" id="kill">Kill</button>
+      </div>
+    </div>`;
+
+  const box = $('msgs');
+  box.scrollTop = box.scrollHeight;
+  $('back').onclick = () => { openSession = null; render(); };
+  $('kill').onclick = async () => { await api(`/api/sessions/${id}/kill`, { method: 'POST' }); render(); };
+
+  const send = async () => {
+    const t = $('input').value.trim();
+    if (!t) return;
+    $('input').value = '';
+    appendLive({ kind: 'text', role: 'user', text: t, partial: false });
+    try { await api(`/api/sessions/${id}/send`, { method: 'POST', body: JSON.stringify({ text: t }) }); }
+    catch (e) { appendLive({ kind: 'text', role: 'system', text: `send failed: ${e.message}`, partial: false }); }
+  };
+  $('send').onclick = send;
+  $('input').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+}
+
+async function renderEvents() {
+  const events = await api('/api/events');
+  $('main').innerHTML = `<div class="card scroll-x"><table>
+    <tr><th>when</th><th>type</th><th>agent</th><th>message</th></tr>
+    ${events.map((e) => `<tr class="sev-${e.severity}">
+      <td class="mono">${ago(e.ts)}</td>
+      <td class="mono">${esc(e.type)}</td>
+      <td>${esc(e.agent ?? '')}</td>
+      <td>${esc(e.message ?? '')}</td>
+    </tr>`).join('')}
+  </table></div>`;
+}
+
+async function render() {
+  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.tab === tab));
+  try {
+    if (tab === 'agents') await renderAgents();
+    else if (tab === 'sessions') await renderSessions();
+    else if (tab === 'brains') await renderBrains();
+    else if (tab === 'events') await renderEvents();
+  } catch (e) {
+    $('main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+  refreshStats();
+}
+
+document.querySelectorAll('nav button').forEach((b) =>
+  b.onclick = () => { tab = b.dataset.tab; if (tab !== 'sessions') openSession = null; render(); });
+
+$('panic').onclick = async () => {
+  if (!confirm('Stop every running agent immediately?')) return;
+  const r = await api('/api/panic', { method: 'POST' });
+  alert(`Stopped ${r.killed} sessions.`);
+  render();
+};
+
+connect();
+render();
+setInterval(() => { if (!openSession) render(); else refreshStats(); }, 8000);
+</script>
+</body>
+</html>

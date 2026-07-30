@@ -1,0 +1,17 @@
+node_modules/
+dist/
+var/
+*.log
+pg.log
+
+# Cloned upstream repos are read for analysis, never vendored. This ignores the
+# clone directories (research/<layer>/<repo>/) while keeping the written
+# analyses at research/<layer>/*.md tracked.
+research/*/*/
+
+# Never commit anything that could carry credentials.
+.env
+.env.*
+config/local.*
+config/secrets.*
+.simba-brains/

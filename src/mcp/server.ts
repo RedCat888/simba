@@ -1,0 +1,366 @@
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolResult,
+} from '@modelcontextprotocol/sdk/types.js';
+
+import { query, one, transaction, recordEvent } from '../db/index.js';
+import { recall } from '../knowledge/embed.js';
+
+/**
+ * The Simba MCP server: an agent's hands on its own memory.
+ *
+ * Exposed to every session. Agents read and write documents, search their own
+ * history and the personal knowledge corpus, and message other agents — all as
+ * database rows. Nothing here writes to disk.
+ */
+
+const AGENT_ID = process.env.SIMBA_AGENT_ID ?? null;
+const SESSION_ID = process.env.SIMBA_SESSION_ID ?? null;
+
+const server = new Server(
+  { name: 'simba', version: '0.1.0' },
+  { capabilities: { tools: {} } },
+);
+
+function text(body: string): CallToolResult {
+  return { content: [{ type: 'text', text: body }] };
+}
+
+function json(body: unknown): CallToolResult {
+  return text(JSON.stringify(body, null, 2));
+}
+
+const TOOLS = [
+  {
+    name: 'doc_read',
+    description:
+      'Read a shared document from the Simba database by slug. Documents replace SPEC.md, ' +
+      'AGENTS.md, HANDOFF.md and every other markdown file — this is where durable notes live.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: 'Document slug' },
+        scope: {
+          type: 'string',
+          enum: ['global', 'agent', 'project', 'session'],
+          description: 'Defaults to agent scope.',
+        },
+      },
+      required: ['slug'],
+    },
+  },
+  {
+    name: 'doc_write',
+    description:
+      'Create or update a shared document. Every write creates a new revision attributed to ' +
+      'you, so history is preserved. Use this instead of writing a markdown file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string' },
+        content: { type: 'string' },
+        title: { type: 'string' },
+        kind: {
+          type: 'string',
+          enum: ['note', 'spec', 'brief', 'plan', 'decision', 'inventory', 'analysis', 'runbook'],
+        },
+        scope: { type: 'string', enum: ['global', 'agent', 'project', 'session'] },
+        summary: { type: 'string', description: 'What changed in this revision.' },
+      },
+      required: ['slug', 'content'],
+    },
+  },
+  {
+    name: 'doc_list',
+    description: 'List documents visible to you, optionally filtered by kind.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string' },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'roster_list',
+    description:
+      'List all agents: who exists, what domain each owns, what they are working on right now. ' +
+      'Use this before assuming you have to do something yourself.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'session_search',
+    description:
+      'Full-text search across all stored transcripts, including other agents\' sessions. ' +
+      'Answers questions like "has anyone dealt with this error before".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string' },
+        agent: { type: 'string', description: 'Optional agent slug to restrict to.' },
+        limit: { type: 'number' },
+      },
+      required: ['q'],
+    },
+  },
+  {
+    name: 'knowledge_search',
+    description:
+      'Semantic search over the operator\'s personal knowledge: chat exports, the Obsidian vault, ' +
+      'the knowledge database, and prior session summaries.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string' },
+        limit: { type: 'number' },
+      },
+      required: ['q'],
+    },
+  },
+  {
+    name: 'note_append',
+    description:
+      'Append a short note to your running log for this session. Cheaper than a document; ' +
+      'use for observations you want to survive into your next session.',
+    inputSchema: {
+      type: 'object',
+      properties: { note: { type: 'string' } },
+      required: ['note'],
+    },
+  },
+  {
+    name: 'agent_message',
+    description:
+      'Send a message to another agent. It queues in their inbox and is delivered when they ' +
+      'next run, or wakes them if urgent. Use roster_list first to find the right agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Target agent slug.' },
+        intent: { type: 'string', description: 'Short machine-readable intent, e.g. "question".' },
+        payload: { type: 'object' },
+        wake: { type: 'boolean', description: 'Wake the agent rather than waiting.' },
+      },
+      required: ['to', 'intent'],
+    },
+  },
+  {
+    name: 'inbox_read',
+    description: 'Read your pending inbox messages from other agents.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+];
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+
+server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
+  const { name } = req.params;
+  const args = (req.params.arguments ?? {}) as Record<string, unknown>;
+
+  try {
+    switch (name) {
+      case 'doc_read': {
+        const scope = (args.scope as string) ?? 'agent';
+        const row = await one<{ content: string; revision: number; title: string | null }>(
+          `SELECT dr.content, dr.revision, d.title
+             FROM documents d
+             JOIN document_revisions dr
+               ON dr.document_id = d.id AND dr.revision = d.current_revision
+            WHERE d.slug = $1 AND d.scope = $2
+              AND ($3::uuid IS NULL OR d.agent_id = $3::uuid OR d.agent_id IS NULL)`,
+          [args.slug, scope, scope === 'agent' ? AGENT_ID : null],
+        );
+        if (!row) return text(`No document "${args.slug}" in scope "${scope}".`);
+        return text(`# ${row.title ?? args.slug} (revision ${row.revision})\n\n${row.content}`);
+      }
+
+      case 'doc_write': {
+        const scope = (args.scope as string) ?? 'agent';
+        const result = await transaction(async (client) => {
+          const existing = await client.query<{ id: string; current_revision: number }>(
+            `SELECT id, current_revision FROM documents
+              WHERE slug = $1 AND scope = $2
+                AND coalesce(agent_id, '00000000-0000-0000-0000-000000000000'::uuid)
+                  = coalesce($3::uuid, '00000000-0000-0000-0000-000000000000'::uuid)`,
+            [args.slug, scope, scope === 'agent' ? AGENT_ID : null],
+          );
+
+          let docId: string;
+          let revision: number;
+
+          if (existing.rows.length > 0) {
+            docId = existing.rows[0]!.id;
+            revision = existing.rows[0]!.current_revision + 1;
+            await client.query(
+              `UPDATE documents SET current_revision = $2, updated_at = now(),
+                      title = COALESCE($3, title)
+                WHERE id = $1`,
+              [docId, revision, args.title ?? null],
+            );
+          } else {
+            revision = 1;
+            const created = await client.query<{ id: string }>(
+              `INSERT INTO documents (slug, kind, scope, agent_id, session_id, title, current_revision)
+               VALUES ($1,$2,$3,$4,$5,$6,1) RETURNING id`,
+              [
+                args.slug,
+                (args.kind as string) ?? 'note',
+                scope,
+                scope === 'agent' ? AGENT_ID : null,
+                scope === 'session' ? SESSION_ID : null,
+                args.title ?? args.slug,
+              ],
+            );
+            docId = created.rows[0]!.id;
+          }
+
+          await client.query(
+            `INSERT INTO document_revisions
+               (document_id, revision, content, summary, author_agent_id, author_session_id)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [docId, revision, args.content, args.summary ?? null, AGENT_ID, SESSION_ID],
+          );
+
+          return { docId, revision };
+        });
+
+        return text(`Saved "${args.slug}" as revision ${result.revision}.`);
+      }
+
+      case 'doc_list': {
+        const rows = await query(
+          `SELECT d.slug, d.kind, d.scope, d.title, d.current_revision, d.updated_at
+             FROM documents d
+            WHERE NOT d.archived
+              AND ($1::text IS NULL OR d.kind = $1)
+              AND (d.scope <> 'agent' OR d.agent_id = $2::uuid OR d.agent_id IS NULL)
+            ORDER BY d.updated_at DESC
+            LIMIT $3`,
+          [(args.kind as string) ?? null, AGENT_ID, (args.limit as number) ?? 50],
+        );
+        return json(rows);
+      }
+
+      case 'roster_list': {
+        const rows = await query(
+          `SELECT a.slug, a.name, a.tier, a.domain, a.status, a.model_tier,
+                  p.slug AS project,
+                  (SELECT count(*) FROM sessions s
+                    WHERE s.agent_id = a.id AND s.status IN ('running','idle')) AS active_sessions,
+                  (SELECT s.title FROM sessions s
+                    WHERE s.agent_id = a.id ORDER BY s.created_at DESC LIMIT 1) AS latest_session
+             FROM agents a
+             LEFT JOIN projects p ON p.id = a.project_id
+            WHERE a.retired_at IS NULL
+            ORDER BY a.tier, a.slug`,
+        );
+        return json(rows);
+      }
+
+      case 'session_search': {
+        const rows = await query(
+          `SELECT m.session_id, a.slug AS agent, m.role,
+                  left(m.content, 400) AS excerpt, m.created_at
+             FROM messages m
+             JOIN sessions s ON s.id = m.session_id
+             JOIN agents a ON a.id = s.agent_id
+            WHERE m.content ILIKE '%' || $1 || '%'
+              AND ($2::text IS NULL OR a.slug = $2)
+            ORDER BY m.created_at DESC
+            LIMIT $3`,
+          [args.q, (args.agent as string) ?? null, (args.limit as number) ?? 20],
+        );
+        return json(rows);
+      }
+
+      case 'knowledge_search': {
+        const hits = await recall(String(args.q), {
+          limit: (args.limit as number) ?? 8,
+        });
+        if (hits.length === 0) {
+          return text(
+            'No semantic matches. The vector index may not be populated yet — ' +
+              'try session_search for a literal text match.',
+          );
+        }
+        return json(
+          hits.map((h) => ({
+            source: h.source,
+            title: h.title,
+            relevance: Number((1 - h.distance).toFixed(3)),
+            content: h.content.slice(0, 1200),
+          })),
+        );
+      }
+
+      case 'note_append': {
+        await query(
+          `INSERT INTO messages (session_id, turn_id, agent_id, seq, role, content)
+           VALUES ($1, NULL, $2,
+                   COALESCE((SELECT max(seq) FROM messages WHERE session_id = $1), 0) + 1,
+                   'system', $3)`,
+          [SESSION_ID, AGENT_ID, `[note] ${String(args.note)}`],
+        );
+        return text('Noted.');
+      }
+
+      case 'agent_message': {
+        const target = await one<{ id: string; slug: string }>(
+          `SELECT id, slug FROM agents WHERE slug = $1 AND retired_at IS NULL`,
+          [args.to],
+        );
+        if (!target) return text(`No agent with slug "${args.to}". Use roster_list.`);
+
+        await query(
+          `INSERT INTO inboxes (from_agent_id, to_agent_id, intent, payload, wake_target)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [
+            AGENT_ID,
+            target.id,
+            args.intent,
+            JSON.stringify(args.payload ?? {}),
+            Boolean(args.wake),
+          ],
+        );
+        await recordEvent({
+          type: 'inbox.sent',
+          agentId: AGENT_ID,
+          sessionId: SESSION_ID,
+          message: `message to ${target.slug}: ${String(args.intent)}`,
+        });
+        return text(`Queued for ${target.slug}.`);
+      }
+
+      case 'inbox_read': {
+        const rows = await query(
+          `SELECT i.id, a.slug AS from_agent, i.intent, i.payload, i.created_at
+             FROM inboxes i
+             LEFT JOIN agents a ON a.id = i.from_agent_id
+            WHERE i.to_agent_id = $1 AND i.status = 'pending'
+            ORDER BY i.priority, i.created_at`,
+          [AGENT_ID],
+        );
+        if (rows.length > 0) {
+          await query(
+            `UPDATE inboxes SET status = 'delivered', delivered_at = now()
+              WHERE to_agent_id = $1 AND status = 'pending'`,
+            [AGENT_ID],
+          );
+        }
+        return json(rows);
+      }
+
+      default:
+        return text(`Unknown tool: ${name}`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: 'text', text: `Simba tool error: ${message}` }], isError: true };
+  }
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);

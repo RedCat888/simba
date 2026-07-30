@@ -1,0 +1,34 @@
+{
+  "name": "simba",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal operations system. One master agent, reachable from a phone, running a Windows PC, a Mac, and a handful of cloud accounts.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "gateway": "tsx src/gateway/server.ts",
+    "supervisor": "tsx src/supervisor/index.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "ingest": "tsx src/ingest/cli.ts",
+    "simba": "tsx src/cli.ts",
+    "migrate": "powershell -ExecutionPolicy Bypass -File scripts/migrate.ps1",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "hono": "^4.6.14",
+    "@hono/node-server": "^1.13.7",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

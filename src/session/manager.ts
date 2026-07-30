@@ -1,0 +1,439 @@
+import { randomUUID } from 'node:crypto';
+import { mkdir, copyFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname, join, basename } from 'node:path';
+import { EventEmitter } from 'node:events';
+
+import { query, one, recordEvent } from '../db/index.js';
+import {
+  getAgent,
+  getBrain,
+  resolveBrainChain,
+  nextChainResetAt,
+  setSessionStatus,
+  toBrainAccount,
+  type AgentRow,
+  type BrainRow,
+} from '../db/repo.js';
+import { ClaudeRunner, findTranscript } from '../runner/claude.js';
+import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
+import { SessionEngine } from './engine.js';
+import { writeCheckpoint } from '../hydration/checkpoint.js';
+import { buildHydrationBrief } from '../hydration/bundle.js';
+import { writeSessionSettings } from './settings.js';
+import { mcpConfigPathFor } from '../mcp/config.js';
+import { config } from '../config.js';
+
+/**
+ * Owns live sessions and the brain-failover policy.
+ *
+ * The failover ladder, in order of preference:
+ *
+ *   1. Same CLI, different account — copy the transcript file into the target
+ *      account's config directory and resume. Near-lossless: the full
+ *      conversation carries over, only the credential changes.
+ *   2. Cross-tool — a fresh session seeded with the hydration bundle. Lossy by
+ *      nature, so it is the fallback, never the first move.
+ *   3. Nothing available — sleep until the earliest reset and resume then.
+ *
+ * Step 1 is why both Claude accounts sit at the front of every brain chain.
+ */
+
+interface LiveSession {
+  sessionId: string;
+  agentId: string;
+  agentSlug: string;
+  engine: SessionEngine;
+  brainId: string;
+  cli: string;
+  modelTier: ModelTier;
+  cwd: string;
+  swapping: boolean;
+}
+
+const runners: Record<string, Runner> = {
+  claude: new ClaudeRunner(),
+};
+
+export class SessionManager extends EventEmitter {
+  private readonly live = new Map<string, LiveSession>();
+
+  getLive(sessionId: string): LiveSession | undefined {
+    return this.live.get(sessionId);
+  }
+
+  listLive(): LiveSession[] {
+    return [...this.live.values()];
+  }
+
+  /** Starts a new session for an agent, choosing the first usable brain. */
+  async start(opts: {
+    agent: string;
+    prompt?: string;
+    cwd?: string;
+    projectId?: string | null;
+    continuingSessionId?: string | null;
+    modelTier?: ModelTier;
+  }): Promise<{ sessionId: string } | { error: string; sleepUntil?: Date }> {
+    const agent = await getAgent(opts.agent);
+    if (!agent) return { error: `unknown agent: ${opts.agent}` };
+
+    const chain = await resolveBrainChain(agent, Object.keys(runners));
+    if (chain.length === 0) {
+      const sleepUntil = await nextChainResetAt(agent);
+      await recordEvent({
+        type: 'agent.no_brain_available',
+        severity: 'warn',
+        agentId: agent.id,
+        message: sleepUntil
+          ? `all brains exhausted; earliest reset ${sleepUntil.toISOString()}`
+          : 'all brains exhausted and no reset time known',
+      });
+      return { error: 'no brain available', sleepUntil: sleepUntil ?? undefined };
+    }
+
+    const brain = chain[0]!;
+    return this.launch(agent, brain, {
+      prompt: opts.prompt,
+      cwd: opts.cwd,
+      projectId: opts.projectId ?? agent.project_id,
+      continuingSessionId: opts.continuingSessionId ?? null,
+      modelTier: opts.modelTier ?? agent.model_tier,
+    });
+  }
+
+  private async launch(
+    agent: AgentRow,
+    brain: BrainRow,
+    opts: {
+      prompt?: string;
+      cwd?: string;
+      projectId?: string | null;
+      continuingSessionId?: string | null;
+      resumeNativeId?: string | null;
+      modelTier: ModelTier;
+      swapCount?: number;
+    },
+  ): Promise<{ sessionId: string } | { error: string }> {
+    const runner = runners[brain.cli];
+    if (!runner) return { error: `no runner for cli: ${brain.cli}` };
+
+    const cwd =
+      opts.cwd ??
+      (await this.resolveProjectPath(opts.projectId)) ??
+      config.root;
+
+    const sessionId = randomUUID();
+
+    await query(
+      `INSERT INTO sessions
+         (id, agent_id, cli, brain_account_id, node_id, project_id, cwd, status,
+          hydrated_from_session_id, swap_count, started_at, last_activity_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,now(),now())`,
+      [
+        sessionId,
+        agent.id,
+        brain.cli,
+        brain.id,
+        agent.node_id,
+        opts.projectId ?? null,
+        cwd,
+        opts.continuingSessionId ?? null,
+        opts.swapCount ?? 0,
+      ],
+    );
+
+    // A continuation gets the hydration bundle; a fresh session gets the
+    // agent's standing context only.
+    const brief = await buildHydrationBrief(agent.id, {
+      continuingSessionId: opts.continuingSessionId ?? null,
+      incomingMessage: opts.prompt ?? null,
+    });
+
+    const settingsPath = await writeSessionSettings(sessionId, agent.permission_profile_id);
+
+    const spec: LaunchSpec = {
+      sessionId,
+      agentId: agent.id,
+      agentSlug: agent.slug,
+      brain: toBrainAccount(brain),
+      modelTier: opts.modelTier,
+      cwd,
+      // The opening prompt is deliberately not handed to the runner. All user
+      // input goes through the engine so it is persisted and sequenced the same
+      // way regardless of whether it is the first message or the fiftieth.
+      resumeSessionId: opts.resumeNativeId ?? undefined,
+      systemPromptAppend: brief || undefined,
+      settingsPath: settingsPath ?? undefined,
+      mcpConfigPath: await mcpConfigPathFor(sessionId, agent.id),
+      effort: agent.tier === 0 ? 'high' : 'medium',
+    };
+
+    const runnerSession = await runner.launch(spec);
+    const engine = new SessionEngine(sessionId, agent.id, brain.id, runnerSession);
+
+    const liveEntry: LiveSession = {
+      sessionId,
+      agentId: agent.id,
+      agentSlug: agent.slug,
+      engine,
+      brainId: brain.id,
+      cli: brain.cli,
+      modelTier: opts.modelTier,
+      cwd,
+      swapping: false,
+    };
+    this.live.set(sessionId, liveEntry);
+
+    engine.on('event', (e) => this.emit('event', { sessionId, agentId: agent.id, event: e }));
+    engine.on('limitReached', (info) => void this.onLimitReached(liveEntry, info.resetsAt));
+    engine.on('authFailure', () => void this.onAuthFailure(liveEntry));
+    engine.on('turnEnd', () => void this.onTurnEnd(liveEntry));
+    engine.on('exit', () => this.live.delete(sessionId));
+
+    await engine.beginTurn(brain.tier_models?.[opts.modelTier] ?? null, opts.modelTier);
+    void engine.consume();
+
+    if (opts.prompt) {
+      // Wait for the child's stdin to be ready before the first write; a prompt
+      // written too early is silently dropped and the session sits idle.
+      await new Promise((r) => setTimeout(r, 400));
+      await engine.sendUserMessage(opts.prompt);
+    }
+
+    await query(`UPDATE agents SET status = 'running', last_active_at = now() WHERE id = $1`, [
+      agent.id,
+    ]);
+    await recordEvent({
+      type: 'session.started',
+      sessionId,
+      agentId: agent.id,
+      brainAccountId: brain.id,
+      message: `${agent.slug} started on ${brain.slug} (${opts.modelTier})`,
+      data: { cwd, continuing: opts.continuingSessionId ?? null },
+    });
+
+    return { sessionId };
+  }
+
+  /** Checkpoint after every turn, so recovery never depends on prediction. */
+  private async onTurnEnd(live: LiveSession): Promise<void> {
+    const brain = await getBrain(live.brainId);
+    await writeCheckpoint(live.sessionId, 'periodic', {
+      turnId: live.engine.activeTurnId,
+      configDir: brain?.config_dir ?? null,
+    });
+  }
+
+  private async onAuthFailure(live: LiveSession): Promise<void> {
+    await recordEvent({
+      type: 'brain.logged_out',
+      severity: 'error',
+      sessionId: live.sessionId,
+      agentId: live.agentId,
+      brainAccountId: live.brainId,
+      message: 'brain is not logged in; failing over',
+    });
+    await this.failover(live, 'auth');
+  }
+
+  private async onLimitReached(live: LiveSession, resetsAt: Date | null): Promise<void> {
+    await recordEvent({
+      type: 'brain.limit_reached',
+      severity: 'warn',
+      sessionId: live.sessionId,
+      agentId: live.agentId,
+      brainAccountId: live.brainId,
+      message: resetsAt
+        ? `limit reached; resets ${resetsAt.toISOString()}`
+        : 'limit reached; no reset time reported',
+    });
+    await this.failover(live, 'limit');
+  }
+
+  /**
+   * Moves a session to the next usable brain.
+   *
+   * Failover happens at a turn boundary, never mid-turn: a turn that is already
+   * executing tool calls cannot be spliced onto another brain, so the current
+   * turn is allowed to finish (or die) and the handover happens after it.
+   */
+  async failover(live: LiveSession, cause: 'limit' | 'auth' | 'manual'): Promise<void> {
+    if (live.swapping) return;
+    live.swapping = true;
+
+    try {
+      const agent = await getAgent(live.agentId);
+      if (!agent) return;
+
+      const fromBrain = await getBrain(live.brainId);
+
+      // Checkpoint before tearing anything down.
+      await writeCheckpoint(live.sessionId, cause === 'limit' ? 'limit_hit' : 'brain_swap', {
+        turnId: live.engine.activeTurnId,
+        configDir: fromBrain?.config_dir ?? null,
+      });
+
+      await live.engine.kill();
+      this.live.delete(live.sessionId);
+      await setSessionStatus(live.sessionId, 'superseded');
+
+      const chain = await resolveBrainChain(agent, Object.keys(runners));
+      const next = chain.find((b) => b.id !== live.brainId);
+
+      if (!next) {
+        const sleepUntil = await nextChainResetAt(agent);
+        await query(
+          `UPDATE sessions SET status = 'waiting_limit' WHERE id = $1`,
+          [live.sessionId],
+        );
+        await query(`UPDATE agents SET status = 'waiting_limit' WHERE id = $1`, [agent.id]);
+        await recordEvent({
+          type: 'session.sleeping_until_reset',
+          severity: 'warn',
+          sessionId: live.sessionId,
+          agentId: agent.id,
+          message: sleepUntil
+            ? `every brain exhausted; sleeping until ${sleepUntil.toISOString()}`
+            : 'every brain exhausted; no reset time known',
+          data: { sleepUntil },
+        });
+        this.emit('exhausted', { sessionId: live.sessionId, agentId: agent.id, sleepUntil });
+        return;
+      }
+
+      const nativeId = await this.nativeSessionIdOf(live.sessionId);
+      const sameFamily = fromBrain && next.cli === fromBrain.cli;
+
+      // --- Path 1: same CLI. Copy the transcript, resume under the new login.
+      if (sameFamily && nativeId && fromBrain?.config_dir && next.config_dir) {
+        const copied = await copyTranscript(fromBrain.config_dir, next.config_dir, nativeId);
+        if (copied) {
+          await recordEvent({
+            type: 'brain.swap',
+            sessionId: live.sessionId,
+            agentId: agent.id,
+            brainAccountId: next.id,
+            message: `swapped ${fromBrain.slug} -> ${next.slug} via transcript resume (lossless)`,
+            data: { mode: 'resume', transcript: copied },
+          });
+
+          const result = await this.launch(agent, next, {
+            cwd: live.cwd,
+            projectId: agent.project_id,
+            continuingSessionId: live.sessionId,
+            resumeNativeId: nativeId,
+            modelTier: live.modelTier,
+            swapCount: (await this.swapCountOf(live.sessionId)) + 1,
+          });
+          this.emit('swapped', { from: live.sessionId, to: result, mode: 'resume' });
+          return;
+        }
+      }
+
+      // --- Path 2: cross-tool. Fresh session seeded with the hydration bundle.
+      await recordEvent({
+        type: 'brain.swap',
+        sessionId: live.sessionId,
+        agentId: agent.id,
+        brainAccountId: next.id,
+        message: `swapped ${fromBrain?.slug ?? '?'} -> ${next.slug} via rehydration (lossy)`,
+        data: { mode: 'rehydrate' },
+      });
+
+      const result = await this.launch(agent, next, {
+        cwd: live.cwd,
+        projectId: agent.project_id,
+        continuingSessionId: live.sessionId,
+        modelTier: live.modelTier,
+        swapCount: (await this.swapCountOf(live.sessionId)) + 1,
+        prompt: 'Continue the work described in your brief. Report what you are picking up first.',
+      });
+      this.emit('swapped', { from: live.sessionId, to: result, mode: 'rehydrate' });
+    } finally {
+      live.swapping = false;
+    }
+  }
+
+  async send(sessionId: string, text: string): Promise<void> {
+    const live = this.live.get(sessionId);
+    if (!live) throw new Error(`session ${sessionId} is not live`);
+    const brain = await getBrain(live.brainId);
+    await live.engine.beginTurn(brain?.tier_models?.[live.modelTier] ?? null, live.modelTier);
+    await live.engine.sendUserMessage(text);
+  }
+
+  async kill(sessionId: string): Promise<void> {
+    const live = this.live.get(sessionId);
+    if (!live) return;
+    await live.engine.kill();
+    this.live.delete(sessionId);
+    await setSessionStatus(sessionId, 'killed');
+  }
+
+  /** Panic button: stop everything, immediately. */
+  async killAll(): Promise<number> {
+    const ids = [...this.live.keys()];
+    await Promise.all(ids.map((id) => this.kill(id)));
+    await query(`UPDATE agents SET status = 'idle' WHERE status = 'running'`);
+    await recordEvent({
+      type: 'system.panic',
+      severity: 'critical',
+      message: `panic stop: killed ${ids.length} live sessions`,
+    });
+    return ids.length;
+  }
+
+  private async nativeSessionIdOf(sessionId: string): Promise<string | null> {
+    const row = await one<{ native_session_id: string | null }>(
+      `SELECT native_session_id FROM sessions WHERE id = $1`,
+      [sessionId],
+    );
+    return row?.native_session_id ?? null;
+  }
+
+  private async swapCountOf(sessionId: string): Promise<number> {
+    const row = await one<{ swap_count: number }>(
+      `SELECT swap_count FROM sessions WHERE id = $1`,
+      [sessionId],
+    );
+    return row?.swap_count ?? 0;
+  }
+
+  private async resolveProjectPath(projectId: string | null | undefined): Promise<string | null> {
+    if (!projectId) return null;
+    const row = await one<{ root_path: string | null }>(
+      `SELECT root_path FROM projects WHERE id = $1`,
+      [projectId],
+    );
+    return row?.root_path ?? null;
+  }
+}
+
+/**
+ * Copies a Claude Code transcript between account config directories.
+ *
+ * This is the mechanism that makes same-tool failover near-lossless: the
+ * conversation is a plain JSONL file on disk and credentials are separate, so
+ * moving accounts is a file copy plus a resume rather than a context rebuild.
+ */
+export async function copyTranscript(
+  fromConfigDir: string,
+  toConfigDir: string,
+  nativeSessionId: string,
+): Promise<string | null> {
+  const source = await findTranscript(fromConfigDir, nativeSessionId);
+  if (!source) return null;
+
+  // Preserve the project-slug directory name so the target CLI associates the
+  // transcript with the same working directory.
+  const projectSlug = basename(dirname(source));
+  const targetDir = join(toConfigDir, 'projects', projectSlug);
+  const target = join(targetDir, `${nativeSessionId}.jsonl`);
+
+  if (existsSync(target)) return target;
+
+  await mkdir(targetDir, { recursive: true });
+  await copyFile(source, target);
+  return target;
+}

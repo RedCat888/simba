@@ -126,6 +126,79 @@ export async function* readKnowledgeApi(
   }
 }
 
+/**
+ * Reads the knowledge corpus straight from Supabase PostgREST, bypassing the
+ * Worker.
+ *
+ * The Worker in front of this table currently returns empty results for every
+ * read while the table itself holds thousands of rows: it checks `res.ok` on
+ * its write paths but not on any read path, so an auth failure is swallowed and
+ * surfaces as `[]` rather than an error. Going direct removes that failure mode
+ * from the ingest path entirely — and it is faster, since it can page properly
+ * instead of probing with search terms.
+ *
+ * Needs a service key (SIMBA_SUPABASE_KEY); the anon key will be filtered by
+ * RLS, which is enabled on this table.
+ */
+export async function* readSupabaseKnowledge(
+  supabaseUrl: string,
+  serviceKey: string,
+): AsyncGenerator<IngestItem> {
+  const pageSize = 500;
+  let offset = 0;
+
+  for (;;) {
+    const url =
+      `${supabaseUrl}/rest/v1/knowledge` +
+      `?select=id,content,category,subcategory,tags,source,confidence,sensitivity,created_at` +
+      `&order=created_at.asc&limit=${pageSize}&offset=${offset}`;
+
+    const res = await fetch(url, {
+      headers: {
+        apikey: serviceKey,
+        authorization: `Bearer ${serviceKey}`,
+        accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    // Unlike the Worker, a failed read is an error here rather than an empty page.
+    if (!res.ok) {
+      throw new Error(
+        `supabase knowledge read failed (${res.status}): ${await res.text().catch(() => '')}`,
+      );
+    }
+
+    const rows = (await res.json()) as Array<Record<string, unknown>>;
+    if (rows.length === 0) return;
+
+    for (const r of rows) {
+      const content = String(r.content ?? '');
+      if (!content.trim()) continue;
+
+      yield {
+        externalId: String(r.id ?? hashContent(content)),
+        title: String(r.content ?? '').slice(0, 80),
+        content,
+        category: String(r.category ?? 'personal'),
+        tags: [
+          ...(Array.isArray(r.tags) ? (r.tags as string[]) : []),
+          ...(r.subcategory ? [String(r.subcategory)] : []),
+        ],
+        metadata: {
+          source: r.source ?? null,
+          confidence: r.confidence ?? null,
+          sensitivity: r.sensitivity ?? null,
+        },
+        sourceCreatedAt: r.created_at ? new Date(String(r.created_at)) : null,
+      };
+    }
+
+    if (rows.length < pageSize) return;
+    offset += pageSize;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Chat exports
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import { query, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { cheapComplete } from '../hydration/cheap.js';
+import { Router } from '../router/index.js';
 
 /**
  * The supervisor.
@@ -20,8 +21,11 @@ import { cheapComplete } from '../hydration/cheap.js';
 export class Supervisor {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private readonly router: Router;
 
-  constructor(private readonly manager: SessionManager) {}
+  constructor(private readonly manager: SessionManager) {
+    this.router = new Router(manager);
+  }
 
   start(): void {
     if (this.timer) return;
@@ -42,8 +46,7 @@ export class Supervisor {
       await this.clearExpiredLimits();
       await this.resumeAfterReset();
       await this.detectStalls();
-      await this.deliverWakes();
-      await this.enforceHopLimits();
+      await this.router.tick();
       await this.maintain();
       await this.titleUntitledSessions();
     } catch (err) {
@@ -139,67 +142,6 @@ export class Supervisor {
         message: `no activity since ${s.last_activity_at?.toISOString?.() ?? 'unknown'}; marked failed`,
       });
     }
-  }
-
-  /** Inbox messages flagged to wake a sleeping agent. */
-  private async deliverWakes(): Promise<void> {
-    const wakes = await query<{ id: string; to_agent_id: string; slug: string; intent: string }>(
-      `SELECT i.id, i.to_agent_id, a.slug, i.intent
-         FROM inboxes i
-         JOIN agents a ON a.id = i.to_agent_id
-        WHERE i.status = 'pending'
-          AND i.wake_target
-          AND a.status IN ('idle','sleeping')
-        ORDER BY i.priority, i.created_at
-        LIMIT 3`,
-    );
-
-    for (const w of wakes) {
-      const result = await this.manager.start({
-        agent: w.slug,
-        prompt:
-          'You were woken by another agent. Call inbox_read to see what they need, then act on it.',
-      });
-      if ('sessionId' in result) {
-        await query(`UPDATE inboxes SET status = 'delivered', delivered_at = now() WHERE id = $1`, [
-          w.id,
-        ]);
-        await recordEvent({
-          type: 'agent.woken',
-          agentId: w.to_agent_id,
-          sessionId: result.sessionId,
-          message: `woken for intent "${w.intent}"`,
-        });
-      }
-    }
-  }
-
-  /**
-   * Loop control for inter-agent traffic. Deterministic on purpose: two agents
-   * going in circles should be caught by a counter, not by paying a model to
-   * notice. Anything over the limit escalates rather than retrying forever.
-   */
-  private async enforceHopLimits(maxHops = 5): Promise<void> {
-    const looped = await query<{ id: string; correlation_id: string }>(
-      `UPDATE inboxes
-          SET status = 'escalated',
-              escalation_reason = 'hop limit exceeded — conversation was going in circles'
-        WHERE status = 'pending' AND hop_count >= $1
-        RETURNING id, correlation_id`,
-      [maxHops],
-    );
-    for (const l of looped) {
-      await recordEvent({
-        type: 'router.escalated',
-        severity: 'warn',
-        message: `correlation ${l.correlation_id} exceeded ${maxHops} hops; escalated to Simba`,
-      });
-    }
-
-    await query(
-      `UPDATE inboxes SET status = 'expired'
-        WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at < now()`,
-    );
   }
 
   /** Keep partitions ahead of the clock so inserts never land in DEFAULT. */

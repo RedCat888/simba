@@ -2,6 +2,7 @@ import { ingestSource } from './index.js';
 import {
   readObsidian,
   readKnowledgeApi,
+  readSupabaseKnowledge,
   readChatGptExport,
   readClaudeExport,
 } from './sources.js';
@@ -39,13 +40,33 @@ async function run(): Promise<void> {
     report('obsidian', await ingestSource('obsidian', readObsidian(vault)));
   };
 
+  /**
+   * Prefers a direct Supabase read. The Worker in front of this corpus returns
+   * empty results for every read (it does not check response status on read
+   * paths), so going through it silently ingests nothing.
+   */
   const doKnowledgeApi = async () => {
-    const base = (await sourceUri('knowledge-api')) ?? '';
-    const token = process.env.SIMBA_KNOWLEDGE_TOKEN ?? '';
-    if (!token) {
-      console.log('knowledge-api: skipped (set SIMBA_KNOWLEDGE_TOKEN)');
+    const supabaseUrl = process.env.SIMBA_SUPABASE_URL ?? 'https://dckujuxrfngxoxqkpaux.supabase.co';
+    const serviceKey = process.env.SIMBA_SUPABASE_KEY ?? '';
+
+    if (serviceKey) {
+      report(
+        'knowledge (direct)',
+        await ingestSource('knowledge-api', readSupabaseKnowledge(supabaseUrl, serviceKey)),
+      );
       return;
     }
+
+    const token = process.env.SIMBA_KNOWLEDGE_TOKEN ?? '';
+    if (!token) {
+      console.log('knowledge: skipped (set SIMBA_SUPABASE_KEY for a direct read)');
+      return;
+    }
+    console.log(
+      'knowledge: falling back to the Worker API, which currently returns empty ' +
+        'results for all reads. Set SIMBA_SUPABASE_KEY to bypass it.',
+    );
+    const base = (await sourceUri('knowledge-api')) ?? '';
     report('knowledge-api', await ingestSource('knowledge-api', readKnowledgeApi(base, token)));
   };
 

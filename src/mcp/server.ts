@@ -143,6 +143,12 @@ const TOOLS = [
         intent: { type: 'string', description: 'Short machine-readable intent, e.g. "question".' },
         payload: { type: 'object' },
         wake: { type: 'boolean', description: 'Wake the agent rather than waiting.' },
+        reply_to: {
+          type: 'string',
+          description:
+            'When answering a message from inbox_read, pass its id here. This keeps the ' +
+            'exchange threaded so the router can tell a conversation from a loop.',
+        },
       },
       required: ['to', 'intent'],
     },
@@ -314,15 +320,32 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
         );
         if (!target) return text(`No agent with slug "${args.to}". Use roster_list.`);
 
+        // A reply inherits its parent's correlation and advances the hop count.
+        // Without this every message starts a fresh chain at hop zero, and the
+        // router can never distinguish an ongoing conversation from two agents
+        // asking each other the same thing indefinitely.
+        const parent = args.reply_to
+          ? await one<{ correlation_id: string; hop_count: number }>(
+              `SELECT correlation_id, hop_count FROM inboxes WHERE id = $1`,
+              [args.reply_to],
+            )
+          : null;
+
         await query(
-          `INSERT INTO inboxes (from_agent_id, to_agent_id, intent, payload, wake_target)
-           VALUES ($1,$2,$3,$4,$5)`,
+          `INSERT INTO inboxes
+             (from_agent_id, to_agent_id, intent, payload, wake_target,
+              correlation_id, parent_message_id, hop_count)
+           VALUES ($1,$2,$3,$4,$5,
+                   coalesce($6::uuid, gen_random_uuid()), $7, $8)`,
           [
             AGENT_ID,
             target.id,
             args.intent,
             JSON.stringify(args.payload ?? {}),
             Boolean(args.wake),
+            parent?.correlation_id ?? null,
+            args.reply_to ?? null,
+            (parent?.hop_count ?? -1) + 1,
           ],
         );
         await recordEvent({

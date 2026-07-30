@@ -252,6 +252,9 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'hello', at: new Date().toISOString() }));
 });
 
+const orphaned = await manager.reconcileOnStartup();
+if (orphaned > 0) console.log(`[gateway] reconciled ${orphaned} orphaned session(s)`);
+
 supervisor.start();
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

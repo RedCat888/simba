@@ -35,7 +35,11 @@ async function ollamaComplete(prompt: string, timeoutMs: number): Promise<string
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.SIMBA_CHEAP_MODEL ?? 'qwen2.5:7b',
+        // Must name a model actually present locally — `ollama list` is the
+        // source of truth. A missing model fails the request, which silently
+        // pushes every cheap call onto the Claude fallback and quietly spends
+        // subscription headroom on summarization.
+        model: process.env.SIMBA_CHEAP_MODEL ?? 'qwen2.5-coder:14b-instruct-q3_K_S',
         prompt,
         stream: false,
         options: { temperature: 0.2 },

@@ -356,11 +356,114 @@ export class SessionManager extends EventEmitter {
   }
 
   async send(sessionId: string, text: string): Promise<void> {
-    const live = this.live.get(sessionId);
-    if (!live) throw new Error(`session ${sessionId} is not live`);
+    let live = this.live.get(sessionId);
+
+    // No process attached: the gateway restarted, the machine slept, or the
+    // session simply ended. None of that should be visible from the phone —
+    // the process is a cache and the transcript is the truth, so bring a
+    // process back and carry on. This is the same rehydration path failover
+    // uses, which is why it costs nothing extra to support.
+    if (!live) {
+      const revived = await this.revive(sessionId, text);
+      if ('error' in revived) throw new Error(revived.error);
+      live = this.live.get(revived.sessionId);
+      if (!live) throw new Error('failed to revive session');
+      return; // the revived session was launched with this text as its prompt
+    }
+
     const brain = await getBrain(live.brainId);
     await live.engine.beginTurn(brain?.tier_models?.[live.modelTier] ?? null, live.modelTier);
     await live.engine.sendUserMessage(text);
+  }
+
+  /**
+   * Reattaches to a session with no running process. Prefers a native resume
+   * (the transcript is still on disk under that account) and falls back to a
+   * fresh, hydrated continuation.
+   */
+  private async revive(
+    sessionId: string,
+    prompt: string,
+  ): Promise<{ sessionId: string } | { error: string }> {
+    const row = await one<{
+      agent_id: string;
+      cwd: string | null;
+      native_session_id: string | null;
+      brain_account_id: string | null;
+      swap_count: number;
+    }>(
+      `SELECT agent_id, cwd, native_session_id, brain_account_id, swap_count
+         FROM sessions WHERE id = $1`,
+      [sessionId],
+    );
+    if (!row) return { error: `unknown session ${sessionId}` };
+
+    const agent = await getAgent(row.agent_id);
+    if (!agent) return { error: 'agent no longer exists' };
+
+    const chain = await resolveBrainChain(agent, Object.keys(runners));
+    if (chain.length === 0) {
+      const sleepUntil = await nextChainResetAt(agent);
+      return {
+        error: sleepUntil
+          ? `no brain available; resets ${sleepUntil.toISOString()}`
+          : 'no brain available',
+      };
+    }
+
+    // Resuming natively requires the transcript to exist under the chosen
+    // account, so prefer the brain that already has it.
+    const previous = row.brain_account_id ? await getBrain(row.brain_account_id) : null;
+    const preferred =
+      previous && chain.some((b) => b.id === previous.id) ? previous : chain[0]!;
+
+    const runner = runners[preferred.cli];
+    const canResume =
+      runner && row.native_session_id
+        ? await runner.canResume(toBrainAccount(preferred), row.native_session_id)
+        : false;
+
+    await setSessionStatus(sessionId, 'superseded');
+    await recordEvent({
+      type: 'session.revived',
+      sessionId,
+      agentId: agent.id,
+      brainAccountId: preferred.id,
+      message: canResume
+        ? 'reattached via native resume'
+        : 'no process and no resumable transcript; continuing from checkpoint',
+    });
+
+    return this.launch(agent, preferred, {
+      cwd: row.cwd ?? undefined,
+      projectId: agent.project_id,
+      continuingSessionId: sessionId,
+      resumeNativeId: canResume ? row.native_session_id! : undefined,
+      modelTier: agent.model_tier,
+      swapCount: row.swap_count,
+      prompt,
+    });
+  }
+
+  /**
+   * Startup reconciliation. Sessions recorded as running cannot be, because no
+   * process survives a gateway restart; leaving them marked running makes the
+   * roster lie and hides genuinely stalled work.
+   */
+  async reconcileOnStartup(): Promise<number> {
+    const rows = await query<{ id: string }>(
+      `UPDATE sessions SET status = 'idle'
+        WHERE status IN ('running', 'pending')
+        RETURNING id`,
+    );
+    await query(`UPDATE agents SET status = 'idle' WHERE status = 'running'`);
+    if (rows.length > 0) {
+      await recordEvent({
+        type: 'gateway.reconciled',
+        message: `marked ${rows.length} orphaned session(s) idle after restart`,
+      });
+    }
+    return rows.length;
   }
 
   async kill(sessionId: string): Promise<void> {

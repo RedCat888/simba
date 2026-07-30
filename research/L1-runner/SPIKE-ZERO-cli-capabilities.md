@@ -89,10 +89,19 @@ event. Self-tracking in the `usage` table stays, but demoted from load-bearing
 to cross-check and cost reporting. Text-scraping error strings is not needed at
 all for Claude.
 
-Caveat worth stating: I have only observed `status: "allowed"`. The exact
-strings for degraded and exhausted states are unverified — the supervisor
-therefore treats any status other than `allowed` as non-nominal and records the
-literal value, rather than switching on an enum I guessed at.
+Caveat worth stating: initially only `status: "allowed"` had been observed.
+
+**Update, later the same day:** `status: "allowed_warning"` was observed in a
+real run. This matters, because the original conservative reading — treat
+anything that is not exactly `allowed` as exhausted — swapped away from an
+account that was still perfectly usable, and with a short chain that walks
+straight into the next brain for no reason.
+
+Current handling: any status beginning `allowed` is usable; a non-exact match is
+recorded as low headroom on the account but does not interrupt the running
+session. Only a status that is not an allow of some kind triggers a swap. The
+full enum is still undocumented, so matching stays prefix-based and the literal
+string is always preserved in the event log.
 
 ---
 

@@ -16,6 +16,7 @@ import {
   type BrainRow,
 } from '../db/repo.js';
 import { ClaudeRunner, findTranscript } from '../runner/claude.js';
+import { CodexRunner } from '../runner/codex.js';
 import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
 import { SessionEngine } from './engine.js';
 import { writeCheckpoint } from '../hydration/checkpoint.js';
@@ -53,6 +54,7 @@ interface LiveSession {
 
 const runners: Record<string, Runner> = {
   claude: new ClaudeRunner(),
+  codex: new CodexRunner(),
 };
 
 export class SessionManager extends EventEmitter {
@@ -74,9 +76,24 @@ export class SessionManager extends EventEmitter {
     projectId?: string | null;
     continuingSessionId?: string | null;
     modelTier?: ModelTier;
+    /** Force a specific brain, bypassing the chain. Failover still applies after. */
+    brain?: string;
   }): Promise<{ sessionId: string } | { error: string; sleepUntil?: Date }> {
     const agent = await getAgent(opts.agent);
     if (!agent) return { error: `unknown agent: ${opts.agent}` };
+
+    if (opts.brain) {
+      const forced = await getBrain(opts.brain);
+      if (!forced) return { error: `unknown brain: ${opts.brain}` };
+      if (!runners[forced.cli]) return { error: `no runner for cli: ${forced.cli}` };
+      return this.launch(agent, forced, {
+        prompt: opts.prompt,
+        cwd: opts.cwd,
+        projectId: opts.projectId ?? agent.project_id,
+        continuingSessionId: opts.continuingSessionId ?? null,
+        modelTier: opts.modelTier ?? agent.model_tier,
+      });
+    }
 
     const chain = await resolveBrainChain(agent, Object.keys(runners));
     if (chain.length === 0) {

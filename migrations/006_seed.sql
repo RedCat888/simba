@@ -33,9 +33,14 @@ INSERT INTO brain_accounts
      'anthropic', 'subscription', 'claude', 'C:\Users\operator\.simba-brains\claude-b',
      '{"high":"opus","mid":"sonnet","cheap":"haiku"}'::jsonb, 20, 'logged_out'),
 
+    -- Model ids taken from the account's own models_cache.json, not guessed.
+    -- A ChatGPT subscription rejects models it does not serve outright
+    -- ("not supported when using Codex with a ChatGPT account"), so an invented
+    -- id fails the turn rather than degrading. gpt-5.6-terra is the top tier
+    -- and is what config.toml already selects.
     ('11111111-1111-1111-1111-111111111103', 'codex', 'ChatGPT Plus (Codex CLI)',
      'openai', 'subscription', 'codex', 'C:\Users\operator\.codex',
-     '{"high":"gpt-5.2-codex","mid":"gpt-5.2","cheap":"gpt-5.2-mini"}'::jsonb, 30, 'unverified'),
+     '{"high":"gpt-5.6-terra","mid":"gpt-5.6-luna","cheap":"gpt-5.4-mini"}'::jsonb, 30, 'unverified'),
 
     ('11111111-1111-1111-1111-111111111104', 'cursor', 'Cursor subscription',
      'cursor', 'subscription', 'cursor-agent', NULL,

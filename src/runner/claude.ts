@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 import { AsyncQueue } from './queue.js';
+import { resolveExecutor } from './discovery.js';
 import type {
   BrainAccount,
   LaunchSpec,
@@ -29,8 +30,11 @@ import type {
  * fully separate credentials, transcripts and settings between accounts.
  */
 
-const CLAUDE_BIN =
-  process.env.SIMBA_CLAUDE_BIN ?? join(homedir(), '.local', 'bin', 'claude.exe');
+/**
+ * Resolved once at launch via discovery rather than hardcoded: an update that
+ * relocates the binary should not take the whole runner down.
+ */
+let CLAUDE_BIN = process.env.SIMBA_CLAUDE_BIN ?? join(homedir(), '.local', 'bin', 'claude.exe');
 
 const CAPABILITIES: ReadonlySet<RunnerCapability> = new Set<RunnerCapability>([
   'stream',
@@ -414,6 +418,9 @@ export class ClaudeRunner implements Runner {
   readonly capabilities = CAPABILITIES;
 
   async launch(spec: LaunchSpec): Promise<RunnerSession> {
+    const bin = await resolveExecutor('claude');
+    if (bin) CLAUDE_BIN = bin.path;
+
     const session = new ClaudeSession(spec.sessionId, spec);
     session.start();
     if (spec.prompt) {

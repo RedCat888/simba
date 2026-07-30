@@ -179,12 +179,18 @@ app.get('/api/stats', async (c) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/agents/:slug/start', async (c) => {
-  const body = await c.req.json<{ prompt?: string; cwd?: string; modelTier?: 'high' | 'mid' | 'cheap' }>();
+  const body = await c.req.json<{
+    prompt?: string;
+    cwd?: string;
+    modelTier?: 'high' | 'mid' | 'cheap';
+    brain?: string;
+  }>();
   const result = await manager.start({
     agent: c.req.param('slug'),
     prompt: body.prompt,
     cwd: body.cwd,
     modelTier: body.modelTier,
+    brain: body.brain,
   });
   return c.json(result, 'error' in result ? 409 : 200);
 });

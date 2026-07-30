@@ -165,11 +165,23 @@ export class SessionEngine extends EventEmitter {
 
       case 'rate_limit': {
         this.lastRateLimit = e;
-        const exhausted = e.status !== 'allowed';
+
+        // Observed values so far: "allowed" and "allowed_warning". The warning
+        // means headroom is running low but the account still works — swapping
+        // on it burns a perfectly usable brain and, with a short chain, walks
+        // straight into the next one. Only a status that is not an allow of
+        // some kind is treated as exhausted.
+        //
+        // The match stays prefix-based rather than an exact enum: the full set
+        // of statuses is not documented, and the failure mode of guessing wrong
+        // is either premature swapping or a session dying mid-task.
+        const allowed = e.status === 'allowed' || e.status.startsWith('allowed');
+        const warning = allowed && e.status !== 'allowed';
+        const exhausted = !allowed;
 
         await recordEvent({
           type: 'brain.rate_limit',
-          severity: exhausted ? 'warn' : 'debug',
+          severity: exhausted ? 'warn' : warning ? 'info' : 'debug',
           sessionId: this.sessionId,
           agentId: this.agentId,
           brainAccountId: this.brainAccountId,
@@ -183,15 +195,25 @@ export class SessionEngine extends EventEmitter {
         });
 
         if (exhausted) {
-          // Only the observed nominal value is trusted. Any other status is
-          // treated as non-nominal and the literal string is preserved rather
-          // than mapped onto an enum guessed at in advance.
+          // The literal status string is preserved in the event log rather than
+          // mapped onto an enum, so an unfamiliar value stays diagnosable.
           await markBrainLimited(this.brainAccountId, e.resetsAt);
           this.emit('limitReached', {
             resetsAt: e.resetsAt,
             limitType: e.limitType,
             status: e.status,
           });
+        } else if (warning) {
+          // Still usable. Recorded so the roster can show the account is close
+          // and so a scheduler could prefer a fresher brain for new work, but
+          // the running session is left alone.
+          await query(
+            `UPDATE brain_accounts
+                SET status = 'available', limit_resets_at = $2,
+                    last_checked_at = now(), last_error = $3
+              WHERE id = $1 AND status <> 'logged_out'`,
+            [this.brainAccountId, e.resetsAt, `low headroom (${e.status})`],
+          );
         } else {
           await query(
             `UPDATE brain_accounts

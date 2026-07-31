@@ -17,12 +17,16 @@ import type {
  * cursor-agent runner.
  *
  * STATUS: the flag surface below is taken from `cursor-agent --help` on this
- * machine and is accurate. The **event mapping is unverified** — the CLI
- * currently reports "No models available for this account", so no live stream
- * has been observed and the normalization here is written against the
+ * machine and is accurate. The **event mapping is unverified** — no live stream
+ * has been observed, and the normalization here is written against the
  * Claude-style stream-json shape the CLI's flags imply. Expect to correct it on
  * first real run; the raw payload is retained on every event so a mismatch is
  * diagnosable rather than silent.
+ *
+ * Why no live stream: `cursor-agent status` reports "Logged in (unable to fetch
+ * user details)" while `--list-models` reports "No models available for this
+ * account". The CLI is authenticated, so this is an entitlement problem rather
+ * than a sign-in problem and re-authenticating will not resolve it.
  *
  * Confirmed from --help:
  *   -p --print                     non-interactive
@@ -140,9 +144,10 @@ class CursorSession implements RunnerSession {
           raw: { stderr, code },
           at: new Date(),
           message: stderr.trim().slice(0, 4000),
-          // "No models available for this account" is how an unauthenticated or
-          // unentitled CLI presents here, so it counts as an auth failure and
-          // takes the brain out of the chain rather than retrying forever.
+          // "No models available for this account" is an entitlement failure,
+          // not a credential one, but it is equally unrecoverable by retrying —
+          // so it is reported as an auth failure to take the brain out of the
+          // chain. The recorded note distinguishes the two for a human reader.
           authFailure: /not logged in|unauthor|no models available|401/i.test(stderr),
         });
       }

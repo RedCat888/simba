@@ -43,7 +43,7 @@ Working and verified end to end on this machine:
 | claude-a | available | verified working |
 | claude-b | logged_out | needs your login; see below |
 | codex | usable | verified; models read from the account's own cache |
-| cursor | logged_out | CLI reports no models available for the account |
+| cursor | unusable | authenticated, but no models available — entitlement, not login |
 
 Capabilities genuinely differ and the runner contract says so rather than
 pretending otherwise. Claude supports real mid-turn steering via streaming
@@ -78,9 +78,11 @@ stdin. Codex and Cursor are one turn per process, so messages queue instead.
    ```
    The Worker still deserves the two-line fix, since other things use it.
 
-4. **Sign in to `cursor-agent`** if you want Cursor in the chain. Its adapter is
-   written, but the event mapping is unverified against a live stream and will
-   likely need a correction on first real run.
+4. **Check your Cursor plan's CLI entitlement** if you want Cursor in the chain.
+   `cursor-agent status` reports it is logged in, but `--list-models` returns
+   nothing, so re-authenticating will not help. The adapter is written; its
+   event mapping is unverified against a live stream and will likely need one
+   correction on first real run.
 
 5. **Audit the atlas project slugged `api-keys`.** Atlas has attached
    "Migrate to GitHub" to it. See `research/legacy-inventory.md`.

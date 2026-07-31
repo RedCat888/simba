@@ -11,6 +11,7 @@ import {
   resolveBrainChain,
   nextChainResetAt,
   setSessionStatus,
+  getPermissionProfile,
   toBrainAccount,
   type AgentRow,
   type BrainRow,
@@ -18,6 +19,7 @@ import {
 import { ClaudeRunner, findTranscript } from '../runner/claude.js';
 import { CodexRunner } from '../runner/codex.js';
 import { CursorRunner } from '../runner/cursor.js';
+import { OllamaRunner } from '../runner/ollama.js';
 import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
 import { SessionEngine } from './engine.js';
 import { writeCheckpoint } from '../hydration/checkpoint.js';
@@ -57,6 +59,7 @@ const runners: Record<string, Runner> = {
   claude: new ClaudeRunner(),
   codex: new CodexRunner(),
   'cursor-agent': new CursorRunner(),
+  ollama: new OllamaRunner(),
 };
 
 export class SessionManager extends EventEmitter {
@@ -171,6 +174,10 @@ export class SessionManager extends EventEmitter {
 
     const settingsPath = await writeSessionSettings(sessionId, agent.permission_profile_id);
 
+    // CLI runners get the deny-list via the generated PreToolUse hook; runners
+    // that own their own agent loop need the patterns directly.
+    const profile = await getPermissionProfile(agent.permission_profile_id);
+
     const spec: LaunchSpec = {
       sessionId,
       agentId: agent.id,
@@ -184,6 +191,7 @@ export class SessionManager extends EventEmitter {
       resumeSessionId: opts.resumeNativeId ?? undefined,
       systemPromptAppend: brief || undefined,
       settingsPath: settingsPath ?? undefined,
+      denyPatterns: profile?.deny_patterns ?? [],
       mcpConfigPath: await mcpConfigPathFor(sessionId, agent.id),
       effort: agent.tier === 0 ? 'high' : 'medium',
     };

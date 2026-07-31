@@ -211,10 +211,32 @@ export async function* readSupabaseKnowledge(
  */
 export async function* readChatGptExport(path: string): AsyncGenerator<IngestItem> {
   if (!existsSync(path)) return;
-  const file = (await stat(path)).isDirectory() ? join(path, 'conversations.json') : path;
-  if (!existsSync(file)) return;
 
-  const raw = JSON.parse(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
+  // Newer exports shard conversations across `conversations-000.json` …
+  // `conversations-018.json` instead of shipping one `conversations.json`.
+  // Assuming the single-file layout silently yields nothing on a modern export,
+  // which looks identical to "you have no history".
+  const files: string[] = [];
+  if ((await stat(path)).isDirectory()) {
+    const entries = await readdir(path);
+    for (const e of entries.sort()) {
+      if (/^conversations(-\d+)?\.json$/i.test(e)) files.push(join(path, e));
+    }
+  } else {
+    files.push(path);
+  }
+
+  for (const file of files) {
+    if (!existsSync(file)) continue;
+    yield* readChatGptFile(file);
+  }
+}
+
+async function* readChatGptFile(file: string): AsyncGenerator<IngestItem> {
+  const parsed = JSON.parse(await readFile(file, 'utf8')) as unknown;
+  const raw = Array.isArray(parsed)
+    ? (parsed as Array<Record<string, unknown>>)
+    : ((parsed as Record<string, unknown>).conversations as Array<Record<string, unknown>>) ?? [];
 
   for (const convo of raw) {
     const mapping = (convo.mapping ?? {}) as Record<string, { message?: Record<string, unknown> }>;
@@ -247,11 +269,24 @@ export async function* readChatGptExport(path: string): AsyncGenerator<IngestIte
 
 /**
  * Claude export: `conversations.json` with a `chat_messages` array per
- * conversation. Shape differs from ChatGPT's enough to warrant its own reader.
+ * conversation, plus `memories.json` and `projects/` alongside it.
+ *
+ * `memories.json` is small but disproportionately valuable — it is what Claude
+ * already concluded about the operator, so it is exactly the kind of durable fact the
+ * hydration bundle should be able to recall. It is picked up automatically when
+ * a directory is passed.
  */
 export async function* readClaudeExport(path: string): AsyncGenerator<IngestItem> {
   if (!existsSync(path)) return;
-  const file = (await stat(path)).isDirectory() ? join(path, 'conversations.json') : path;
+
+  const isDir = (await stat(path)).isDirectory();
+  const file = isDir ? join(path, 'conversations.json') : path;
+
+  if (isDir) {
+    yield* readClaudeMemories(join(path, 'memories.json'));
+    yield* readClaudeProjects(join(path, 'projects'));
+  }
+
   if (!existsSync(file)) return;
 
   const raw = JSON.parse(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
@@ -285,6 +320,88 @@ export async function* readClaudeExport(path: string): AsyncGenerator<IngestItem
       tags: ['claude', 'conversation'],
       metadata: { turns: lines.length },
       sourceCreatedAt: convo.created_at ? new Date(String(convo.created_at)) : null,
+    };
+  }
+}
+
+/** Claude's own accumulated memory about the user. Small, dense, high-signal. */
+async function* readClaudeMemories(file: string): AsyncGenerator<IngestItem> {
+  if (!existsSync(file)) return;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(file, 'utf8'));
+  } catch {
+    return;
+  }
+
+  // Shape has changed across export versions, so accept an array, a wrapper
+  // object, or a bare map rather than committing to one layout.
+  const entries: Array<Record<string, unknown>> = Array.isArray(parsed)
+    ? (parsed as Array<Record<string, unknown>>)
+    : Array.isArray((parsed as Record<string, unknown>)?.memories)
+      ? ((parsed as Record<string, unknown>).memories as Array<Record<string, unknown>>)
+      : Object.entries(parsed as Record<string, unknown>).map(([k, v]) => ({
+          id: k,
+          content: typeof v === 'string' ? v : JSON.stringify(v),
+        }));
+
+  let i = 0;
+  for (const m of entries) {
+    const content = String(m.content ?? m.text ?? m.summary ?? JSON.stringify(m));
+    if (!content.trim() || content === '{}') continue;
+    i += 1;
+    yield {
+      externalId: `memory:${String(m.id ?? i)}`,
+      title: String(m.title ?? `Claude memory ${i}`),
+      content,
+      category: 'claude-memory',
+      tags: ['claude', 'memory', 'about-operator'],
+      metadata: m,
+      sourceCreatedAt: m.created_at ? new Date(String(m.created_at)) : null,
+    };
+  }
+}
+
+/** Project instructions and knowledge attached to Claude Projects. */
+async function* readClaudeProjects(dir: string): AsyncGenerator<IngestItem> {
+  if (!existsSync(dir)) return;
+
+  let files: string[];
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith('.json'));
+  } catch {
+    return;
+  }
+
+  for (const f of files) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(await readFile(join(dir, f), 'utf8')) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const parts = [
+      parsed.prompt_template ? `Instructions:\n${String(parsed.prompt_template)}` : '',
+      Array.isArray(parsed.docs)
+        ? (parsed.docs as Array<Record<string, unknown>>)
+            .map((d) => `## ${String(d.filename ?? 'doc')}\n${String(d.content ?? '')}`)
+            .join('\n\n')
+        : '',
+    ].filter(Boolean);
+
+    const content = parts.join('\n\n');
+    if (!content.trim()) continue;
+
+    yield {
+      externalId: `project:${String(parsed.uuid ?? f)}`,
+      title: String(parsed.name ?? f.replace('.json', '')),
+      content,
+      category: 'claude-project',
+      tags: ['claude', 'project'],
+      metadata: { name: parsed.name },
+      sourceCreatedAt: parsed.created_at ? new Date(String(parsed.created_at)) : null,
     };
   }
 }

@@ -18,7 +18,12 @@ export interface RunnerCapabilities {
   readonly capabilities: ReadonlySet<RunnerCapability>;
 }
 
-export type ModelTier = 'high' | 'mid' | 'cheap';
+/**
+ * 'free' is a budget class rather than a capability class: it routes to local
+ * models that cost nothing and cannot be rate-limited, which is what makes it
+ * the floor of the failover ladder.
+ */
+export type ModelTier = 'high' | 'mid' | 'cheap' | 'free';
 
 export interface BrainAccount {
   id: string;
@@ -69,6 +74,15 @@ export interface LaunchSpec {
 
   /** Extra environment, merged over the brain account's own. */
   env?: Record<string, string>;
+
+  /**
+   * Deny-list regexes from the agent's permission profile.
+   *
+   * CLI-backed runners enforce these through a PreToolUse hook, which the CLI
+   * applies for us. A runner that owns its own agent loop has no hook to hang
+   * them on and must check them itself before executing anything.
+   */
+  denyPatterns?: string[];
 }
 
 // ---------------------------------------------------------------------------

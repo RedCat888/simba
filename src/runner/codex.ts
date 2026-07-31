@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { config } from '../config.js';
+
 import { AsyncQueue } from './queue.js';
 import { resolveExecutor, buildSpawn } from './discovery.js';
 import type {
@@ -90,12 +92,31 @@ class CodexSession implements RunnerSession {
     const model = resolveModel(this.spec.brain, this.spec.modelTier);
     if (model) args.push('-m', model);
 
-    // The hydration brief has no dedicated flag here, so it is prepended to the
-    // prompt on the opening turn. Lossier than Claude's --append-system-prompt,
-    // which is one more reason cross-tool sits below same-tool in the chain.
+    // Codex takes MCP servers from config rather than a config-file flag, so
+    // the Simba server is injected through -c overrides. Without this a Codex
+    // session has no way to reach its own memory, and the agent correctly
+    // reports that its tools are missing.
+    if (this.spec.mcpConfigPath) {
+      const server = join(config.root, 'src', 'mcp', 'server.ts');
+      args.push(
+        '-c', `mcp_servers.simba.command="npx"`,
+        '-c', `mcp_servers.simba.args=["-y","tsx","${server.replace(/\\/g, '\\\\')}"]`,
+        '-c', `mcp_servers.simba.env.SIMBA_AGENT_ID="${this.spec.agentId}"`,
+        '-c', `mcp_servers.simba.env.SIMBA_SESSION_ID="${this.spec.sessionId}"`,
+      );
+    }
+
+    // Claude has --append-system-prompt; here the brief has to travel inside
+    // the message, which makes framing load-bearing. Prepending it bare caused
+    // the model to treat the brief as the instruction and answer *it* instead
+    // of the actual task — it replied about its role and never reached the
+    // question. Fencing the brief as background and putting the task last,
+    // under an explicit header, keeps the task the salient instruction.
     const body =
       !this.nativeSessionId && this.spec.systemPromptAppend
-        ? `${this.spec.systemPromptAppend}\n\n---\n\n${prompt}`
+        ? `<background>\nStanding context about your role. This is reference material, ` +
+          `not your task.\n\n${this.spec.systemPromptAppend}\n</background>\n\n` +
+          `# Your task for this session\n\n${prompt}`
         : prompt;
 
     // The prompt goes in over stdin ("-"), never as an argument. A hydration

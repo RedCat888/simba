@@ -158,6 +158,52 @@ const TOOLS = [
     description: 'Read your pending inbox messages from other agents.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'action_claim',
+    description:
+      'Claim an irreversible external action BEFORE performing it — sending a message, ' +
+      'opening a PR, deploying, deleting, changing DNS, spending money. Returns ' +
+      'proceed:true only if you are the one who should do it. If proceed is false the ' +
+      'action already happened or someone else holds it, and you MUST NOT repeat it. ' +
+      'Sessions can be resumed or moved between models, so anything with an external ' +
+      'side effect can otherwise run twice.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: {
+          type: 'string',
+          description:
+            'Stable id derived from the intent, not random — e.g. "pr:simba:add-login" ' +
+            'or "dm:instagram:12345". A retry must produce the same key.',
+        },
+        action_class: {
+          type: 'string',
+          enum: ['send', 'publish', 'deploy', 'purchase', 'delete', 'external_write', 'dns', 'billing'],
+        },
+        target: { type: 'string', description: 'What it acts on, e.g. "github:owner/repo".' },
+        summary: { type: 'string' },
+        params: { type: 'object' },
+      },
+      required: ['key', 'action_class', 'target'],
+    },
+  },
+  {
+    name: 'action_complete',
+    description:
+      'Record the outcome of a claimed action. Always call this, including on failure — ' +
+      'an action left in flight blocks its retry and gets surfaced for human attention.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action_id: { type: 'string' },
+        status: { type: 'string', enum: ['succeeded', 'failed', 'abandoned'] },
+        receipt: { type: 'object', description: 'Proof from the far side: message id, PR number, deployment id.' },
+        external_id: { type: 'string' },
+        error: { type: 'string' },
+      },
+      required: ['action_id', 'status'],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -374,6 +420,50 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
           );
         }
         return json(rows);
+      }
+
+      case 'action_claim': {
+        const row = await one<{ action_id: string; is_new: boolean; current_status: string }>(
+          `SELECT * FROM claim_action($1,$2,$3,$4,$5,$6::uuid,$7::uuid)`,
+          [
+            args.key,
+            args.action_class,
+            args.target,
+            args.summary ?? null,
+            JSON.stringify(args.params ?? {}),
+            AGENT_ID,
+            SESSION_ID,
+          ],
+        );
+        if (!row) return text('Could not claim action.');
+
+        if (row.is_new) {
+          return json({
+            proceed: true,
+            action_id: row.action_id,
+            note: 'You hold this action. Perform it, then call action_complete.',
+          });
+        }
+        return json({
+          proceed: false,
+          action_id: row.action_id,
+          status: row.current_status,
+          note:
+            row.current_status === 'succeeded'
+              ? 'Already completed successfully. Do not repeat it; treat it as done.'
+              : 'Already claimed or resolved elsewhere. Do not repeat it.',
+        });
+      }
+
+      case 'action_complete': {
+        await query(`SELECT complete_action($1::uuid,$2,$3::jsonb,$4,$5)`, [
+          args.action_id,
+          args.status,
+          args.receipt ? JSON.stringify(args.receipt) : null,
+          args.external_id ?? null,
+          args.error ?? null,
+        ]);
+        return text(`Recorded ${String(args.status)}.`);
       }
 
       default:

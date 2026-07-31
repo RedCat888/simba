@@ -119,6 +119,9 @@
   <button data-tab="agents" class="sel">Agents</button>
   <button data-tab="sessions">Sessions</button>
   <button data-tab="brains">Brains</button>
+  <button data-tab="memory">Memory</button>
+  <button data-tab="docs">Docs</button>
+  <button data-tab="router">Router</button>
   <button data-tab="events">Events</button>
 </nav>
 
@@ -382,6 +385,117 @@ async function renderThread() {
   $('input').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
 }
 
+// ---------------------------------------------------------------------------
+// Memory: semantic search over the whole personal corpus. This is the reason
+// everything gets stored — being able to ask your own history a question.
+// ---------------------------------------------------------------------------
+let memoryQuery = '';
+let memoryHits = null;
+
+async function renderMemory() {
+  const sources = await api('/api/knowledge/sources');
+  const total = sources.reduce((a, s) => a + (s.chunks || 0), 0);
+
+  $('main').innerHTML = `
+    <div class="card" style="margin-bottom:10px">
+      <div class="row" style="gap:8px">
+        <input id="mq" placeholder="Ask your own history…" value="${esc(memoryQuery)}"
+          style="flex:1;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font:inherit">
+        <button class="primary" id="msearch">Search</button>
+      </div>
+      <div class="meta"><span><b>${total.toLocaleString()}</b> chunks indexed across ${sources.length} sources</span></div>
+    </div>
+    <div class="grid" style="margin-bottom:10px">
+      ${sources.map((s) => `
+        <div class="card">
+          <div class="row"><h3>${esc(s.name)}</h3><span class="pill">${esc(s.kind)}</span></div>
+          <div class="meta">
+            <span><b>${(s.items || 0).toLocaleString()}</b> items</span>
+            <span><b>${(s.chunks || 0).toLocaleString()}</b> chunks</span>
+            <span>${s.last_ingested_at ? ago(s.last_ingested_at) : 'never ingested'}</span>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div id="mres">${memoryHits === null ? '' : renderHits(memoryHits)}</div>`;
+
+  const go = async () => {
+    memoryQuery = $('mq').value.trim();
+    if (!memoryQuery) return;
+    $('mres').innerHTML = `<div class="empty">Searching…</div>`;
+    try {
+      memoryHits = await api(`/api/knowledge/search?q=${encodeURIComponent(memoryQuery)}`);
+      $('mres').innerHTML = renderHits(memoryHits);
+    } catch (e) { $('mres').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  };
+  $('msearch').onclick = go;
+  $('mq').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+}
+
+function renderHits(hits) {
+  if (!hits.length) return `<div class="empty">No matches.</div>`;
+  return hits.map((h) => `
+    <div class="card" style="margin-bottom:8px">
+      <div class="row">
+        <h3>${esc(h.title || 'untitled')}</h3>
+        <span class="pill">${(h.relevance * 100).toFixed(0)}%</span>
+      </div>
+      <div class="sub">${esc(h.source)}</div>
+      <div style="font-size:12.5px;white-space:pre-wrap;color:var(--dim)">${esc(h.content.slice(0, 700))}</div>
+    </div>`).join('');
+}
+
+async function renderDocs() {
+  const docs = await api('/api/documents');
+  if (!docs.length) {
+    $('main').innerHTML = `<div class="empty">No documents yet. Agents write these instead of markdown files.</div>`;
+    return;
+  }
+  $('main').innerHTML = `<div class="grid">${docs.map((d) => `
+    <div class="card" data-doc="${d.id}" style="cursor:pointer">
+      <div class="row"><h3>${esc(d.title || d.slug)}</h3><span class="pill">${esc(d.kind)}</span></div>
+      <div class="sub">${esc(d.slug)}</div>
+      <div class="meta">
+        <span>rev <b>${d.current_revision}</b></span>
+        <span>${esc(d.scope)}</span>
+        ${d.agent ? `<span>${esc(d.agent)}</span>` : ''}
+        <span>${ago(d.updated_at)}</span>
+      </div>
+    </div>`).join('')}</div>`;
+
+  $('main').querySelectorAll('[data-doc]').forEach((el) =>
+    el.onclick = async () => {
+      const d = await api(`/api/documents/${el.dataset.doc}`);
+      $('main').innerHTML = `
+        <span class="back" id="back">← all documents</span>
+        <div class="card">
+          <h3>${esc(d.title || d.slug)}</h3>
+          <div class="sub">revision ${d.revision} · ${d.author ? esc(d.author) : 'unknown'} · ${ago(d.created_at)}</div>
+          <div style="white-space:pre-wrap;font-size:13px">${esc(d.content)}</div>
+        </div>`;
+      $('back').onclick = () => renderDocs();
+    });
+}
+
+async function renderRouter() {
+  const msgs = await api('/api/inboxes');
+  if (!msgs.length) {
+    $('main').innerHTML = `<div class="empty">No inter-agent messages yet.</div>`;
+    return;
+  }
+  $('main').innerHTML = `<div class="card scroll-x"><table>
+    <tr><th>when</th><th>from</th><th>to</th><th>intent</th><th>hops</th><th>status</th><th>note</th></tr>
+    ${msgs.map((m) => `<tr class="${m.status === 'escalated' ? 'sev-warn' : ''}">
+      <td class="mono">${ago(m.created_at)}</td>
+      <td>${esc(m.from_agent || 'simba')}</td>
+      <td>${esc(m.to_agent)}</td>
+      <td>${esc(m.intent)}</td>
+      <td class="mono">${m.hop_count}</td>
+      <td><span class="pill ${m.status}">${esc(m.status)}</span></td>
+      <td>${esc(m.escalation_reason || '')}</td>
+    </tr>`).join('')}
+  </table></div>`;
+}
+
 async function renderEvents() {
   const events = await api('/api/events');
   $('main').innerHTML = `<div class="card scroll-x"><table>
@@ -401,6 +515,9 @@ async function render() {
     if (tab === 'agents') await renderAgents();
     else if (tab === 'sessions') await renderSessions();
     else if (tab === 'brains') await renderBrains();
+    else if (tab === 'memory') await renderMemory();
+    else if (tab === 'docs') await renderDocs();
+    else if (tab === 'router') await renderRouter();
     else if (tab === 'events') await renderEvents();
   } catch (e) {
     $('main').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -420,7 +537,14 @@ $('panic').onclick = async () => {
 
 connect();
 render();
-setInterval(() => { if (!openSession) render(); else refreshStats(); }, 8000);
+// Auto-refresh only the tabs that show live state. Memory and Docs hold search
+// results and an open document, and silently re-rendering them under the user
+// would discard what they were reading.
+setInterval(() => {
+  const liveTabs = ['agents', 'sessions', 'brains', 'router', 'events'];
+  if (!openSession && liveTabs.includes(tab)) render();
+  else refreshStats();
+}, 8000);
 </script>
 </body>
 </html>

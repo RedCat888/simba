@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { query, one } from '../db/index.js';
 import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
+import { recall } from '../knowledge/embed.js';
 
 /**
  * The gateway: HTTP for state and commands, websockets for live output.
@@ -174,9 +175,136 @@ app.get('/api/stats', async (c) => {
   return c.json(stats);
 });
 
+/**
+ * Semantic search over the personal corpus: knowledge base, Obsidian vault, and
+ * full Claude/ChatGPT conversation history. This is the payoff of storing
+ * everything — being able to ask your own history a question.
+ */
+app.get('/api/knowledge/search', async (c) => {
+  const q = c.req.query('q');
+  if (!q) return c.json({ error: 'q required' }, 400);
+  const hits = await recall(q, { limit: Number(c.req.query('limit') ?? 12) });
+  return c.json(
+    hits.map((h) => ({
+      source: h.source,
+      title: h.title,
+      relevance: Number((1 - h.distance).toFixed(3)),
+      content: h.content.slice(0, 1500),
+    })),
+  );
+});
+
+app.get('/api/knowledge/sources', async (c) => {
+  const rows = await query(
+    `SELECT s.slug, s.kind, s.name, s.item_count, s.last_ingested_at,
+            (SELECT count(*)::int FROM knowledge_items i WHERE i.source_id = s.id) AS items,
+            (SELECT count(*)::int FROM knowledge_chunks ch
+               JOIN knowledge_items i2 ON i2.id = ch.item_id
+              WHERE i2.source_id = s.id) AS chunks
+       FROM knowledge_sources s
+      ORDER BY items DESC`,
+  );
+  return c.json(rows);
+});
+
+app.get('/api/documents', async (c) => {
+  const rows = await query(
+    `SELECT d.id, d.slug, d.kind, d.scope, d.title, d.current_revision, d.updated_at,
+            a.slug AS agent
+       FROM documents d
+       LEFT JOIN agents a ON a.id = d.agent_id
+      WHERE NOT d.archived
+      ORDER BY d.updated_at DESC LIMIT 100`,
+  );
+  return c.json(rows);
+});
+
+app.get('/api/documents/:id', async (c) => {
+  const row = await one(
+    `SELECT d.slug, d.title, d.kind, dr.revision, dr.content, dr.created_at,
+            a.slug AS author
+       FROM documents d
+       JOIN document_revisions dr
+         ON dr.document_id = d.id AND dr.revision = d.current_revision
+       LEFT JOIN agents a ON a.id = dr.author_agent_id
+      WHERE d.id = $1`,
+    [c.req.param('id')],
+  );
+  return row ? c.json(row) : c.json({ error: 'not found' }, 404);
+});
+
+app.get('/api/inboxes', async (c) => {
+  const rows = await query(
+    `SELECT i.id, f.slug AS from_agent, t.slug AS to_agent, i.intent, i.status,
+            i.hop_count, i.escalation_reason, i.created_at, i.payload
+       FROM inboxes i
+       JOIN agents t ON t.id = i.to_agent_id
+       LEFT JOIN agents f ON f.id = i.from_agent_id
+      ORDER BY i.created_at DESC LIMIT 100`,
+  );
+  return c.json(rows);
+});
+
+/** Cost per brain per day, for the usage chart. */
+app.get('/api/usage/timeline', async (c) => {
+  const rows = await query(
+    `SELECT to_char(date_trunc('day', u.recorded_at), 'MM-DD') AS day,
+            b.slug AS brain,
+            round(sum(u.cost_usd)::numeric, 4)       AS cost,
+            sum(u.input_tokens + u.output_tokens)::bigint AS tokens
+       FROM usage u JOIN brain_accounts b ON b.id = u.brain_account_id
+      WHERE u.recorded_at > now() - interval '14 days'
+      GROUP BY 1, 2 ORDER BY 1`,
+  );
+  return c.json(rows);
+});
+
+/** Session lineage: the chain of continuations a piece of work has been through. */
+app.get('/api/sessions/:id/lineage', async (c) => {
+  const rows = await query(
+    `WITH RECURSIVE chain AS (
+       SELECT s.*, 0 AS depth FROM sessions s WHERE s.id = $1
+       UNION ALL
+       SELECT s2.*, chain.depth + 1
+         FROM sessions s2 JOIN chain ON s2.id = chain.hydrated_from_session_id
+        WHERE chain.depth < 20
+     )
+     SELECT left(chain.id::text, 8) AS id, chain.status, chain.cli, chain.depth,
+            chain.swap_count, chain.created_at, b.slug AS brain
+       FROM chain LEFT JOIN brain_accounts b ON b.id = chain.brain_account_id
+      ORDER BY chain.depth`,
+    [c.req.param('id')],
+  );
+  return c.json(rows);
+});
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
+
+/** Create a Tier-1 agent from the UI. The roster is data; this is an INSERT. */
+app.post('/api/agents', async (c) => {
+  const b = await c.req.json<{
+    slug: string; name: string; tier?: number; domain?: string;
+    description?: string; modelTier?: string; cli?: string;
+  }>();
+  if (!b.slug || !b.name) return c.json({ error: 'slug and name required' }, 400);
+  try {
+    const row = await one<{ id: string }>(
+      `INSERT INTO agents (slug, name, tier, domain, description, model_tier,
+                           preferred_cli, permission_profile_id, node_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,
+               (SELECT id FROM permission_profiles WHERE slug = 'default'),
+               (SELECT id FROM nodes WHERE is_primary LIMIT 1))
+       RETURNING id`,
+      [b.slug, b.name, b.tier ?? 1, b.domain ?? null, b.description ?? null,
+       b.modelTier ?? 'mid', b.cli ?? 'claude'],
+    );
+    return c.json({ id: row?.id });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+  }
+});
 
 app.post('/api/agents/:slug/start', async (c) => {
   const body = await c.req.json<{

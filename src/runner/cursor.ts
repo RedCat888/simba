@@ -86,10 +86,13 @@ class CursorSession implements RunnerSession {
     const model = resolveModel(this.spec.brain, this.spec.modelTier);
     if (model) args.push('--model', model);
 
-    // No dedicated system-prompt flag, so the brief rides on the opening turn.
+    // Same framing as the Codex adapter: a bare prepended brief gets treated as
+    // the instruction, and the model answers the brief rather than the task.
     const body =
       !this.nativeSessionId && this.spec.systemPromptAppend
-        ? `${this.spec.systemPromptAppend}\n\n---\n\n${prompt}`
+        ? `<background>\nStanding context about your role. This is reference material, ` +
+          `not your task.\n\n${this.spec.systemPromptAppend}\n</background>\n\n` +
+          `# Your task for this session\n\n${prompt}`
         : prompt;
 
     const env: NodeJS.ProcessEnv = { ...process.env, ...this.spec.brain.env, ...this.spec.env };

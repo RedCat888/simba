@@ -8,6 +8,7 @@ import {
 
 import { query, one, transaction, recordEvent } from '../db/index.js';
 import { recall } from '../knowledge/embed.js';
+import { checkAction, logDenial, type Surface } from '../policy/surface.js';
 
 /**
  * The Simba MCP server: an agent's hands on its own memory.
@@ -423,6 +424,45 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
       }
 
       case 'action_claim': {
+        // Surface policy is checked before the idempotency claim: an action the
+        // originating surface may not perform should never occupy a key.
+        const origin = await one<{ origin_surface_id: string | null }>(
+          `SELECT origin_surface_id FROM sessions WHERE id = $1`,
+          [SESSION_ID],
+        );
+        const surface = origin?.origin_surface_id
+          ? await one<Surface>(`SELECT * FROM surfaces WHERE id = $1`, [origin.origin_surface_id])
+          : null;
+
+        if (surface) {
+          const verdict = await checkAction(surface, String(args.action_class));
+          if (!verdict.allowed) {
+            await logDenial(surface, String(args.action_class), verdict.reason ?? '');
+            return json({
+              proceed: false,
+              reason: verdict.reason,
+              note: 'Blocked by surface policy. Report this rather than working around it.',
+            });
+          }
+          if (verdict.needsConfirmation) {
+            await query(
+              `INSERT INTO actions (idempotency_key, action_class, target, summary, params,
+                                    agent_id, session_id, origin_surface_id, status)
+               VALUES ($1,$2,$3,$4,$5,$6::uuid,$7::uuid,$8::uuid,'needs_confirmation')
+               ON CONFLICT (idempotency_key) DO NOTHING`,
+              [args.key, args.action_class, args.target, args.summary ?? null,
+               JSON.stringify(args.params ?? {}), AGENT_ID, SESSION_ID, surface.id],
+            );
+            return json({
+              proceed: false,
+              status: 'needs_confirmation',
+              note:
+                `Actions of class "${String(args.action_class)}" from the ${surface.slug} surface ` +
+                `require confirmation. It is queued; tell the operator it is waiting and move on.`,
+            });
+          }
+        }
+
         const row = await one<{ action_id: string; is_new: boolean; current_status: string }>(
           `SELECT * FROM claim_action($1,$2,$3,$4,$5,$6::uuid,$7::uuid)`,
           [

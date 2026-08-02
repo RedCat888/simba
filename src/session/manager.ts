@@ -16,7 +16,7 @@ import {
   type AgentRow,
   type BrainRow,
 } from '../db/repo.js';
-import { ClaudeRunner, findTranscript } from '../runner/claude.js';
+import { ClaudeRunner, findTranscript, readTranscript } from '../runner/claude.js';
 import { CodexRunner } from '../runner/codex.js';
 import { CursorRunner } from '../runner/cursor.js';
 import { OllamaRunner } from '../runner/ollama.js';
@@ -83,6 +83,8 @@ export class SessionManager extends EventEmitter {
     modelTier?: ModelTier;
     /** Force a specific brain, bypassing the chain. Failover still applies after. */
     brain?: string;
+    /** Which surface this originated from. Recorded so actions inherit its authority. */
+    surfaceId?: string | null;
   }): Promise<{ sessionId: string } | { error: string; sleepUntil?: Date }> {
     const agent = await getAgent(opts.agent);
     if (!agent) return { error: `unknown agent: ${opts.agent}` };
@@ -97,6 +99,7 @@ export class SessionManager extends EventEmitter {
         projectId: opts.projectId ?? agent.project_id,
         continuingSessionId: opts.continuingSessionId ?? null,
         modelTier: opts.modelTier ?? agent.model_tier,
+        surfaceId: opts.surfaceId ?? null,
       });
     }
 
@@ -121,6 +124,7 @@ export class SessionManager extends EventEmitter {
       projectId: opts.projectId ?? agent.project_id,
       continuingSessionId: opts.continuingSessionId ?? null,
       modelTier: opts.modelTier ?? agent.model_tier,
+      surfaceId: opts.surfaceId ?? null,
     });
   }
 
@@ -135,6 +139,7 @@ export class SessionManager extends EventEmitter {
       resumeNativeId?: string | null;
       modelTier: ModelTier;
       swapCount?: number;
+      surfaceId?: string | null;
     },
   ): Promise<{ sessionId: string } | { error: string }> {
     const runner = runners[brain.cli];
@@ -150,8 +155,8 @@ export class SessionManager extends EventEmitter {
     await query(
       `INSERT INTO sessions
          (id, agent_id, cli, brain_account_id, node_id, project_id, cwd, status,
-          hydrated_from_session_id, swap_count, started_at, last_activity_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,now(),now())`,
+          hydrated_from_session_id, swap_count, origin_surface_id, started_at, last_activity_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,now(),now())`,
       [
         sessionId,
         agent.id,
@@ -162,6 +167,9 @@ export class SessionManager extends EventEmitter {
         cwd,
         opts.continuingSessionId ?? null,
         opts.swapCount ?? 0,
+        // Inherited across failover and revival: authority is a property of
+        // where the work came from, not of which brain happens to run it now.
+        opts.surfaceId ?? null,
       ],
     );
 
@@ -352,6 +360,7 @@ export class SessionManager extends EventEmitter {
             resumeNativeId: nativeId,
             modelTier: live.modelTier,
             swapCount: (await this.swapCountOf(live.sessionId)) + 1,
+            surfaceId: await this.surfaceOf(live.sessionId),
           });
           this.emit('swapped', { from: live.sessionId, to: result, mode: 'resume' });
           return;
@@ -374,6 +383,7 @@ export class SessionManager extends EventEmitter {
         continuingSessionId: live.sessionId,
         modelTier: live.modelTier,
         swapCount: (await this.swapCountOf(live.sessionId)) + 1,
+        surfaceId: await this.surfaceOf(live.sessionId),
         prompt: 'Continue the work described in your brief. Report what you are picking up first.',
       });
       this.emit('swapped', { from: live.sessionId, to: result, mode: 'rehydrate' });
@@ -468,6 +478,7 @@ export class SessionManager extends EventEmitter {
       resumeNativeId: canResume ? row.native_session_id! : undefined,
       modelTier: agent.model_tier,
       swapCount: row.swap_count,
+      surfaceId: await this.surfaceOf(sessionId),
       prompt,
     });
   }
@@ -522,6 +533,19 @@ export class SessionManager extends EventEmitter {
     return row?.native_session_id ?? null;
   }
 
+  /**
+   * The surface a session originated from. Carried across failover and revival
+   * so a phone-initiated task cannot quietly gain desktop authority by being
+   * resumed later by the supervisor.
+   */
+  private async surfaceOf(sessionId: string): Promise<string | null> {
+    const row = await one<{ origin_surface_id: string | null }>(
+      `SELECT origin_surface_id FROM sessions WHERE id = $1`,
+      [sessionId],
+    );
+    return row?.origin_surface_id ?? null;
+  }
+
   private async swapCountOf(sessionId: string): Promise<number> {
     const row = await one<{ swap_count: number }>(
       `SELECT swap_count FROM sessions WHERE id = $1`,
@@ -555,6 +579,22 @@ export async function copyTranscript(
   const source = await findTranscript(fromConfigDir, nativeSessionId);
   if (!source) return null;
 
+  // The transcript format is the CLI's private business and can change under
+  // us at any update. Validating before relying on it converts a silent
+  // failure — resuming into an empty or unparseable conversation, which looks
+  // like the agent simply forgot everything — into a clean fallback to
+  // rehydration, which always works. Postgres is the canonical record; this
+  // path is an optimization and is treated as one.
+  if (!(await transcriptLooksValid(source))) {
+    await recordEvent({
+      type: 'failover.transcript_rejected',
+      severity: 'warn',
+      message: `transcript for ${nativeSessionId} did not validate; falling back to rehydration`,
+      data: { source },
+    });
+    return null;
+  }
+
   // Preserve the project-slug directory name so the target CLI associates the
   // transcript with the same working directory.
   const projectSlug = basename(dirname(source));
@@ -566,4 +606,45 @@ export async function copyTranscript(
   await mkdir(targetDir, { recursive: true });
   await copyFile(source, target);
   return target;
+}
+
+/**
+ * Structural sanity check on a transcript before a resume is attempted.
+ *
+ * Deliberately loose: it asserts only what any conceivable version of the
+ * format must have — parseable JSON lines carrying recognisable conversation
+ * turns. A stricter check would itself break on harmless format changes, which
+ * would defeat the purpose by rejecting transcripts that would have resumed
+ * fine.
+ */
+async function transcriptLooksValid(path: string): Promise<boolean> {
+  let lines: string[];
+  try {
+    lines = await readTranscript(path);
+  } catch {
+    return false;
+  }
+
+  if (lines.length < 2) return false;
+
+  let parsed = 0;
+  let conversational = 0;
+
+  for (const line of lines.slice(0, 200)) {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    parsed += 1;
+
+    const type = typeof obj.type === 'string' ? obj.type : '';
+    const hasMessage = obj.message !== undefined || obj.content !== undefined;
+    if (hasMessage || type === 'user' || type === 'assistant') conversational += 1;
+  }
+
+  // Most lines should parse, and the file should contain actual turns rather
+  // than only metadata.
+  return parsed >= Math.min(2, lines.length) && conversational >= 1;
 }

@@ -210,6 +210,7 @@ class OllamaSession implements RunnerSession {
     if (this.running) return;
     this.running = true;
 
+    const startedAt = Date.now();
     const model = resolveModel(this.spec.brain, this.spec.modelTier);
 
     this.emit({
@@ -296,7 +297,9 @@ class OllamaSession implements RunnerSession {
         stopReason: 'end_turn',
         resultText: null,
         error: null,
-        durationMs: null,
+        // Recorded so local throughput shows up in the same place as every
+        // other runner's, rather than having to be benchmarked separately.
+        durationMs: Date.now() - startedAt,
         usage: {
           model,
           inputTokens: this.inputTokens,
@@ -324,6 +327,13 @@ class OllamaSession implements RunnerSession {
         tools: TOOLS,
         temperature: 0.3,
         stream: false,
+        // Cold load costs 8-15s and an agent loop makes many calls in a row, so
+        // some residency is worth far more than raw tokens/sec. But a 14b model
+        // pins several GB, and this machine is simultaneously running Postgres,
+        // the gateway and one or more agent CLIs — holding it for 30m exhausted
+        // the page file in testing. Five minutes spans a working loop while
+        // still releasing memory between tasks.
+        keep_alive: '5m',
       }),
       signal: AbortSignal.timeout(600_000),
     });

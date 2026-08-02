@@ -9,6 +9,25 @@ import { query, one } from '../db/index.js';
 import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
 import { recall } from '../knowledge/embed.js';
+import {
+  resolveSurface,
+  canReachAgent,
+  clampModelTier,
+  logDenial,
+  type Surface,
+} from '../policy/surface.js';
+
+/** Resolves the surface behind a request. Loopback is the desktop; the tunnel is the phone. */
+async function surfaceOf(c: {
+  req: { header: (name?: string) => string | undefined | Record<string, string> };
+  env?: unknown;
+}): Promise<Surface | null> {
+  const headers = (c.req.header() ?? {}) as Record<string, string | undefined>;
+  const remote =
+    (c.env as { incoming?: { socket?: { remoteAddress?: string } } })?.incoming?.socket
+      ?.remoteAddress ?? '127.0.0.1';
+  return resolveSurface(headers, remote);
+}
 
 /**
  * The gateway: HTTP for state and commands, websockets for live output.
@@ -310,16 +329,39 @@ app.post('/api/agents/:slug/start', async (c) => {
   const body = await c.req.json<{
     prompt?: string;
     cwd?: string;
-    modelTier?: 'high' | 'mid' | 'cheap';
+    modelTier?: 'high' | 'mid' | 'cheap' | 'free';
     brain?: string;
   }>();
+
+  const slug = c.req.param('slug');
+  const surface = await surfaceOf(c);
+
+  // Authority is the intersection of the agent's profile and the surface's
+  // policy, so the surface check happens before anything is spawned.
+  if (!surface) return c.json({ error: 'unknown origin surface' }, 403);
+  const reach = await canReachAgent(surface, slug);
+  if (!reach.allowed) {
+    await logDenial(surface, `start ${slug}`, reach.reason ?? '');
+    return c.json({ error: reach.reason }, 403);
+  }
+
+  const requested = body.modelTier ?? 'mid';
+  const tier = clampModelTier(surface, requested);
+
   const result = await manager.start({
-    agent: c.req.param('slug'),
+    agent: slug,
     prompt: body.prompt,
     cwd: body.cwd,
-    modelTier: body.modelTier,
+    modelTier: body.modelTier ? tier : undefined,
     brain: body.brain,
+    surfaceId: surface.id,
   });
+
+  if ('sessionId' in result && tier !== requested) {
+    // Surfaced rather than silently applied: a downgrade changes the quality of
+    // the work and the user should not have to infer it from the output.
+    return c.json({ ...result, note: `model tier clamped to "${tier}" by ${surface.slug}` });
+  }
   return c.json(result, 'error' in result ? 409 : 200);
 });
 
@@ -359,8 +401,38 @@ app.post('/api/sessions/:id/failover', async (c) => {
   return c.json({ ok: true });
 });
 
+app.get('/api/surfaces', async (c) => {
+  const rows = await query(`SELECT * FROM surface_activity ORDER BY trust_level DESC`);
+  return c.json(rows);
+});
+
+/** Actions held pending an explicit confirmation, plus anything stuck. */
+app.get('/api/actions/pending', async (c) => {
+  const rows = await query(`SELECT * FROM actions_needing_attention ORDER BY created_at DESC LIMIT 50`);
+  return c.json(rows);
+});
+
+app.post('/api/actions/:id/confirm', async (c) => {
+  const surface = await surfaceOf(c);
+  // Confirming is itself an authority-bearing act. Only a surface that could
+  // have originated the class in the first place may release it.
+  if (!surface || surface.trust_level < 60) {
+    return c.json({ error: 'this surface cannot confirm actions' }, 403);
+  }
+  const body = await c.req.json<{ approve: boolean }>().catch(() => ({ approve: false }));
+  await query(
+    `UPDATE actions SET status = $2, lease_expires_at = NULL WHERE id = $1 AND status = 'needs_confirmation'`,
+    [c.req.param('id'), body.approve ? 'claimed' : 'abandoned'],
+  );
+  return c.json({ ok: true, approved: body.approve });
+});
+
 /** Panic button: stop the world. */
 app.post('/api/panic', async (c) => {
+  const surface = await surfaceOf(c);
+  if (surface && !surface.can_panic) {
+    return c.json({ error: `${surface.slug} cannot trigger a panic stop` }, 403);
+  }
   const killed = await manager.killAll();
   broadcast({ type: 'panic', killed });
   return c.json({ ok: true, killed });

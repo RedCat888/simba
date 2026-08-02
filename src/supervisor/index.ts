@@ -3,6 +3,8 @@ import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { cheapComplete } from '../hydration/cheap.js';
 import { Router } from '../router/index.js';
+import { MissionExecutor } from '../missions/executor.js';
+import { generateBrief } from './brief.js';
 
 /**
  * The supervisor.
@@ -22,9 +24,31 @@ export class Supervisor {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private readonly router: Router;
+  private readonly missions: MissionExecutor;
+  private readonly briefIntervalMinutes = Number(process.env.SIMBA_BRIEF_MINUTES ?? 30);
 
   constructor(private readonly manager: SessionManager) {
     this.router = new Router(manager);
+    this.missions = new MissionExecutor(manager);
+  }
+
+  /**
+   * Rolls session cost up to the missions that caused it. Missions enforce a
+   * spend ceiling, and the ceiling is meaningless if the spend is only ever
+   * recorded against sessions.
+   */
+  private async rollUpMissionCost(): Promise<void> {
+    await query(
+      `UPDATE missions m
+          SET cost_used_usd = sub.total, updated_at = now()
+         FROM (
+           SELECT st.mission_id, coalesce(sum(s.total_cost_usd), 0) AS total
+             FROM mission_steps st
+             JOIN sessions s ON s.id = st.session_id
+            GROUP BY st.mission_id
+         ) sub
+        WHERE m.id = sub.mission_id AND m.cost_used_usd <> sub.total`,
+    );
   }
 
   start(): void {
@@ -47,8 +71,11 @@ export class Supervisor {
       await this.resumeAfterReset();
       await this.detectStalls();
       await this.router.tick();
+      await this.missions.tick();
       await this.maintain();
       await this.titleUntitledSessions();
+      await this.rollUpMissionCost();
+      await generateBrief(this.briefIntervalMinutes);
     } catch (err) {
       console.error('[supervisor] tick failed', err);
     } finally {

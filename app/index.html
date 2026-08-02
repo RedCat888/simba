@@ -116,7 +116,8 @@
 </header>
 
 <nav>
-  <button data-tab="agents" class="sel">Agents</button>
+  <button data-tab="missions" class="sel">Missions</button>
+  <button data-tab="agents">Agents</button>
   <button data-tab="sessions">Sessions</button>
   <button data-tab="brains">Brains</button>
   <button data-tab="memory">Memory</button>
@@ -152,7 +153,7 @@ const until = (t) => {
 };
 const usd = (n) => '$' + Number(n || 0).toFixed(4);
 
-let tab = 'agents';
+let tab = 'missions';
 let openSession = null;
 let live = { messages: [], sessionId: null };
 
@@ -386,6 +387,122 @@ async function renderThread() {
 }
 
 // ---------------------------------------------------------------------------
+// Missions: durable objectives that outlive sessions. This is the tab that
+// answers "is the thing I asked for actually getting done".
+// ---------------------------------------------------------------------------
+let openMission = null;
+
+async function renderMissions() {
+  if (openMission) return renderMissionDetail();
+
+  const [missions, briefs] = await Promise.all([api('/api/missions'), api('/api/briefs')]);
+  const brief = briefs[0];
+
+  const briefCard = brief ? `
+    <div class="card" style="margin-bottom:10px;border-color:${brief.needs_decision ? 'var(--accent)' : 'var(--line)'}">
+      <div class="row"><h3>${esc(brief.headline)}</h3><span class="pill">${ago(brief.created_at)}</span></div>
+      <div style="font-size:13px;color:var(--dim);margin-top:5px">${esc(brief.body)}</div>
+      ${brief.needs_decision ? `<div class="swap" style="margin-top:8px;text-align:left">Needs you: ${esc(brief.needs_decision)}</div>` : ''}
+      ${brief.stuck ? `<div style="margin-top:6px;font-size:12.5px;color:var(--warn)">Stuck: ${esc(brief.stuck)}</div>` : ''}
+    </div>` : '';
+
+  $('main').innerHTML = `
+    ${briefCard}
+    <div class="row" style="margin-bottom:10px">
+      <button class="primary" id="newmission">New mission</button>
+      <span style="font-size:12px;color:var(--faint)">${missions.length} total</span>
+    </div>
+    ${missions.length === 0 ? `<div class="empty">No missions yet. A mission is an objective that runs itself across many sessions.</div>` : ''}
+    <div class="grid">${missions.map((m) => {
+      const pct = m.total_steps ? Math.round((m.done_steps / m.total_steps) * 100) : 0;
+      return `
+      <div class="card" data-mission="${m.id}" style="cursor:pointer">
+        <div class="row"><h3>${esc(m.title)}</h3><span class="pill ${m.status}">${esc(m.status)}</span></div>
+        <div class="sub">${m.current_step ? esc(m.current_step) : (m.blocked_reason ? esc(m.blocked_reason) : '—')}</div>
+        <div class="bar"><i style="width:${pct}%;background:${m.failed_steps ? 'var(--warn)' : 'var(--ok)'}"></i></div>
+        <div class="meta">
+          <span><b>${m.done_steps}/${m.total_steps}</b> steps</span>
+          ${m.failed_steps ? `<span class="sev-warn">${m.failed_steps} failed</span>` : ''}
+          <span><b>${m.sessions_used}</b>/${m.max_sessions} sessions</span>
+          <span>${usd(m.cost_used)} / ${usd(m.max_cost_usd)}</span>
+          <span>${esc(m.agent ?? '')}</span>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+
+  $('main').querySelectorAll('[data-mission]').forEach((el) =>
+    el.onclick = () => { openMission = el.dataset.mission; render(); });
+
+  $('newmission').onclick = async () => {
+    const title = prompt('Mission title?');
+    if (!title) return;
+    const objective = prompt('What exactly should it accomplish? Be specific — this is stored verbatim and is the contract.');
+    if (!objective) return;
+    const acceptanceCriteria = prompt('How will we know it is done? (optional)') || undefined;
+    const workingDir = prompt('Working directory? (optional)') || undefined;
+    try {
+      await api('/api/missions', { method: 'POST', body: JSON.stringify({ title, objective, acceptanceCriteria, workingDir }) });
+      render();
+    } catch (e) { alert(e.message); }
+  };
+}
+
+async function renderMissionDetail() {
+  const d = await api(`/api/missions/${openMission}`);
+  const m = d.mission;
+  const stepPill = (s) => `<span class="pill ${s}">${esc(s)}</span>`;
+
+  $('main').innerHTML = `
+    <span class="back" id="back">← all missions</span>
+    <div class="card" style="margin-bottom:10px">
+      <div class="row"><h3>${esc(m.title)}</h3><span class="pill ${m.status}">${esc(m.status)}</span></div>
+      <div style="font-size:13px;white-space:pre-wrap;margin:6px 0;color:var(--dim)">${esc(m.objective)}</div>
+      ${m.acceptance_criteria ? `<div style="font-size:12.5px;color:var(--faint)"><b>Done when:</b> ${esc(m.acceptance_criteria)}</div>` : ''}
+      ${m.blocked_reason ? `<div class="swap" style="margin-top:8px;text-align:left">Blocked: ${esc(m.blocked_reason)}</div>` : ''}
+      <div class="meta">
+        <span><b>${m.sessions_used}</b>/${m.max_sessions} sessions</span>
+        <span>${usd(m.cost_used_usd)} / ${usd(m.max_cost_usd)}</span>
+        <span>${m.consecutive_failures} consecutive failures</span>
+      </div>
+      <div class="row" style="margin-top:9px;gap:6px">
+        <button id="m-pause">Pause</button>
+        <button id="m-resume">Resume</button>
+        <button id="m-retry">Retry failed</button>
+        <button class="danger" id="m-cancel">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:10px">
+      <div class="sub">Plan — ${d.steps.length} steps</div>
+      ${d.steps.map((s) => `
+        <div style="border-top:1px solid var(--line);padding:8px 0">
+          <div class="row">
+            <span style="font-size:13px"><b>${s.seq}.</b> ${esc(s.title)}
+              <span class="pill">${esc(s.kind)}</span></span>
+            ${stepPill(s.status)}
+          </div>
+          <div style="font-size:12px;color:var(--faint);margin-top:3px">${esc(s.instruction.slice(0, 200))}</div>
+          ${s.result ? `<div style="font-size:12px;color:var(--ok);margin-top:4px">✓ ${esc(s.result.slice(0, 300))}</div>` : ''}
+          ${s.failures ? `<div style="font-size:12px;color:var(--err);margin-top:4px">✕ ${esc(s.failures.slice(0, 300))}</div>` : ''}
+        </div>`).join('')}
+    </div>
+
+    <div class="card scroll-x">
+      <div class="sub">Log</div>
+      <table>${d.log.map((l) => `<tr class="sev-${l.level}">
+        <td class="mono">${ago(l.ts)}</td><td>${esc(l.message)}</td></tr>`).join('')}</table>
+    </div>`;
+
+  $('back').onclick = () => { openMission = null; render(); };
+  for (const a of ['pause', 'resume', 'retry', 'cancel']) {
+    $(`m-${a}`).onclick = async () => {
+      await api(`/api/missions/${openMission}/${a}`, { method: 'POST' });
+      render();
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Memory: semantic search over the whole personal corpus. This is the reason
 // everything gets stored — being able to ask your own history a question.
 // ---------------------------------------------------------------------------
@@ -512,7 +629,8 @@ async function renderEvents() {
 async function render() {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.tab === tab));
   try {
-    if (tab === 'agents') await renderAgents();
+    if (tab === 'missions') await renderMissions();
+    else if (tab === 'agents') await renderAgents();
     else if (tab === 'sessions') await renderSessions();
     else if (tab === 'brains') await renderBrains();
     else if (tab === 'memory') await renderMemory();
@@ -526,7 +644,12 @@ async function render() {
 }
 
 document.querySelectorAll('nav button').forEach((b) =>
-  b.onclick = () => { tab = b.dataset.tab; if (tab !== 'sessions') openSession = null; render(); });
+  b.onclick = () => {
+    tab = b.dataset.tab;
+    if (tab !== 'sessions') openSession = null;
+    if (tab !== 'missions') openMission = null;
+    render();
+  });
 
 $('panic').onclick = async () => {
   if (!confirm('Stop every running agent immediately?')) return;
@@ -541,7 +664,7 @@ render();
 // results and an open document, and silently re-rendering them under the user
 // would discard what they were reading.
 setInterval(() => {
-  const liveTabs = ['agents', 'sessions', 'brains', 'router', 'events'];
+  const liveTabs = ['missions', 'agents', 'sessions', 'brains', 'router', 'events'];
   if (!openSession && liveTabs.includes(tab)) render();
   else refreshStats();
 }, 8000);

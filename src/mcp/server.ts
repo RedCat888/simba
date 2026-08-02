@@ -160,6 +160,89 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'mission_plan',
+    description:
+      'Record the step-by-step plan for a mission. Call this exactly once during planning, ' +
+      'then stop — do not begin the work. Each instruction must be self-contained: a ' +
+      'different model on a different day will execute it knowing only the mission ' +
+      'objective and that instruction.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mission_id: { type: 'string' },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              instruction: { type: 'string' },
+              kind: {
+                type: 'string',
+                enum: ['research', 'provision', 'work', 'verify', 'report'],
+                description: 'provision = install/configure a tool; verify = run it and check real output',
+              },
+              depends_on: {
+                type: 'array',
+                items: { type: 'number' },
+                description: 'Step numbers (1-based) that must succeed first.',
+              },
+            },
+            required: ['title', 'instruction'],
+          },
+        },
+      },
+      required: ['mission_id', 'steps'],
+    },
+  },
+  {
+    name: 'mission_step_complete',
+    description:
+      'Report the outcome of the mission step you were given. Always call this. On failure, ' +
+      'state exactly what you tried and why it did not work — the retry receives this and ' +
+      'must not repeat it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        step_id: { type: 'string' },
+        status: { type: 'string', enum: ['succeeded', 'failed', 'blocked'] },
+        result: { type: 'string', description: 'What you accomplished, concretely.' },
+        failures: { type: 'string', description: 'On failure: what was tried and why it failed.' },
+      },
+      required: ['step_id', 'status'],
+    },
+  },
+  {
+    name: 'mission_add_step',
+    description:
+      'Insert a step the original plan missed — a dependency you discovered, a tool that ' +
+      'needs installing first. Use this instead of silently doing extra work, so the plan ' +
+      'stays an accurate record of what the mission actually required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mission_id: { type: 'string' },
+        title: { type: 'string' },
+        instruction: { type: 'string' },
+        kind: { type: 'string', enum: ['research', 'provision', 'work', 'verify', 'report'] },
+        before_seq: {
+          type: 'number',
+          description: 'Insert before this step number. Omit to append at the end.',
+        },
+      },
+      required: ['mission_id', 'title', 'instruction'],
+    },
+  },
+  {
+    name: 'mission_status',
+    description: 'Read a mission: its objective, plan, progress, and what has failed so far.',
+    inputSchema: {
+      type: 'object',
+      properties: { mission_id: { type: 'string' } },
+      required: ['mission_id'],
+    },
+  },
+  {
     name: 'action_claim',
     description:
       'Claim an irreversible external action BEFORE performing it — sending a message, ' +
@@ -421,6 +504,136 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
           );
         }
         return json(rows);
+      }
+
+      case 'mission_plan': {
+        const steps = (args.steps ?? []) as Array<Record<string, unknown>>;
+        if (steps.length === 0) return text('No steps supplied.');
+
+        await transaction(async (client) => {
+          await client.query(`DELETE FROM mission_steps WHERE mission_id = $1`, [args.mission_id]);
+          let seq = 0;
+          for (const s of steps) {
+            seq += 1;
+            await client.query(
+              `INSERT INTO mission_steps (mission_id, seq, title, instruction, kind, depends_on)
+               VALUES ($1,$2,$3,$4,$5,$6)`,
+              [
+                args.mission_id,
+                seq,
+                String(s.title ?? `step ${seq}`),
+                String(s.instruction ?? ''),
+                String(s.kind ?? 'work'),
+                Array.isArray(s.depends_on) ? (s.depends_on as number[]) : [],
+              ],
+            );
+          }
+          // Planning is finished the moment the plan exists; the executor picks
+          // it up on the next tick without needing to be told. Clearing the
+          // failure counter matters because planning is optimistically counted
+          // as a failure until a plan actually lands.
+          await client.query(
+            `UPDATE missions
+                SET status = 'running', consecutive_failures = 0,
+                    planning_session_id = NULL, updated_at = now()
+              WHERE id = $1`,
+            [args.mission_id],
+          );
+        });
+
+        await query(
+          `INSERT INTO mission_log (mission_id, message) VALUES ($1,$2)`,
+          [args.mission_id, `plan recorded: ${steps.length} steps`],
+        );
+        return text(`Plan recorded (${steps.length} steps). The mission is now running.`);
+      }
+
+      case 'mission_step_complete': {
+        const status = String(args.status);
+        const step = await one<{ mission_id: string; seq: number; title: string }>(
+          `UPDATE mission_steps
+              SET status = $2, result = $3, failures = COALESCE($4, failures),
+                  completed_at = now()
+            WHERE id = $1
+        RETURNING mission_id, seq, title`,
+          [args.step_id, status === 'blocked' ? 'failed' : status,
+           args.result ?? null, args.failures ?? null],
+        );
+        if (!step) return text('Unknown step id.');
+
+        // Consecutive failures drive the circuit breaker, so a success has to
+        // reset it — otherwise a mission that recovers still trips eventually.
+        await query(
+          status === 'succeeded'
+            ? `UPDATE missions SET consecutive_failures = 0, updated_at = now() WHERE id = $1`
+            : `UPDATE missions SET consecutive_failures = consecutive_failures + 1,
+                                   updated_at = now() WHERE id = $1`,
+          [step.mission_id],
+        );
+        await query(
+          `INSERT INTO mission_log (mission_id, step_id, level, message)
+           VALUES ($1,$2,$3,$4)`,
+          [step.mission_id, args.step_id, status === 'succeeded' ? 'info' : 'warn',
+           `step ${step.seq} "${step.title}" ${status}`],
+        );
+        return text(`Recorded step ${step.seq} as ${status}.`);
+      }
+
+      case 'mission_add_step': {
+        const before = args.before_seq ? Number(args.before_seq) : null;
+        const seq = await transaction(async (client) => {
+          if (before !== null) {
+            // Shift later steps down. depends_on holds step numbers, so those
+            // references have to move with them or the plan's ordering breaks.
+            await client.query(
+              `UPDATE mission_steps SET seq = seq + 1
+                WHERE mission_id = $1 AND seq >= $2`,
+              [args.mission_id, before],
+            );
+            await client.query(
+              `UPDATE mission_steps
+                  SET depends_on = ARRAY(SELECT CASE WHEN d >= $2 THEN d + 1 ELSE d END
+                                           FROM unnest(depends_on) AS d)
+                WHERE mission_id = $1`,
+              [args.mission_id, before],
+            );
+            return before;
+          }
+          const max = await client.query<{ m: number }>(
+            `SELECT coalesce(max(seq), 0) AS m FROM mission_steps WHERE mission_id = $1`,
+            [args.mission_id],
+          );
+          return (max.rows[0]?.m ?? 0) + 1;
+        });
+
+        await query(
+          `INSERT INTO mission_steps (mission_id, seq, title, instruction, kind)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [args.mission_id, seq, args.title, args.instruction, args.kind ?? 'work'],
+        );
+        await query(
+          `INSERT INTO mission_log (mission_id, message) VALUES ($1,$2)`,
+          [args.mission_id, `step inserted at ${seq}: ${String(args.title)}`],
+        );
+        return text(`Added step ${seq}.`);
+      }
+
+      case 'mission_status': {
+        const mission = await one(
+          `SELECT title, objective, acceptance_criteria, status, sessions_used, max_sessions,
+                  round(cost_used_usd,4) AS cost_used, max_cost_usd, consecutive_failures
+             FROM missions WHERE id = $1`,
+          [args.mission_id],
+        );
+        if (!mission) return text('Unknown mission id.');
+        const steps = await query(
+          `SELECT seq, title, kind, status, attempts,
+                  left(coalesce(result,''), 200) AS result,
+                  left(coalesce(failures,''), 300) AS failures
+             FROM mission_steps WHERE mission_id = $1 ORDER BY seq`,
+          [args.mission_id],
+        );
+        return json({ mission, steps });
       }
 
       case 'action_claim': {

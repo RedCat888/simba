@@ -17,7 +17,7 @@ import { config } from '../config.js';
  */
 
 const MCP_DIR = join(config.root, 'var', 'sessions');
-const SERVER = join(config.root, 'src', 'mcp', 'server.ts');
+const SERVER = join(config.root, 'dist', 'mcp-server.mjs');
 
 export async function mcpConfigPathFor(sessionId: string, agentId: string): Promise<string> {
   await mkdir(MCP_DIR, { recursive: true });
@@ -25,8 +25,21 @@ export async function mcpConfigPathFor(sessionId: string, agentId: string): Prom
   const cfg = {
     mcpServers: {
       simba: {
-        command: 'npx',
-        args: ['-y', 'tsx', SERVER],
+        // The real node binary, not `npx`. On Windows `npx` resolves to
+        // npx.ps1/npx.cmd — shims a direct CreateProcess cannot execute — so a
+        // config naming it silently yields a server that never starts, and the
+        // agent simply reports that its tools are unavailable. Same root cause
+        // as the .cmd argument bug in the Codex adapter.
+        // Plain node against a pre-bundled file. Anything requiring module
+        // resolution at launch — `npx`, a tsx loader, a bare specifier —
+        // resolves against the session's working directory, which is whatever
+        // project the agent is in, and fails there. The only symptom is that
+        // the agent reports its tools do not exist, which is indistinguishable
+        // from never having configured them. Run `npm run build:mcp` after
+        // changing the server.
+        command: process.execPath,
+        args: [SERVER],
+        cwd: config.root,
         env: {
           SIMBA_AGENT_ID: agentId,
           SIMBA_SESSION_ID: sessionId,

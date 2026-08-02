@@ -401,6 +401,114 @@ app.post('/api/sessions/:id/failover', async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// Missions
+// ---------------------------------------------------------------------------
+
+app.get('/api/missions', async (c) => {
+  const rows = await query(`SELECT * FROM mission_progress ORDER BY updated_at DESC LIMIT 60`);
+  return c.json(rows);
+});
+
+app.get('/api/missions/:id', async (c) => {
+  const id = c.req.param('id');
+  const [mission, steps, log] = await Promise.all([
+    one(`SELECT m.*, a.slug AS agent FROM missions m
+           LEFT JOIN agents a ON a.id = m.owner_agent_id WHERE m.id = $1`, [id]),
+    query(`SELECT seq, title, instruction, kind, status, attempts, depends_on,
+                  left(coalesce(result,''),600) AS result,
+                  left(coalesce(failures,''),600) AS failures,
+                  session_id, started_at, completed_at
+             FROM mission_steps WHERE mission_id = $1 ORDER BY seq`, [id]),
+    query(`SELECT ts, level, message FROM mission_log
+            WHERE mission_id = $1 ORDER BY ts DESC LIMIT 120`, [id]),
+  ]);
+  return mission ? c.json({ mission, steps, log }) : c.json({ error: 'not found' }, 404);
+});
+
+/**
+ * Create a mission. This is the entry point for "go do this and don't come back
+ * until it's done" — the objective is stored verbatim and decomposed by a
+ * planning session on the next supervisor tick.
+ */
+app.post('/api/missions', async (c) => {
+  const b = await c.req.json<{
+    title: string; objective: string; acceptanceCriteria?: string;
+    agent?: string; workingDir?: string; maxSessions?: number; maxCostUsd?: number;
+    cadence?: 'continuous' | 'scheduled'; cron?: string;
+  }>();
+  if (!b.title || !b.objective) return c.json({ error: 'title and objective required' }, 400);
+
+  const surface = await surfaceOf(c);
+  if (!surface) return c.json({ error: 'unknown origin surface' }, 403);
+
+  const row = await one<{ id: string }>(
+    `INSERT INTO missions (title, objective, acceptance_criteria, owner_agent_id,
+                           working_dir, max_sessions, max_cost_usd, cadence, cron,
+                           origin_surface_id, status)
+     VALUES ($1,$2,$3,
+             (SELECT id FROM agents WHERE slug = coalesce($4,'simba') AND retired_at IS NULL),
+             $5, coalesce($6,40), coalesce($7,25.0), coalesce($8,'continuous'), $9, $10, 'planning')
+     RETURNING id`,
+    [b.title, b.objective, b.acceptanceCriteria ?? null, b.agent ?? null,
+     b.workingDir ?? null, b.maxSessions ?? null, b.maxCostUsd ?? null,
+     b.cadence ?? null, b.cron ?? null, surface.id],
+  );
+
+  await query(`INSERT INTO mission_log (mission_id, message) VALUES ($1,$2)`,
+    [row?.id, `mission created from ${surface.slug}`]);
+  return c.json({ id: row?.id, status: 'planning' });
+});
+
+app.post('/api/missions/:id/:action', async (c) => {
+  const action = c.req.param('action');
+  const map: Record<string, string> = {
+    pause: 'paused', resume: 'running', cancel: 'cancelled', retry: 'running',
+  };
+  const status = map[action];
+  if (!status) return c.json({ error: `unknown action: ${action}` }, 400);
+
+  // Retry clears the circuit breaker and requeues failed steps; without that a
+  // retry on a blocked mission trips again on the next tick.
+  if (action === 'retry') {
+    await query(
+      `UPDATE mission_steps SET status = 'pending', attempts = 0
+        WHERE mission_id = $1 AND status = 'failed'`,
+      [c.req.param('id')],
+    );
+  }
+  await query(
+    `UPDATE missions SET status = $2, consecutive_failures = 0,
+                         blocked_reason = NULL, updated_at = now()
+      WHERE id = $1`,
+    [c.req.param('id'), status],
+  );
+  return c.json({ ok: true, status });
+});
+
+app.get('/api/briefs', async (c) => {
+  const rows = await query(
+    `SELECT id, kind, headline, body, needs_decision, stuck, active_agents,
+            active_missions, round(cost_since_last,4) AS cost, created_at, notified_at
+       FROM briefs ORDER BY created_at DESC LIMIT 40`,
+  );
+  return c.json(rows);
+});
+
+/** Undelivered briefs, for a phone poller or push worker to drain. */
+app.get('/api/briefs/pending', async (c) => {
+  const rows = await query(
+    `SELECT id, headline, body, needs_decision, stuck, created_at
+       FROM briefs WHERE notified_at IS NULL ORDER BY created_at LIMIT 10`,
+  );
+  return c.json(rows);
+});
+
+app.post('/api/briefs/:id/ack', async (c) => {
+  await query(`UPDATE briefs SET notified_at = now() WHERE id = $1`, [c.req.param('id')]);
+  return c.json({ ok: true });
+});
+
 app.get('/api/surfaces', async (c) => {
   const rows = await query(`SELECT * FROM surface_activity ORDER BY trust_level DESC`);
   return c.json(rows);

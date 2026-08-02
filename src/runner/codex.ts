@@ -97,10 +97,11 @@ class CodexSession implements RunnerSession {
     // session has no way to reach its own memory, and the agent correctly
     // reports that its tools are missing.
     if (this.spec.mcpConfigPath) {
-      const server = join(config.root, 'src', 'mcp', 'server.ts');
+      const server = join(config.root, 'dist', 'mcp-server.mjs');
       args.push(
-        '-c', `mcp_servers.simba.command="npx"`,
-        '-c', `mcp_servers.simba.args=["-y","tsx","${server.replace(/\\/g, '\\\\')}"]`,
+        '-c', `mcp_servers.simba.command="${process.execPath.replace(/\\/g, '\\\\')}"`,
+        '-c', `mcp_servers.simba.args=["${server.replace(/\\/g, '\\\\')}"]`,
+        '-c', `mcp_servers.simba.cwd="${config.root.replace(/\\/g, '\\\\')}"`,
         '-c', `mcp_servers.simba.env.SIMBA_AGENT_ID="${this.spec.agentId}"`,
         '-c', `mcp_servers.simba.env.SIMBA_SESSION_ID="${this.spec.sessionId}"`,
       );

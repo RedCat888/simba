@@ -41,6 +41,7 @@ export class MissionExecutor {
   async tick(): Promise<ExecutorStats> {
     const stats: ExecutorStats = { planned: 0, started: 0, reopened: 0, completed: 0, blocked: 0 };
 
+    await this.reapFinishedStepSessions();
     stats.reopened += await this.reopenOrphanedSteps();
     stats.blocked += await this.enforceBudgets();
     stats.planned += await this.planMissions();
@@ -49,6 +50,30 @@ export class MissionExecutor {
     await this.wakeScheduled();
 
     return stats;
+  }
+
+  /**
+   * Kills the session behind a step that has finished.
+   *
+   * A CLI session does not exit when it stops working — it goes idle and waits
+   * for more input. That is correct for a conversation and wrong for a mission
+   * step: the step is done, the process will never be spoken to again, and it
+   * holds a concurrency slot indefinitely. Without this the executor completes
+   * step one and then waits forever, which looks exactly like a hang.
+   */
+  private async reapFinishedStepSessions(): Promise<void> {
+    const finished = await query<{ session_id: string; seq: number; mission_id: string }>(
+      `SELECT st.session_id, st.seq, st.mission_id
+         FROM mission_steps st
+         JOIN sessions s ON s.id = st.session_id
+        WHERE st.status IN ('succeeded','failed','skipped')
+          AND s.status IN ('running','idle','pending')`,
+    );
+
+    for (const f of finished) {
+      await this.manager.kill(f.session_id);
+      await this.log(f.mission_id, `released session for finished step ${f.seq}`, 'info');
+    }
   }
 
   /**
@@ -174,7 +199,13 @@ export class MissionExecutor {
 
   /** Spawns sessions for runnable steps, one at a time per mission. */
   private async runSteps(maxConcurrent = 2): Promise<number> {
-    const running = this.manager.listLive().length;
+    // Counts steps actually executing, not live processes. An idle session left
+    // over from earlier conversational work is not mission capacity, and
+    // counting it starves missions on a machine that has been used at all.
+    const [busy] = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM mission_steps WHERE status = 'running'`,
+    );
+    const running = busy?.n ?? 0;
     if (running >= maxConcurrent) return 0;
 
     const steps = await query<{

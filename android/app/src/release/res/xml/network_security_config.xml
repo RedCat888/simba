@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release override: no cleartext anywhere, no exceptions.
+
+  The debug variant permits cleartext to loopback and the emulator host alias so
+  a local build can talk to the gateway directly. Carrying those exceptions into
+  a release build would mean a shipped app could be steered onto a plaintext
+  origin, which is exactly the thing the tunnel exists to avoid.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

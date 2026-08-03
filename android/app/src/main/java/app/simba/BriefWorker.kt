@@ -27,11 +27,16 @@ class BriefWorker(
 ) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
-        val api = SimbaApi(ctx.gatewayUrl(), ctx.gatewayToken())
+        val api = ctx.api()
 
-        val briefs = runCatching { api.briefs() }.getOrElse {
-            // The PC being asleep is expected, not an error worth retrying
-            // aggressively. Succeed quietly and try again next period.
+        val briefs = runCatching { api.briefs() }.getOrElse { err ->
+            // Previously every failure was swallowed identically, so an expired
+            // or revoked credential looked exactly like "the PC is asleep" and
+            // would have gone unnoticed for days. Unreachable is expected and
+            // stays quiet; not-authorised is a real problem and says so.
+            if (err is SimbaApi.ApiException && err.isAuthFailure) {
+                notifyAuthFailure(err.status)
+            }
             return Result.success()
         }
 
@@ -42,6 +47,30 @@ class BriefWorker(
         notify(latest)
         ctx.dataStore.edit { it[Prefs.LAST_BRIEF] = latest.id }
         return Result.success()
+    }
+
+    private fun notifyAuthFailure(status: Int) {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val open = PendingIntent.getActivity(
+            ctx, 1, Intent(ctx, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = NotificationCompat.Builder(ctx, BRIEF_CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle("Simba can't authenticate")
+            .setContentText(
+                if (status == 403) "Access rejected this device (403). The service token may be revoked."
+                else "Access credentials were not accepted (401). Re-enter them in System.",
+            )
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+
+        ctx.getSystemService(NotificationManager::class.java).notify(9001, n)
     }
 
     private fun notify(brief: Brief) {

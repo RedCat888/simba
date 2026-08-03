@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -100,7 +101,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
     var ready by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        vm.api = SimbaApi(ctx.gatewayUrl(), ctx.gatewayToken())
+        vm.api = ctx.api()
         ready = true
         vm.refresh()
     }
@@ -146,10 +147,10 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     Tab.Missions -> MissionsScreen(vm) { openMission = it }
                     Tab.Agents -> AgentsScreen(vm)
                     Tab.Memory -> MemoryScreen(vm)
-                    Tab.System -> SystemScreen(vm) { url, token ->
+                    Tab.System -> SystemScreen(vm) { url, token, clientId, clientSecret ->
                         scope.launch {
-                            ctx.saveGateway(url, token)
-                            vm.api = SimbaApi(url, token)
+                            ctx.saveGateway(url, token, clientId, clientSecret)
+                            vm.api = ctx.api()
                             vm.refresh()
                         }
                     }
@@ -664,14 +665,21 @@ private fun MemoryScreen(vm: SimbaVm) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SystemScreen(vm: SimbaVm, save: (String, String) -> Unit) {
+private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var url by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
+    var clientId by remember { mutableStateOf("") }
+    var clientSecret by remember { mutableStateOf("") }
     var confirmPanic by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) { url = ctx.gatewayUrl(); token = ctx.gatewayToken() }
+    LaunchedEffect(Unit) {
+        url = ctx.gatewayUrl()
+        token = ctx.gatewayToken()
+        clientId = ctx.accessClientId()
+        clientSecret = ctx.accessClientSecret()
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
@@ -718,9 +726,40 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String) -> Unit) {
                     focusedTextColor = Fg, unfocusedTextColor = Fg,
                 ),
             )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Cloudflare Access service token — required when reaching Simba over the tunnel.",
+                fontSize = 11.sp,
+                color = Faint,
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = clientId,
+                onValueChange = { clientId = it },
+                label = { Text("CF-Access-Client-Id", fontSize = 12.sp) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Accent, unfocusedBorderColor = Line,
+                    focusedTextColor = Fg, unfocusedTextColor = Fg,
+                ),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = clientSecret,
+                onValueChange = { clientSecret = it },
+                label = { Text("CF-Access-Client-Secret", fontSize = 12.sp) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Accent, unfocusedBorderColor = Line,
+                    focusedTextColor = Fg, unfocusedTextColor = Fg,
+                ),
+            )
             Spacer(Modifier.height(10.dp))
             Button(
-                onClick = { save(url, token) },
+                onClick = { save(url, token, clientId, clientSecret) },
                 colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF1A1206)),
             ) { Text("Save & reconnect", fontWeight = FontWeight.SemiBold) }
         }

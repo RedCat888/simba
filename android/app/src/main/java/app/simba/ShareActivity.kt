@@ -124,7 +124,7 @@ class ShareActivity : ComponentActivity() {
                             scope.launch {
                                 sending = true
                                 failure = null
-                                val api = SimbaApi(gatewayUrl(), gatewayToken())
+                                val api = api()
                                 val payload =
                                     if (note.isBlank()) shared else "$shared\n\n---\n$note"
                                 runCatching { api.capture(payload, "android-share") }

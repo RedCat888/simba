@@ -32,10 +32,13 @@ android {
         }
         release {
             isMinifyEnabled = false
+            // Release points at the tunnel over HTTPS. The emulator alias is a
+            // debug-only convenience and must not be the default on a build
+            // that ships to the phone.
             buildConfigField(
                 "String",
                 "DEFAULT_GATEWAY",
-                "\"${project.findProperty("simba.gateway") ?: "http://10.0.2.2:8787"}\"",
+                "\"${project.findProperty("simba.gateway") ?: "https://simba.plaximus.com"}\"",
             )
             // Signed with the debug key on purpose: this is a personal
             // sideloaded app, never a Play Store artifact, and a release build
@@ -84,6 +87,11 @@ dependencies {
     // being open.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Keystore-backed storage for the Access service token. It authenticates to
+    // a gateway that can start agents with a full shell, so it does not belong
+    // in plaintext preferences.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.compose.ui:ui-tooling-preview")

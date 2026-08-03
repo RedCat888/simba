@@ -152,6 +152,21 @@ data class StartResult(
 class SimbaApi(
     @Volatile var baseUrl: String,
     @Volatile var token: String = "",
+    /**
+     * Cloudflare Access service-token pair.
+     *
+     * A native client cannot complete Access's interactive login: Google
+     * refuses OAuth inside embedded WebViews, and a Custom Tab's cookies live
+     * in the browser's jar where OkHttp cannot reach them. A service token is
+     * the supported non-interactive path, and it is also the only thing that
+     * works for the headless brief poller, which runs with no UI attached.
+     *
+     * Treat it as an SSH key: it authenticates to a gateway that can start
+     * agents holding a full shell. Stored encrypted, revocable from the
+     * Cloudflare dashboard.
+     */
+    @Volatile var accessClientId: String = "",
+    @Volatile var accessClientSecret: String = "",
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
@@ -164,15 +179,26 @@ class SimbaApi(
         .retryOnConnectionFailure(true)
         .build()
 
-    class ApiException(message: String) : Exception(message)
+    /** `status` is carried so callers can tell "not authorised" from "unreachable". */
+    class ApiException(message: String, val status: Int = 0) : Exception(message) {
+        val isAuthFailure: Boolean get() = status == 401 || status == 403
+    }
 
     private fun req(path: String): Request.Builder {
         val b = Request.Builder().url(baseUrl.trimEnd('/') + path)
         if (token.isNotBlank()) b.header("Authorization", "Bearer $token")
-        // Declares which surface this is, so the gateway applies phone policy.
-        // It can only ever narrow authority server-side, never widen it, so
-        // sending it is safe even though the client controls the header.
-        b.header("X-Simba-Surface", "phone")
+
+        // Cloudflare validates these at the edge and, on success, injects a
+        // signed assertion the gateway verifies. Requests without them never
+        // reach the origin at all.
+        if (accessClientId.isNotBlank() && accessClientSecret.isNotBlank()) {
+            b.header("CF-Access-Client-Id", accessClientId)
+            b.header("CF-Access-Client-Secret", accessClientSecret)
+        }
+
+        // X-Simba-Surface is deliberately no longer sent. The gateway derives
+        // the surface from the verified Access identity; a client-asserted
+        // surface was never a real constraint.
         return b
     }
 
@@ -182,6 +208,7 @@ class SimbaApi(
             if (!res.isSuccessful) {
                 throw ApiException(
                     if (body.isNotBlank()) body.take(300) else "HTTP ${res.code}",
+                    res.code,
                 )
             }
             body

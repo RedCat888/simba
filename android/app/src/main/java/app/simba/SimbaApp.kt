@@ -78,11 +78,24 @@ class SimbaApp : Application() {
 suspend fun Context.gatewayUrl(): String =
     dataStore.data.first()[Prefs.GATEWAY] ?: BuildConfig.DEFAULT_GATEWAY
 
-suspend fun Context.gatewayToken(): String = dataStore.data.first()[Prefs.TOKEN] ?: ""
+// Credentials live in Keystore-backed storage, not DataStore. Only the URL —
+// which is not a secret — stays in plain preferences.
+fun Context.gatewayToken(): String = Secrets.gatewayToken(this)
 
-suspend fun Context.saveGateway(url: String, token: String) {
-    dataStore.edit {
-        it[Prefs.GATEWAY] = url.trim()
-        it[Prefs.TOKEN] = token.trim()
-    }
+fun Context.accessClientId(): String = Secrets.accessClientId(this)
+
+fun Context.accessClientSecret(): String = Secrets.accessClientSecret(this)
+
+/** Builds a client with everything it needs, so the three call sites cannot drift. */
+suspend fun Context.api(): SimbaApi =
+    SimbaApi(gatewayUrl(), gatewayToken(), accessClientId(), accessClientSecret())
+
+suspend fun Context.saveGateway(
+    url: String,
+    token: String,
+    clientId: String,
+    clientSecret: String,
+) {
+    dataStore.edit { it[Prefs.GATEWAY] = url.trim() }
+    Secrets.save(this, clientId, clientSecret, token)
 }

@@ -6,6 +6,8 @@ import { Router } from '../router/index.js';
 import { MissionExecutor } from '../missions/executor.js';
 import { generateBrief } from './brief.js';
 import { Reaper } from './reaper.js';
+import { Telemetry } from './telemetry.js';
+import { saveHandoff } from '../tools/handoff.js';
 
 /**
  * The supervisor.
@@ -27,6 +29,8 @@ export class Supervisor {
   private readonly router: Router;
   private readonly missions: MissionExecutor;
   private readonly reaper: Reaper;
+  private readonly telemetry = new Telemetry();
+  private lastHandoff = 0;
   private readonly briefIntervalMinutes = Number(process.env.SIMBA_BRIEF_MINUTES ?? 30);
 
   constructor(private readonly manager: SessionManager) {
@@ -77,7 +81,15 @@ export class Supervisor {
       await this.missions.tick();
       await this.reaper.tick();
       await this.reaper.checkPressure();
+      await this.telemetry.tick();
       await this.maintain();
+
+      // Regenerated periodically so a session that dies unexpectedly still
+      // leaves a current handoff behind rather than one from hours ago.
+      if (Date.now() - this.lastHandoff > 15 * 60_000) {
+        this.lastHandoff = Date.now();
+        await saveHandoff().catch(() => {});
+      }
       await this.titleUntitledSessions();
       await this.rollUpMissionCost();
       await generateBrief(this.briefIntervalMinutes);

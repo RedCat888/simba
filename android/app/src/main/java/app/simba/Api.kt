@@ -1,0 +1,270 @@
+package com.operator.simba
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
+
+// ---------------------------------------------------------------------------
+// Wire models.
+//
+// Every field is optional or defaulted. The gateway evolves faster than the
+// app can be reinstalled, and a strict parser turns an added column into a
+// blank screen with no explanation.
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class Stats(
+    val agents: Int = 0,
+    @SerialName("active_sessions") val activeSessions: Int = 0,
+    @SerialName("total_sessions") val totalSessions: Int = 0,
+    val messages: Int = 0,
+    val embeddings: Int = 0,
+    @SerialName("total_cost") val totalCost: Double = 0.0,
+    @SerialName("brains_available") val brainsAvailable: Int = 0,
+    @SerialName("brains_limited") val brainsLimited: Int = 0,
+)
+
+@Serializable
+data class Mission(
+    val id: String = "",
+    val title: String = "",
+    val status: String = "",
+    val agent: String? = null,
+    @SerialName("current_step") val currentStep: String? = null,
+    @SerialName("blocked_reason") val blockedReason: String? = null,
+    @SerialName("done_steps") val doneSteps: Int = 0,
+    @SerialName("total_steps") val totalSteps: Int = 0,
+    @SerialName("failed_steps") val failedSteps: Int = 0,
+    @SerialName("sessions_used") val sessionsUsed: Int = 0,
+    @SerialName("max_sessions") val maxSessions: Int = 0,
+    @SerialName("cost_used") val costUsed: Double = 0.0,
+    @SerialName("max_cost_usd") val maxCost: Double = 0.0,
+)
+
+@Serializable
+data class MissionStep(
+    val seq: Int = 0,
+    val title: String = "",
+    val instruction: String = "",
+    val kind: String = "work",
+    val status: String = "pending",
+    val attempts: Int = 0,
+    val result: String? = null,
+    val failures: String? = null,
+)
+
+@Serializable
+data class MissionDetail(
+    val mission: MissionFull = MissionFull(),
+    val steps: List<MissionStep> = emptyList(),
+)
+
+@Serializable
+data class MissionFull(
+    val id: String = "",
+    val title: String = "",
+    val objective: String = "",
+    val status: String = "",
+    @SerialName("acceptance_criteria") val acceptanceCriteria: String? = null,
+    @SerialName("blocked_reason") val blockedReason: String? = null,
+    @SerialName("sessions_used") val sessionsUsed: Int = 0,
+    @SerialName("max_sessions") val maxSessions: Int = 0,
+)
+
+@Serializable
+data class Agent(
+    val id: String = "",
+    val slug: String = "",
+    val name: String = "",
+    val tier: Int = 1,
+    val domain: String? = null,
+    val description: String? = null,
+    val status: String = "idle",
+    @SerialName("model_tier") val modelTier: String = "mid",
+    @SerialName("active_sessions") val activeSessions: Int = 0,
+    @SerialName("total_cost") val totalCost: Double = 0.0,
+)
+
+@Serializable
+data class Brain(
+    val slug: String = "",
+    val label: String = "",
+    val provider: String = "",
+    val status: String = "",
+    @SerialName("limit_resets_at") val limitResetsAt: String? = null,
+    @SerialName("cost_7d") val cost7d: Double? = 0.0,
+)
+
+@Serializable
+data class Brief(
+    val id: String = "",
+    val headline: String = "",
+    val body: String = "",
+    @SerialName("needs_decision") val needsDecision: String? = null,
+    val stuck: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class SessionRow(
+    val id: String = "",
+    val agent: String = "",
+    val status: String = "",
+    val title: String? = null,
+    val brain: String? = null,
+    @SerialName("total_cost_usd") val cost: Double = 0.0,
+    @SerialName("swap_count") val swapCount: Int = 0,
+)
+
+@Serializable
+data class Message(
+    val seq: Long = 0,
+    val role: String = "",
+    val content: String? = null,
+)
+
+@Serializable
+data class MemoryHit(
+    val source: String? = null,
+    val title: String? = null,
+    val relevance: Double = 0.0,
+    val content: String = "",
+)
+
+@Serializable
+data class StartResult(
+    val sessionId: String? = null,
+    val error: String? = null,
+    val note: String? = null,
+)
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+class SimbaApi(
+    @Volatile var baseUrl: String,
+    @Volatile var token: String = "",
+) {
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        // Long: a request can be waiting on an agent turn, which legitimately
+        // takes minutes. A short read timeout here shows as a spurious failure.
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    class ApiException(message: String) : Exception(message)
+
+    private fun req(path: String): Request.Builder {
+        val b = Request.Builder().url(baseUrl.trimEnd('/') + path)
+        if (token.isNotBlank()) b.header("Authorization", "Bearer $token")
+        // Declares which surface this is, so the gateway applies phone policy.
+        // It can only ever narrow authority server-side, never widen it, so
+        // sending it is safe even though the client controls the header.
+        b.header("X-Simba-Surface", "phone")
+        return b
+    }
+
+    private suspend fun call(request: Request): String = withContext(Dispatchers.IO) {
+        client.newCall(request).execute().use { res ->
+            val body = res.body?.string().orEmpty()
+            if (!res.isSuccessful) {
+                throw ApiException(
+                    if (body.isNotBlank()) body.take(300) else "HTTP ${res.code}",
+                )
+            }
+            body
+        }
+    }
+
+    private suspend inline fun <reified T> get(path: String): T =
+        json.decodeFromString(call(req(path).get().build()))
+
+    private suspend inline fun <reified T> post(path: String, bodyJson: String = "{}"): T =
+        json.decodeFromString(
+            call(req(path).post(bodyJson.toRequestBody("application/json".toMediaType())).build()),
+        )
+
+    suspend fun stats(): Stats = get("/api/stats")
+    suspend fun missions(): List<Mission> = get("/api/missions")
+    suspend fun mission(id: String): MissionDetail = get("/api/missions/$id")
+    suspend fun agents(): List<Agent> = get("/api/agents")
+    suspend fun brains(): List<Brain> = get("/api/brains")
+    suspend fun briefs(): List<Brief> = get("/api/briefs")
+    suspend fun sessions(): List<SessionRow> = get("/api/sessions")
+    suspend fun messages(id: String): List<Message> = get("/api/sessions/$id/messages")
+
+    suspend fun search(q: String): List<MemoryHit> =
+        get("/api/knowledge/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"))
+
+    suspend fun send(sessionId: String, text: String): String =
+        call(
+            req("/api/sessions/$sessionId/send")
+                .post(
+                    json.encodeToString(
+                        kotlinx.serialization.json.JsonObject.serializer(),
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("text", kotlinx.serialization.json.JsonPrimitive(text))
+                        },
+                    ).toRequestBody("application/json".toMediaType()),
+                ).build(),
+        )
+
+    suspend fun startAgent(slug: String, prompt: String): StartResult =
+        post(
+            "/api/agents/$slug/start",
+            json.encodeToString(
+                kotlinx.serialization.json.JsonObject.serializer(),
+                kotlinx.serialization.json.buildJsonObject {
+                    put("prompt", kotlinx.serialization.json.JsonPrimitive(prompt))
+                },
+            ),
+        )
+
+    suspend fun missionAction(id: String, action: String): String =
+        call(req("/api/missions/$id/$action").post("{}".toRequestBody("application/json".toMediaType())).build())
+
+    suspend fun createMission(title: String, objective: String, criteria: String?): String =
+        call(
+            req("/api/missions").post(
+                json.encodeToString(
+                    kotlinx.serialization.json.JsonObject.serializer(),
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("title", kotlinx.serialization.json.JsonPrimitive(title))
+                        put("objective", kotlinx.serialization.json.JsonPrimitive(objective))
+                        if (!criteria.isNullOrBlank()) {
+                            put("acceptanceCriteria", kotlinx.serialization.json.JsonPrimitive(criteria))
+                        }
+                    },
+                ).toRequestBody("application/json".toMediaType()),
+            ).build(),
+        )
+
+    /** The share-sheet path: capture something from another app into intake. */
+    suspend fun capture(text: String, source: String): String =
+        call(
+            req("/api/capture").post(
+                json.encodeToString(
+                    kotlinx.serialization.json.JsonObject.serializer(),
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("content", kotlinx.serialization.json.JsonPrimitive(text))
+                        put("source", kotlinx.serialization.json.JsonPrimitive(source))
+                    },
+                ).toRequestBody("application/json".toMediaType()),
+            ).build(),
+        )
+
+    suspend fun panic(): String =
+        call(req("/api/panic").post("{}".toRequestBody("application/json".toMediaType())).build())
+}

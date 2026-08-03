@@ -5,6 +5,7 @@ import { cheapComplete } from '../hydration/cheap.js';
 import { Router } from '../router/index.js';
 import { MissionExecutor } from '../missions/executor.js';
 import { generateBrief } from './brief.js';
+import { Reaper } from './reaper.js';
 
 /**
  * The supervisor.
@@ -25,11 +26,13 @@ export class Supervisor {
   private running = false;
   private readonly router: Router;
   private readonly missions: MissionExecutor;
+  private readonly reaper: Reaper;
   private readonly briefIntervalMinutes = Number(process.env.SIMBA_BRIEF_MINUTES ?? 30);
 
   constructor(private readonly manager: SessionManager) {
     this.router = new Router(manager);
     this.missions = new MissionExecutor(manager);
+    this.reaper = new Reaper(manager);
   }
 
   /**
@@ -72,6 +75,8 @@ export class Supervisor {
       await this.detectStalls();
       await this.router.tick();
       await this.missions.tick();
+      await this.reaper.tick();
+      await this.reaper.checkPressure();
       await this.maintain();
       await this.titleUntitledSessions();
       await this.rollUpMissionCost();

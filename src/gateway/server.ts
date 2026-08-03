@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { config } from '../config.js';
-import { query, one } from '../db/index.js';
+import { query, one, recordEvent } from '../db/index.js';
 import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
 import { recall } from '../knowledge/embed.js';
@@ -399,6 +399,64 @@ app.post('/api/sessions/:id/failover', async (c) => {
   if (!live) return c.json({ error: 'session is not live' }, 409);
   await manager.failover(live, 'manual');
   return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Capture
+// ---------------------------------------------------------------------------
+
+/**
+ * Universal intake. The Android share sheet posts here, and so will Instagram
+ * intake and webhooks. Deliberately does no work synchronously — capture must
+ * feel instant from the phone, and triage happens on the supervisor's schedule.
+ */
+app.post('/api/capture', async (c) => {
+  const b = await c.req.json<{ content: string; source?: string; url?: string; note?: string }>();
+  if (!b.content?.trim()) return c.json({ error: 'content required' }, 400);
+
+  const surface = await surfaceOf(c);
+
+  // A URL is the single most useful thing to have extracted up front, since it
+  // decides most of the routing.
+  const url = b.url ?? b.content.match(/https?:\/\/[^\s<>"')]+/)?.[0] ?? null;
+
+  const row = await one<{ id: string }>(
+    `INSERT INTO captures (source, content, url, note, origin_surface_id)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+    [b.source ?? 'unknown', b.content, url, b.note ?? null, surface?.id ?? null],
+  );
+
+  await recordEvent({
+    type: 'capture.received',
+    message: `captured from ${b.source ?? 'unknown'}${url ? `: ${url}` : ''}`,
+    data: { captureId: row?.id, hasUrl: Boolean(url) },
+  });
+
+  return c.json({ id: row?.id, status: 'pending' });
+});
+
+app.get('/api/captures', async (c) => {
+  const rows = await query(
+    `SELECT c.id, c.source, left(c.content, 400) AS content, c.url, c.kind, c.title,
+            c.summary, c.tags, c.status, c.note, c.created_at, a.slug AS routed_to
+       FROM captures c
+       LEFT JOIN agents a ON a.id = c.routed_agent_id
+      ORDER BY c.created_at DESC LIMIT 100`,
+  );
+  return c.json(rows);
+});
+
+app.post('/api/captures/:id/:action', async (c) => {
+  const action = c.req.param('action');
+  const map: Record<string, string> = { reject: 'rejected', done: 'done', requeue: 'pending' };
+  const status = map[action];
+  if (!status) return c.json({ error: `unknown action: ${action}` }, 400);
+  await query(
+    `UPDATE captures SET status = $2, resolved_at = CASE WHEN $2 IN ('rejected','done')
+       THEN now() ELSE NULL END WHERE id = $1`,
+    [c.req.param('id'), status],
+  );
+  return c.json({ ok: true, status });
 });
 
 // ---------------------------------------------------------------------------

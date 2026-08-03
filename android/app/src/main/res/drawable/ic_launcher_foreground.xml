@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stylised "S" mark. Vector rather than raster so there is one asset instead
+     of five density buckets, and it stays sharp at any launcher size. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#F5A524"
+        android:pathData="M68,38.5c0,-5.5 -5.5,-9.5 -14,-9.5c-9,0 -15.5,4.5 -15.5,12c0,6.5 4.5,10 14,12.5l5,1.3c5.5,1.5 7.5,3 7.5,5.7c0,3.2 -3.2,5.5 -8.5,5.5c-5.8,0 -9.5,-2.5 -10,-6.8l-9.5,0c0.5,9.2 7.8,14.8 19.2,14.8c10.5,0 18,-5.2 18,-13.5c0,-6.8 -4.2,-10.5 -13.8,-13l-5.2,-1.4c-5.2,-1.4 -7.5,-2.8 -7.5,-5.4c0,-3 3,-5 7.8,-5c4.8,0 8,2 8.5,5.8z" />
+    <path
+        android:fillColor="#3ECF8E"
+        android:pathData="M30,78m0,-3a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#5B9BF8"
+        android:pathData="M51,78m0,-3a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#F5555A"
+        android:pathData="M72,78m0,-3a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+</vector>

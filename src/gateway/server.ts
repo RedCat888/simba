@@ -9,6 +9,7 @@ import { query, one, recordEvent } from '../db/index.js';
 import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
 import { recall } from '../knowledge/embed.js';
+import { askDecisions } from '../knowledge/decisions.js';
 import {
   resolveSurface,
   canReachAgent,
@@ -211,6 +212,37 @@ app.get('/api/knowledge/search', async (c) => {
       content: h.content.slice(0, 1500),
     })),
   );
+});
+
+/**
+ * "What did I decide about X" — the question raw semantic search answers badly,
+ * because a conversation about a decision is mostly deliberation.
+ */
+app.get('/api/decisions/ask', async (c) => {
+  const q = c.req.query('q');
+  if (!q) return c.json({ error: 'q required' }, 400);
+  return c.json(await askDecisions(q, Number(c.req.query('limit') ?? 8)));
+});
+
+app.get('/api/decisions', async (c) => {
+  const rows = await query(
+    `SELECT * FROM current_decisions ORDER BY decided_at DESC NULLS LAST LIMIT 100`,
+  );
+  return c.json(rows);
+});
+
+app.get('/api/decisions/stats', async (c) => {
+  const row = await one(
+    `SELECT
+       (SELECT count(*)::int FROM decisions)                            AS total,
+       (SELECT count(*)::int FROM decisions WHERE status='current')     AS current,
+       (SELECT count(*)::int FROM decisions WHERE status='superseded')  AS superseded,
+       (SELECT count(*)::int FROM decision_extractions)                 AS items_scanned,
+       (SELECT count(*)::int FROM knowledge_items i JOIN knowledge_sources s ON s.id=i.source_id
+         WHERE s.kind IN ('chatgpt_export','claude_export','obsidian')
+           AND length(i.content) > 400)                                 AS items_eligible`,
+  );
+  return c.json(row);
 });
 
 app.get('/api/knowledge/sources', async (c) => {

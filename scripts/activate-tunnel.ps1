@@ -45,7 +45,13 @@ Write-Host '=== 2. Persist Access settings for the gateway ===' -ForegroundColor
 Write-Host '  ok - the gateway now refuses to start if any of these go missing' -ForegroundColor Green
 
 Write-Host '=== 3. Create the DNS route ===' -ForegroundColor Cyan
-& $cf tunnel route dns $Tunnel $Hostname
+# cloudflared writes its INF logs to stderr, which PowerShell turns into error
+# records that trip ErrorActionPreference='Stop'. Redirect and judge by content,
+# not by the presence of stderr output.
+$dnsOut = (& $cf tunnel route dns $Tunnel $Hostname 2>&1 | Out-String)
+if ($dnsOut -notmatch 'Added CNAME|already (exists|configured)') {
+    throw "DNS route failed: $dnsOut"
+}
 Write-Host "  ok - $Hostname" -ForegroundColor Green
 
 Write-Host '=== 4. Restart the gateway with the tunnel listener enabled ===' -ForegroundColor Cyan

@@ -24,6 +24,16 @@ export interface CheapOptions {
   configDir?: string | null;
   maxChars?: number;
   timeoutMs?: number;
+  /**
+   * Skip the local model and go straight to the cheapest hosted tier.
+   *
+   * Local models are the right default for bulk summarization, where being
+   * roughly right is enough. They are measurably worse at judgement calls that
+   * need instructions followed precisely — asked to extract decisions and told
+   * not to include facts, a 14b quant returns facts anyway. When the output is
+   * permanent and the volume is bounded, that trade goes the other way.
+   */
+  preferQuality?: boolean;
 }
 
 /** Local Ollama. Free, no subscription consumed, good enough for summaries. */
@@ -68,13 +78,53 @@ async function claudeCheapComplete(
 
     const { stdout } = await execFileAsync(
       CLAUDE_BIN,
-      ['-p', prompt, '--model', 'haiku', '--output-format', 'json', '--permission-mode', 'bypassPermissions', '--tools', ''],
+      [
+        '-p', prompt,
+        '--model', 'haiku',
+        '--output-format', 'json',
+        '--permission-mode', 'bypassPermissions',
+        // No `--tools ''`. An empty string is dropped by the argument parser,
+        // so the flag then reports "argument missing" and the whole call fails
+        // — silently, because the caller only sees null.
+        //
+        // --strict-mcp-config with no --mcp-config suppresses every ambient MCP
+        // server. Without it this loads the full claude.ai connector set and
+        // pays ~8k cache-creation tokens per call, on what is supposed to be
+        // the cheap path.
+        '--strict-mcp-config',
+      ],
       { env, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
     );
-    const parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
-    if (parsed.is_error) return null;
-    return parsed.result?.trim() ?? null;
-  } catch {
+    // `--output-format json` emits an ARRAY of stream events, not a single
+    // result object. Reading `.result` off the array yielded undefined, so this
+    // returned null on every successful call — and because null is
+    // indistinguishable from "the model found nothing" at the call site, the
+    // whole hosted path looked like it was working and returning empty.
+    // Both shapes are accepted so a future format change degrades rather than
+    // silently zeroes out.
+    const parsed = JSON.parse(stdout) as unknown;
+    const result = Array.isArray(parsed)
+      ? (parsed as Array<Record<string, unknown>>).find((e) => e.type === 'result')
+      : (parsed as Record<string, unknown>);
+
+    if (!result) {
+      console.error('[cheap] no result event in hosted response');
+      return null;
+    }
+    if (result.is_error) {
+      console.error('[cheap] hosted call reported an error:', String(result.result).slice(0, 200));
+      return null;
+    }
+    const text = typeof result.result === 'string' ? result.result.trim() : '';
+    return text.length > 0 ? text : null;
+  } catch (err) {
+    // Logged rather than swallowed. A null here is indistinguishable from "the
+    // model found nothing" at every call site, which is exactly how a broken
+    // hosted-tier call passed for precise extraction across 32 items.
+    console.error(
+      '[cheap] hosted completion failed:',
+      err instanceof Error ? err.message.slice(0, 200) : err,
+    );
     return null;
   }
 }
@@ -87,8 +137,10 @@ export async function cheapComplete(
   const maxChars = opts.maxChars ?? 60_000;
   const trimmed = prompt.length > maxChars ? prompt.slice(0, maxChars) + '\n…[truncated]' : prompt;
 
-  const local = await ollamaComplete(trimmed, timeoutMs);
-  if (local) return local;
+  if (!opts.preferQuality) {
+    const local = await ollamaComplete(trimmed, timeoutMs);
+    if (local) return local;
+  }
 
   return claudeCheapComplete(trimmed, opts.configDir, timeoutMs);
 }

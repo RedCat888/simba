@@ -22,6 +22,25 @@ Do NOT extract:
 - questions, options being weighed, or things merely discussed
 - general facts, definitions, or explanations
 - anything the assistant suggested that the person did not adopt
+- **step-by-step working through a problem.** "I'm integrating this term by term",
+  "I'll start with the Maclaurin series", "for part (c) I'm using..." are moves inside
+  a single exercise, not decisions. Homework, math derivations, debugging narration and
+  worked examples contain NO decisions no matter how many sentences start with "I'm".
+- **anything only true for the next few minutes.** A decision is something that would
+  still be worth knowing in six months. If it stops mattering once this conversation
+  ends, it is not one.
+
+Extract ONLY what the PERSON decided. The transcript contains an assistant too, and
+its advice, plans and explanations are not the person's decisions:
+- "The user should confirm their 2FA is app-based" — assistant advice, skip
+- "I will check the payment deadlines" — assistant announcing its own next step, skip
+- "Your tuition is due September 3" — a fact the assistant stated, skip
+Anything addressed TO the person ("you should", "your X is") is by definition not
+their decision. A decision is in the person's voice about their own choice.
+
+Test before extracting: would someone reading this in a year think "right, that is
+what I settled on"? If it reads as narration of an in-progress task, or as advice
+someone gave, skip it.
 
 For each decision give:
   "statement"  - the conclusion as a claim, in the person's own terms. Specific, standalone, under 200 chars.
@@ -61,6 +80,28 @@ function parseArray(raw: string | null): Extracted[] {
 }
 
 const VALID_CONFIDENCE = new Set(['acted_on', 'decided', 'stated', 'considered']);
+
+/**
+ * Models return their own vocabulary regardless of the enum they were given —
+ * "high"/"medium"/"low" is common. Mapping those beats defaulting them all to
+ * `stated`, which would silently demote firm decisions into the tier the vault
+ * filters out.
+ */
+const CONFIDENCE_ALIASES: Record<string, string> = {
+  high: 'decided',
+  medium: 'stated',
+  low: 'considered',
+  certain: 'decided',
+  done: 'acted_on',
+  implemented: 'acted_on',
+  tentative: 'considered',
+};
+
+function normalizeConfidence(raw: string | undefined): string {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (VALID_CONFIDENCE.has(v)) return v;
+  return CONFIDENCE_ALIASES[v] ?? 'stated';
+}
 
 export interface ExtractStats {
   scanned: number;
@@ -105,12 +146,17 @@ export async function extractDecisions(limit = 50): Promise<ExtractStats> {
         ? item.content.slice(-12_000)
         : item.content;
 
-      const found = parseArray(await cheapComplete(EXTRACT_PROMPT + text, { maxChars: 16_000 }));
+      // Quality tier on purpose. This writes permanently into a personal
+      // decision index that later answers "what did I decide about X", and the
+      // local model demonstrably ignores the "no facts, no advice" constraints
+      // — it returned things like "At higher temperatures, Kw increases" as
+      // decisions. A bounded one-time pass is worth the cheapest hosted tier.
+      const found = parseArray(
+        await cheapComplete(EXTRACT_PROMPT + text, { maxChars: 16_000, preferQuality: true }),
+      );
 
       for (const d of found) {
-        const confidence = VALID_CONFIDENCE.has(d.confidence ?? '')
-          ? d.confidence!
-          : 'stated';
+        const confidence = normalizeConfidence(d.confidence);
 
         const row = await one<{ id: string }>(
           `INSERT INTO decisions

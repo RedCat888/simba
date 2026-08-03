@@ -131,8 +131,11 @@ export class Supervisor {
     );
     if ((available[0]?.n ?? 0) === 0) return;
 
-    const parked = await query<{ id: string; agent_id: string; agent_slug: string; cwd: string | null }>(
-      `SELECT s.id, s.agent_id, a.slug AS agent_slug, s.cwd
+    const parked = await query<{
+      id: string; agent_id: string; agent_slug: string;
+      cwd: string | null; origin_surface_id: string | null;
+    }>(
+      `SELECT s.id, s.agent_id, a.slug AS agent_slug, s.cwd, s.origin_surface_id
          FROM sessions s
          JOIN agents a ON a.id = s.agent_id
         WHERE s.status = 'waiting_limit'
@@ -152,6 +155,11 @@ export class Supervisor {
         agent: p.agent_slug,
         continuingSessionId: p.id,
         cwd: p.cwd ?? undefined,
+        // Carried through, or the resumed session comes back with a NULL
+        // surface. Combined with the MCP action check, that meant a
+        // phone-originated task could hit a usage limit and be auto-resumed by
+        // the supervisor with unbounded action authority.
+        surfaceId: p.origin_surface_id,
         prompt: 'Your previous session was paused because every brain hit its usage limit. Resume from your brief.',
       });
 

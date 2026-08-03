@@ -643,9 +643,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
           `SELECT origin_surface_id FROM sessions WHERE id = $1`,
           [SESSION_ID],
         );
-        const surface = origin?.origin_surface_id
-          ? await one<Surface>(`SELECT * FROM surfaces WHERE id = $1`, [origin.origin_surface_id])
-          : null;
+        // A session with no recorded surface falls back to the most restrictive
+        // one, never to "unchecked". Previously this was `if (surface) {...}`,
+        // so a NULL origin skipped every check — and NULL is exactly what an
+        // auto-resumed session used to come back with.
+        const surface =
+          (origin?.origin_surface_id
+            ? await one<Surface>(`SELECT * FROM surfaces WHERE id = $1`, [origin.origin_surface_id])
+            : null) ?? (await one<Surface>(`SELECT * FROM surfaces WHERE slug = 'automation'`));
 
         if (surface) {
           const verdict = await checkAction(surface, String(args.action_class));

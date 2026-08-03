@@ -29,13 +29,26 @@ export interface Surface {
 
 const TIER_RANK: Record<ModelTier, number> = { free: 0, cheap: 1, mid: 2, high: 3 };
 
-const cache = new Map<string, Surface>();
+/**
+ * Short TTL, deliberately.
+ *
+ * The cache previously never expired and nothing ever invalidated it, so
+ * `UPDATE surfaces SET enabled = false` — the natural response to a lost phone
+ * — had no effect until the gateway was restarted. That made the fastest
+ * incident-response lever silently useless. Thirty seconds keeps the read cheap
+ * while bounding how long a revocation takes to bite.
+ */
+const CACHE_TTL_MS = 30_000;
+
+const cache = new Map<string, { row: Surface; at: number }>();
 
 export async function getSurface(slug: string): Promise<Surface | null> {
   const cached = cache.get(slug);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.row;
+
   const row = await one<Surface>(`SELECT * FROM surfaces WHERE slug = $1`, [slug]);
-  if (row) cache.set(slug, row);
+  if (row) cache.set(slug, { row, at: Date.now() });
+  else cache.delete(slug);
   return row;
 }
 
@@ -43,45 +56,19 @@ export function invalidateSurfaceCache(): void {
   cache.clear();
 }
 
-/**
- * Determines which surface a request originated from.
- *
- * Loopback is treated as the desktop because reaching it already requires
- * either physical access or code running on the machine — both of which imply
- * more authority than any header could grant. Anything arriving through the
- * tunnel carries Cloudflare Access headers and is treated as the phone.
- *
- * An explicit header can only ever *narrow* the result. Letting a caller name
- * its own surface upward would make the whole mechanism decorative, since the
- * untrusted side controls its own headers.
- */
-export async function resolveSurface(
-  headers: Record<string, string | undefined>,
-  remoteAddress: string | undefined,
-): Promise<Surface | null> {
-  const accessUser =
-    headers['cf-access-authenticated-user-email'] ?? headers['cf-access-jwt-assertion'];
-  const viaTunnel = Boolean(accessUser || headers['cf-connecting-ip'] || headers['cf-ray']);
-
-  const isLoopback =
-    !remoteAddress ||
-    remoteAddress === '127.0.0.1' ||
-    remoteAddress === '::1' ||
-    remoteAddress === '::ffff:127.0.0.1';
-
-  let slug = viaTunnel ? 'phone' : isLoopback ? 'desktop' : 'automation';
-
-  // A request may declare itself less trusted than it looks, never more.
-  const declared = headers['x-simba-surface'];
-  if (declared) {
-    const [claimed, current] = await Promise.all([getSurface(declared), getSurface(slug)]);
-    if (claimed && current && claimed.trust_level <= current.trust_level) {
-      slug = claimed.slug;
-    }
-  }
-
-  return getSurface(slug);
-}
+// resolveSurface lived here and has been removed.
+//
+// It decided authority from the *presence* of `cf-*` headers, which any local
+// process could set, and it never verified the Access JWT. Worse, cloudflared
+// dials loopback from this same host, so its loopback test distinguished
+// nothing: local and tunnel traffic were indistinguishable to it.
+//
+// Replaced by src/policy/identity.ts, which roots the decision in which local
+// port a connection landed on (not client-settable) and then proves identity
+// with a verified signature. The `X-Simba-Surface` header is gone too: its
+// "downgrade only" guarantee was unsound, because trust_level is a scalar while
+// allowed_action_classes is an array, so a lower-trust surface can hold a
+// capability a higher one lacks.
 
 export interface Decision {
   allowed: boolean;

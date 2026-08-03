@@ -11,23 +11,41 @@ import { Supervisor } from '../supervisor/index.js';
 import { recall } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
 import {
-  resolveSurface,
   canReachAgent,
   clampModelTier,
+  getSurface,
   logDenial,
   type Surface,
 } from '../policy/surface.js';
+import {
+  authenticate,
+  channelOf,
+  describePrincipal,
+  hostAllowed,
+  originAllowed,
+  type Channel,
+} from '../policy/identity.js';
+import { prewarmAccess, type Principal } from '../policy/access.js';
 
-/** Resolves the surface behind a request. Loopback is the desktop; the tunnel is the phone. */
-async function surfaceOf(c: {
-  req: { header: (name?: string) => string | undefined | Record<string, string> };
-  env?: unknown;
-}): Promise<Surface | null> {
-  const headers = (c.req.header() ?? {}) as Record<string, string | undefined>;
-  const remote =
-    (c.env as { incoming?: { socket?: { remoteAddress?: string } } })?.incoming?.socket
-      ?.remoteAddress ?? '127.0.0.1';
-  return resolveSurface(headers, remote);
+type Vars = { surface: Surface; channel: Channel; principal: Principal | null };
+
+/**
+ * The authenticated surface for this request.
+ *
+ * Authentication happens once in middleware, so by the time any route runs the
+ * surface is already established and cannot be null. Routes previously each
+ * resolved it themselves from headers, which is what allowed several of them to
+ * forget and fail open.
+ */
+function surfaceOf(c: { get: (k: 'surface') => Surface }): Surface {
+  return c.get('surface');
+}
+
+/** Clamps a caller-supplied page size so a read endpoint cannot become a bulk export. */
+function capLimit(raw: string | undefined, fallback: number, max: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
 }
 
 /**
@@ -39,7 +57,7 @@ async function surfaceOf(c: {
 
 const manager = new SessionManager();
 const supervisor = new Supervisor(manager);
-const app = new Hono();
+const app = new Hono<{ Variables: Vars }>();
 
 const sockets = new Set<WebSocket>();
 
@@ -54,15 +72,31 @@ manager.on('event', (e) => broadcast({ type: 'session_event', ...e }));
 manager.on('swapped', (e) => broadcast({ type: 'brain_swapped', ...e }));
 manager.on('exhausted', (e) => broadcast({ type: 'exhausted', ...e }));
 
-// Optional bearer token. Cloudflare Access is the real gate; this is a second
-// lock for when the tunnel is up but Access is misconfigured.
-app.use('/api/*', async (c, next) => {
-  if (config.gateway.token) {
-    const auth = c.req.header('authorization');
-    if (auth !== `Bearer ${config.gateway.token}`) {
-      return c.json({ error: 'unauthorized' }, 401);
-    }
+/**
+ * Default-deny authentication for every route.
+ *
+ * Scoped to `*`, not `/api/*`: the UI route and anything added later were
+ * previously uncovered simply by not matching the pattern, which is the kind of
+ * gap that reappears every time a route is added.
+ */
+app.use('*', async (c, next) => {
+  const headers = c.req.header() as Record<string, string | undefined>;
+  const socket = (c.env as { incoming?: { socket?: { localPort?: number } } })?.incoming?.socket;
+  const channel = channelOf(socket?.localPort);
+
+  if (!hostAllowed(channel, headers.host)) {
+    return c.json({ error: 'bad host' }, 403);
   }
+  if (!originAllowed(channel, headers.origin)) {
+    return c.json({ error: 'bad origin' }, 403);
+  }
+
+  const auth = await authenticate(channel, headers);
+  if (!auth.ok) return c.json({ error: auth.reason }, auth.status);
+
+  c.set('surface', auth.surface);
+  c.set('channel', auth.channel);
+  c.set('principal', auth.principal);
   return next();
 });
 
@@ -203,7 +237,9 @@ app.get('/api/stats', async (c) => {
 app.get('/api/knowledge/search', async (c) => {
   const q = c.req.query('q');
   if (!q) return c.json({ error: 'q required' }, 400);
-  const hits = await recall(q, { limit: Number(c.req.query('limit') ?? 12) });
+  // Capped. Uncapped, `?limit=999999` is a one-request dump of the entire
+  // personal corpus — the highest-likelihood real loss from a stolen device.
+  const hits = await recall(q, { limit: capLimit(c.req.query('limit'), 12, 50) });
   return c.json(
     hits.map((h) => ({
       source: h.source,
@@ -221,7 +257,7 @@ app.get('/api/knowledge/search', async (c) => {
 app.get('/api/decisions/ask', async (c) => {
   const q = c.req.query('q');
   if (!q) return c.json({ error: 'q required' }, 400);
-  return c.json(await askDecisions(q, Number(c.req.query('limit') ?? 8)));
+  return c.json(await askDecisions(q, capLimit(c.req.query('limit'), 8, 40)));
 });
 
 app.get('/api/decisions', async (c) => {
@@ -366,7 +402,7 @@ app.post('/api/agents/:slug/start', async (c) => {
   }>();
 
   const slug = c.req.param('slug');
-  const surface = await surfaceOf(c);
+  const surface = surfaceOf(c);
 
   // Authority is the intersection of the agent's profile and the surface's
   // policy, so the surface check happens before anything is spawned.
@@ -446,16 +482,24 @@ app.post('/api/capture', async (c) => {
   const b = await c.req.json<{ content: string; source?: string; url?: string; note?: string }>();
   if (!b.content?.trim()) return c.json({ error: 'content required' }, 400);
 
-  const surface = await surfaceOf(c);
-
   // A URL is the single most useful thing to have extracted up front, since it
   // decides most of the routing.
   const url = b.url ?? b.content.match(/https?:\/\/[^\s<>"')]+/)?.[0] ?? null;
 
+  // Stamped `automation` regardless of who posted it.
+  //
+  // Authority must follow the content's provenance, not the transport's. This
+  // body came from a share sheet, a webhook or a reel — it is attacker-
+  // influenceable text that an agent will later read and act on. Inheriting the
+  // phone's authority because the phone happened to deliver it is precisely how
+  // prompt injection turns into privilege. The `automation` surface exists for
+  // this and was previously unused.
+  const intake = await getSurface('automation');
+
   const row = await one<{ id: string }>(
     `INSERT INTO captures (source, content, url, note, origin_surface_id)
      VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-    [b.source ?? 'unknown', b.content, url, b.note ?? null, surface?.id ?? null],
+    [b.source ?? 'unknown', b.content, url, b.note ?? null, intake?.id ?? null],
   );
 
   await recordEvent({
@@ -529,7 +573,7 @@ app.post('/api/missions', async (c) => {
   }>();
   if (!b.title || !b.objective) return c.json({ error: 'title and objective required' }, 400);
 
-  const surface = await surfaceOf(c);
+  const surface = surfaceOf(c);
   if (!surface) return c.json({ error: 'unknown origin surface' }, 403);
 
   const row = await one<{ id: string }>(
@@ -611,11 +655,15 @@ app.get('/api/actions/pending', async (c) => {
 });
 
 app.post('/api/actions/:id/confirm', async (c) => {
-  const surface = await surfaceOf(c);
-  // Confirming is itself an authority-bearing act. Only a surface that could
-  // have originated the class in the first place may release it.
-  if (!surface || surface.trust_level < 60) {
-    return c.json({ error: 'this surface cannot confirm actions' }, 403);
+  // Desktop-only. At the previous threshold of 60 the phone could confirm its
+  // own confirmations, which made the entire confirm_action_classes mechanism
+  // decorative for the one surface it was written to constrain.
+  const surface = surfaceOf(c);
+  if (surface.trust_level < 100) {
+    return c.json(
+      { error: 'confirmations must be approved from the desktop, not the surface that raised them' },
+      403,
+    );
   }
   const body = await c.req.json<{ approve: boolean }>().catch(() => ({ approve: false }));
   await query(
@@ -627,8 +675,12 @@ app.post('/api/actions/:id/confirm', async (c) => {
 
 /** Panic button: stop the world. */
 app.post('/api/panic', async (c) => {
-  const surface = await surfaceOf(c);
-  if (surface && !surface.can_panic) {
+  // Evaluated before any enabled/disabled check on purpose: disabling a lost
+  // phone must not also remove the ability to panic-stop from it. Previously
+  // this read `if (surface && ...)`, so a null surface skipped the check
+  // entirely — the failure mode was "unknown caller can stop everything".
+  const surface = surfaceOf(c);
+  if (!surface.can_panic) {
     return c.json({ error: `${surface.slug} cannot trigger a panic stop` }, 403);
   }
   const killed = await manager.killAll();
@@ -640,21 +692,125 @@ app.post('/api/panic', async (c) => {
 // UI
 // ---------------------------------------------------------------------------
 
+/**
+ * The web control center, local channel only.
+ *
+ * Not served over the tunnel: it would drag cookie-bearing browser context onto
+ * a public hostname for no benefit, since the phone uses the native app. Keeping
+ * the remote surface to JSON + WebSocket is a meaningfully smaller thing to
+ * defend.
+ */
 app.get('/', async (c) => {
+  if (c.get('channel') === 'tunnel') return c.notFound();
   const html = await readFile(join(config.root, 'app', 'index.html'), 'utf8');
   return c.html(html);
 });
 
-const server = serve({ fetch: app.fetch, port: config.gateway.port, hostname: config.gateway.host }, (info) => {
-  console.log(`[gateway] http://${config.gateway.host}:${info.port}`);
-});
+/**
+ * Two listeners, both bound to loopback.
+ *
+ * Local (8787) is trusted; the tunnel listener (8788) is the only port
+ * cloudflared may target and requires a verified Access identity. Splitting by
+ * port is what makes the channel unforgeable — a client controls its headers,
+ * but not which socket its connection lands on.
+ */
+const localServer = serve(
+  { fetch: app.fetch, port: config.gateway.port, hostname: config.gateway.host },
+  (info) => console.log(`[gateway] local  http://${config.gateway.host}:${info.port}`),
+);
 
-const wss = new WebSocketServer({ server: server as never, path: '/ws' });
+const tunnelServer = config.access.enabled
+  ? serve(
+      { fetch: app.fetch, port: config.gateway.tunnelPort, hostname: config.gateway.host },
+      (info) => console.log(`[gateway] tunnel http://${config.gateway.host}:${info.port} (Access required)`),
+    )
+  : null;
+
+// noServer + a manual upgrade handler, rather than `verifyClient`.
+//
+// verifyClient is discouraged by ws and can only abort the socket — it cannot
+// return a status, which makes a remote auth failure undebuggable. Handling the
+// upgrade directly also lets the WebSocket reuse the exact same authenticate()
+// as HTTP, so there is one decision table rather than two that drift.
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+
+const MAX_SOCKETS = 20;
+
+function denyUpgrade(socket: NodeJS.WritableStream & { destroy: () => void }, status: number, reason: string): void {
+  try {
+    socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
+  } catch {
+    /* peer already gone */
+  }
+  socket.destroy();
+}
+
+function attachUpgrade(server: unknown, channel: Channel): void {
+  (server as { on: (e: string, cb: (...a: never[]) => void) => void }).on(
+    'upgrade',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (req: any, socket: any, head: any) => {
+      // Attached before the await: a client that aborts mid-verification
+      // otherwise raises an unhandled ECONNRESET and takes the gateway down.
+      socket.on('error', () => {});
+
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname !== '/ws') return denyUpgrade(socket, 404, 'Not Found');
+
+      const headers = req.headers as Record<string, string | undefined>;
+
+      // Same-origin policy does not apply to WebSockets and `ws` does not check
+      // Origin, so without this any page the user visits could open a socket to
+      // the local gateway and read the entire live agent stream.
+      if (!originAllowed(channel, headers.origin)) {
+        return denyUpgrade(socket, 403, 'Forbidden');
+      }
+      if (sockets.size >= MAX_SOCKETS) return denyUpgrade(socket, 503, 'Too Many Connections');
+
+      authenticate(channel, headers)
+        .then((auth) => {
+          if (!auth.ok) return denyUpgrade(socket, auth.status, 'Unauthorized');
+          if (socket.destroyed || !socket.writable) return; // died during the await
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            (ws as WebSocket & { surface?: Surface }).surface = auth.surface;
+            wss.emit('connection', ws, req);
+          });
+        })
+        .catch(() => denyUpgrade(socket, 500, 'Internal Server Error'));
+    },
+  );
+}
+
+attachUpgrade(localServer, 'local');
+if (tunnelServer) attachUpgrade(tunnelServer, 'tunnel');
+
 wss.on('connection', (ws) => {
   sockets.add(ws);
   ws.on('close', () => sockets.delete(ws));
+  ws.on('pong', () => ((ws as WebSocket & { alive?: boolean }).alive = true));
   ws.send(JSON.stringify({ type: 'hello', at: new Date().toISOString() }));
 });
+
+// Dead-socket sweep. `sockets` was previously unbounded and never pruned except
+// on a clean close, so a dropped phone connection leaked an entry indefinitely.
+setInterval(() => {
+  for (const ws of sockets) {
+    const s = ws as WebSocket & { alive?: boolean };
+    if (s.alive === false) {
+      ws.terminate();
+      sockets.delete(ws);
+      continue;
+    }
+    s.alive = false;
+    try {
+      ws.ping();
+    } catch {
+      sockets.delete(ws);
+    }
+  }
+}, 30_000).unref();
+
+void prewarmAccess();
 
 const orphaned = await manager.reconcileOnStartup();
 if (orphaned > 0) console.log(`[gateway] reconciled ${orphaned} orphaned session(s)`);

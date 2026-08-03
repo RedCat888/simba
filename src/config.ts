@@ -29,9 +29,41 @@ export const config = {
   },
 
   gateway: {
+    /** Local channel. Trusted. cloudflared must never point here. */
     port: Number(process.env.SIMBA_GATEWAY_PORT ?? 8787),
+    /**
+     * Tunnel channel. The only ingress cloudflared is configured for.
+     *
+     * The split exists because cloudflared runs on this host and dials
+     * loopback, so a request's source address cannot distinguish local traffic
+     * from tunnel traffic. The listening port can, and unlike any header it is
+     * not settable by the client.
+     */
+    tunnelPort: Number(process.env.SIMBA_TUNNEL_PORT ?? 8788),
     host: process.env.SIMBA_GATEWAY_HOST ?? '127.0.0.1',
     token: process.env.SIMBA_GATEWAY_TOKEN ?? '',
+  },
+
+  access: {
+    enabled: process.env.SIMBA_TUNNEL_ENABLED === '1',
+    team: process.env.SIMBA_ACCESS_TEAM ?? '',
+    aud: process.env.SIMBA_ACCESS_AUD ?? '',
+    /** Human identities permitted through Access, checked at the origin too. */
+    emails: (process.env.SIMBA_ACCESS_EMAILS ?? '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+    /** `<client-id>.access=<surface-slug>` pairs for non-interactive clients. */
+    serviceTokens: Object.fromEntries(
+      (process.env.SIMBA_ACCESS_SERVICE_TOKENS ?? '')
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => {
+          const [cn, surface] = p.split('=');
+          return [(cn ?? '').trim(), (surface ?? 'phone').trim()];
+        }),
+    ) as Record<string, string>,
   },
 
   /**
@@ -57,3 +89,27 @@ export const config = {
 } as const;
 
 export type Config = typeof config;
+
+/**
+ * Refuses to start misconfigured rather than starting insecure.
+ *
+ * The gateway fronts agents that hold a full shell on this machine. The failure
+ * mode being prevented is the one the old `SIMBA_GATEWAY_TOKEN` default had: an
+ * empty value silently disabling the check, so the system looks protected and
+ * is not. If the tunnel is on, identity verification must be configured.
+ */
+if (config.access.enabled) {
+  const missing: string[] = [];
+  if (!config.access.team) missing.push('SIMBA_ACCESS_TEAM');
+  if (!config.access.aud) missing.push('SIMBA_ACCESS_AUD');
+  if (config.access.emails.length === 0 && Object.keys(config.access.serviceTokens).length === 0) {
+    missing.push('SIMBA_ACCESS_EMAILS or SIMBA_ACCESS_SERVICE_TOKENS');
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `SIMBA_TUNNEL_ENABLED=1 but Access is not configured: missing ${missing.join(', ')}. ` +
+        `Refusing to start — an exposed gateway with unverified identity would grant ` +
+        `shell access to anyone who finds the hostname.`,
+    );
+  }
+}

@@ -61,11 +61,20 @@ function hasCloudflareHeaders(h: Record<string, string | undefined>): boolean {
 export function hostAllowed(channel: Channel, host: string | undefined): boolean {
   if (channel === 'tunnel') return true; // Cloudflare fixes the Host upstream.
   if (!host) return false;
-  const allowed = [
-    `127.0.0.1:${config.gateway.port}`,
-    `localhost:${config.gateway.port}`,
-  ];
-  return allowed.includes(host.toLowerCase());
+
+  const name = host.toLowerCase().replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+
+  // A literal IP cannot be DNS-rebound — rebinding works by changing what a
+  // *name* resolves to, and there is no name here to change. Allow-listing only
+  // two spellings of loopback therefore bought nothing and broke every
+  // legitimate non-loopback client: the Android emulator reaches the host as
+  // 10.0.2.2, and a LAN device reaches it by address.
+  const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(name);
+  const isIpv6 = name.includes(':') || name === '::1';
+  if (isIpv4 || isIpv6) return true;
+
+  // Names are the rebinding vector, so only loopback names are accepted.
+  return name === 'localhost';
 }
 
 /**

@@ -100,6 +100,8 @@ data class Brain(
     val status: String = "",
     @SerialName("limit_resets_at") val limitResetsAt: String? = null,
     @SerialName("cost_7d") val cost7d: Double? = 0.0,
+    /** Why a brain is unusable. Without it the UI shows a bare status and looks broken. */
+    @SerialName("last_error") val lastError: String? = null,
 )
 
 @Serializable
@@ -128,7 +130,38 @@ data class Message(
     val seq: Long = 0,
     val role: String = "",
     val content: String? = null,
-)
+    @SerialName("created_at") val createdAt: String? = null,
+) {
+    /** Epoch millis, so messages and tool calls can be merged into one ordered thread. */
+    val at: Long get() = parseTs(createdAt) ?: seq
+}
+
+@Serializable
+data class ToolCallRow(
+    val name: String = "",
+    @SerialName("result_text") val resultText: String? = null,
+    @SerialName("is_error") val isError: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null,
+) {
+    val seqHint: Long get() = parseTs(createdAt) ?: 0L
+}
+
+/**
+ * Postgres timestamps arrive as ISO strings. Parsed leniently: a thread that
+ * renders slightly out of order is far better than one that fails to render.
+ */
+private fun parseTs(s: String?): Long? {
+    if (s.isNullOrBlank()) return null
+    return runCatching { java.time.Instant.parse(s).toEpochMilli() }
+        .recoverCatching {
+            java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli()
+        }
+        .recoverCatching {
+            java.time.LocalDateTime.parse(s.replace(' ', 'T').substringBefore('+'))
+                .toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        }
+        .getOrNull()
+}
 
 @Serializable
 data class MemoryHit(
@@ -231,6 +264,7 @@ class SimbaApi(
     suspend fun briefs(): List<Brief> = get("/api/briefs")
     suspend fun sessions(): List<SessionRow> = get("/api/sessions")
     suspend fun messages(id: String): List<Message> = get("/api/sessions/$id/messages")
+    suspend fun tools(id: String): List<ToolCallRow> = get("/api/sessions/$id/tools")
 
     suspend fun search(q: String): List<MemoryHit> =
         get("/api/knowledge/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"))

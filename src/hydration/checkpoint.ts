@@ -147,8 +147,17 @@ export async function writeCheckpoint(
   // A session with no transcript yet still gets a checkpoint row: the git state
   // alone is worth preserving, and an empty checkpoint is better than none when
   // recovery has to reason about what existed.
+  // Speed tier: a checkpoint is written after every turn, so a ~30s free-tier
+  // call would tax the whole system continuously. Quality matters less here
+  // than in extraction — the checkpoint is read by the next session minutes
+  // later, not stored permanently.
   const fields = transcript.trim()
-    ? parseFields(await cheapComplete(PROMPT + transcript, { configDir: opts.configDir }))
+    ? parseFields(
+        await cheapComplete(PROMPT + transcript, {
+          configDir: opts.configDir,
+          preferSpeed: true,
+        }),
+      )
     : { ...EMPTY };
 
   const row = await one<{ id: string }>(

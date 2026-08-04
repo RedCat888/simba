@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 import { config } from '../config.js';
+import { opencodeComplete } from './opencode.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +35,16 @@ export interface CheapOptions {
    * permanent and the volume is bounded, that trade goes the other way.
    */
   preferQuality?: boolean;
+  /**
+   * Skip the free remote tier.
+   *
+   * Measured: OpenCode's free tier answers reliably (5/5) but averages ~30s per
+   * call, most of it CLI start-up. That is fine for background work — titling,
+   * summarising, bulk extraction — and unacceptable on a path that runs every
+   * turn, where it would add half a minute to each one. Callers on the hot path
+   * set this.
+   */
+  preferSpeed?: boolean;
 }
 
 /** Local Ollama. Free, no subscription consumed, good enough for summaries. */
@@ -137,7 +148,20 @@ export async function cheapComplete(
   const maxChars = opts.maxChars ?? 60_000;
   const trimmed = prompt.length > maxChars ? prompt.slice(0, maxChars) + '\n…[truncated]' : prompt;
 
+  // Free tiers first, then the cheapest subscription tier.
+  //
+  // Ordering is deliberate. Ollama is free and private but slow (~16 tok/s on
+  // this GPU) and competes for RAM with Postgres and the agent processes.
+  // OpenCode's free tier is remote, faster, and costs nothing — so it is
+  // preferred for bulk work, with local as the offline fallback. Only when both
+  // are unavailable, or the caller explicitly wants better instruction
+  // following, does this reach a paid subscription.
   if (!opts.preferQuality) {
+    if (!opts.preferSpeed) {
+      const free = await opencodeComplete(trimmed, timeoutMs);
+      if (free) return free;
+    }
+
     const local = await ollamaComplete(trimmed, timeoutMs);
     if (local) return local;
   }

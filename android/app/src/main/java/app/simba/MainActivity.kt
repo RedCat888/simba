@@ -54,6 +54,7 @@ class SimbaVm : ViewModel() {
     var agents by mutableStateOf<List<Agent>>(emptyList())
     var brains by mutableStateOf<List<Brain>>(emptyList())
     var briefs by mutableStateOf<List<Brief>>(emptyList())
+    var sessions by mutableStateOf<List<SessionRow>>(emptyList())
     var error by mutableStateOf<String?>(null)
     var loading by mutableStateOf(false)
 
@@ -67,6 +68,7 @@ class SimbaVm : ViewModel() {
                 agents = a.agents()
                 briefs = a.briefs()
                 brains = a.brains()
+                sessions = a.sessions()
                 error = null
             } catch (e: Exception) {
                 // Surfaced rather than swallowed: the most common failure here
@@ -81,6 +83,7 @@ class SimbaVm : ViewModel() {
 }
 
 private enum class Tab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Chat("Chat", Icons.Filled.Forum),
     Missions("Missions", Icons.Filled.Flag),
     Agents("Agents", Icons.Filled.SmartToy),
     Memory("Memory", Icons.Filled.Search),
@@ -96,8 +99,9 @@ private enum class Tab(val label: String, val icon: androidx.compose.ui.graphics
 fun SimbaRoot(vm: SimbaVm = viewModel()) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var tab by remember { mutableStateOf(Tab.Missions) }
+    var tab by remember { mutableStateOf(Tab.Chat) }
     var openMission by remember { mutableStateOf<String?>(null) }
+    var openChat by remember { mutableStateOf<Pair<String, String>?>(null) }
     var ready by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -116,6 +120,14 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
         }
     }
 
+    // A chat takes the whole screen. The top bar and nav are chrome that steals
+    // vertical space from the one view where every line counts.
+    if (openChat != null && ready) {
+        val (sid, title) = openChat!!
+        ChatScreen(vm, sid, title) { openChat = null; vm.refresh() }
+        return
+    }
+
     Scaffold(
         containerColor = Bg,
         topBar = { SimbaTopBar(vm) },
@@ -123,8 +135,8 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
             NavigationBar(containerColor = Panel, tonalElevation = 0.dp) {
                 Tab.entries.forEach { t ->
                     NavigationBarItem(
-                        selected = tab == t && openMission == null,
-                        onClick = { tab = t; openMission = null },
+                        selected = tab == t && openMission == null && openChat == null,
+                        onClick = { tab = t; openMission = null; openChat = null },
                         icon = { Icon(t.icon, contentDescription = t.label) },
                         label = { Text(t.label, fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(
@@ -144,8 +156,9 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                 !ready -> CenteredNote("Connecting…")
                 openMission != null -> MissionDetailScreen(vm, openMission!!) { openMission = null }
                 else -> when (tab) {
+                    Tab.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
                     Tab.Missions -> MissionsScreen(vm) { openMission = it }
-                    Tab.Agents -> AgentsScreen(vm)
+                    Tab.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
                     Tab.Memory -> MemoryScreen(vm)
                     Tab.System -> SystemScreen(vm) { url, token, clientId, clientSecret ->
                         scope.launch {
@@ -485,7 +498,7 @@ private fun StepCard(s: MissionStep) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun AgentsScreen(vm: SimbaVm) {
+private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
     var prompting by remember { mutableStateOf<Agent?>(null) }
 
     LazyColumn(
@@ -535,11 +548,122 @@ private fun AgentsScreen(vm: SimbaVm) {
             onConfirm = { text ->
                 prompting = null
                 vm.viewModelScope.launch {
-                    runCatching { vm.api?.startAgent(agent.slug, text) }
+                    // Drops straight into the conversation. Starting an agent
+                    // and being returned to a list is the behaviour that made
+                    // this feel like a dashboard rather than a control centre.
+                    val r = runCatching { vm.api?.startAgent(agent.slug, text) }.getOrNull()
                     vm.refresh()
+                    r?.sessionId?.let { openChat(it, agent.name) }
+                        ?: r?.error?.let { vm.error = it }
                 }
             },
         )
+    }
+}
+
+/**
+ * Conversation list. Live sessions first — those are the ones that can be
+ * steered right now; the rest are history you can still pick back up, because
+ * messaging a dead session transparently revives it.
+ */
+@Composable
+private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
+    var starting by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val simba = vm.agents.firstOrNull { it.tier == 0 } ?: vm.agents.firstOrNull()
+
+    val live = vm.sessions.filter { it.status in listOf("running", "idle") }
+    val past = vm.sessions.filter { it.status !in listOf("running", "idle") }.take(30)
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        item {
+            Button(
+                onClick = {
+                    if (starting || simba == null) return@Button
+                    starting = true
+                    scope.launch {
+                        val r = runCatching {
+                            vm.api?.startAgent(simba.slug, "Hey — what's going on with the system right now?")
+                        }.getOrNull()
+                        starting = false
+                        vm.refresh()
+                        r?.sessionId?.let { open(it, simba.name) } ?: run { vm.error = r?.error }
+                    }
+                },
+                enabled = !starting,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF1A1206)),
+            ) {
+                Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
+                Text(
+                    if (starting) "  Starting…" else "  Talk to ${simba?.name ?: "Simba"}",
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
+        item { ErrorBanner(vm.error) }
+
+        if (live.isNotEmpty()) {
+            item { SectionLabel("LIVE") }
+            items(live, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
+        }
+
+        if (past.isNotEmpty()) {
+            item { SectionLabel("EARLIER") }
+            items(past, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
+        }
+
+        if (vm.sessions.isEmpty() && vm.error == null) {
+            item {
+                Card {
+                    Text("No conversations yet", color = Fg, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Start one above, or launch an agent from the Agents tab and it will open here.",
+                        fontSize = 12.5.sp, color = Dim, modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        fontSize = 10.sp,
+        color = Faint,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 4.dp, top = 5.dp),
+    )
+}
+
+@Composable
+private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
+    Card(Modifier.clickable(onClick = onClick)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                s.title ?: s.agent,
+                color = Fg,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Pill(s.status, statusColor(s.status))
+        }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+            Meta(s.agent)
+            s.brain?.let { Meta(it) }
+            if (s.swapCount > 0) Meta("⇄ ${s.swapCount}", Accent)
+            Meta("$${"%.3f".format(s.cost)}")
+        }
     }
 }
 
@@ -696,6 +820,17 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                     Meta(b.provider)
                     Meta("7d $${"%.2f".format(b.cost7d ?: 0.0)}")
                     b.limitResetsAt?.let { Meta("resets $it", Warn) }
+                }
+                // A brain showing "logged_out" with no explanation reads as a
+                // bug in Simba rather than a state of the account. The reason
+                // is already recorded server-side, so show it.
+                b.lastError?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        fontSize = 11.sp,
+                        color = if (b.status in listOf("logged_out", "error")) Err else Faint,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
                 }
             }
         }

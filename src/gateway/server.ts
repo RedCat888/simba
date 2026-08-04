@@ -565,8 +565,54 @@ app.post('/api/agents/:slug/start', async (c) => {
   return c.json(result, 'error' in result ? 409 : 200);
 });
 
+/**
+ * Refuse to let a lower-trust surface drive a higher-trust session.
+ *
+ * Found by an external audit, and it is the hole the whole surface split exists
+ * to prevent. Authentication chose a surface correctly and then nothing checked
+ * it again: any authenticated caller could list sessions, pick one started from
+ * the desktop, and post instructions into it. Those instructions ran with the
+ * *session's* authority, because MCP action checks read the session's stored
+ * origin surface rather than the caller's. A phone service token could therefore
+ * execute desktop-authority work by borrowing an existing session.
+ *
+ * Trust level is the comparison because that is what the split is expressed in:
+ * desktop 100, macbook 70, phone 60, automation 20. Equal trust is fine — two
+ * phone clients are the same principal. Reaching upward is not.
+ */
+async function mayDriveSession(
+  callerSurface: Surface,
+  sessionId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const row = await one<{ origin: string | null; trust: number | null }>(
+    `SELECT sf.slug AS origin, sf.trust_level AS trust
+       FROM sessions s LEFT JOIN surfaces sf ON sf.id = s.origin_surface_id
+      WHERE s.id = $1`,
+    [sessionId],
+  );
+  if (!row) return { ok: false, reason: 'no such session' };
+
+  // A session with no recorded origin predates surface tracking. Treat it as
+  // desktop-authority rather than unrestricted: unknown provenance is the case
+  // where guessing generously is worst.
+  const sessionTrust = row.trust ?? 100;
+  if (callerSurface.trust_level >= sessionTrust) return { ok: true };
+
+  return {
+    ok: false,
+    reason:
+      `surface "${callerSurface.slug}" (trust ${callerSurface.trust_level}) cannot drive a ` +
+      `session originating from "${row.origin ?? 'unknown'}" (trust ${sessionTrust})`,
+  };
+}
+
 app.post('/api/sessions/:id/send', async (c) => {
   const body = await c.req.json<{ text: string }>();
+  const allowed = await mayDriveSession(surfaceOf(c), c.req.param('id'));
+  if (!allowed.ok) {
+    await logDenial(surfaceOf(c), 'session.send', allowed.reason);
+    return c.json({ error: allowed.reason }, 403);
+  }
   try {
     await manager.send(c.req.param('id'), body.text);
     return c.json({ ok: true });
@@ -576,6 +622,13 @@ app.post('/api/sessions/:id/send', async (c) => {
 });
 
 app.post('/api/sessions/:id/kill', async (c) => {
+  // Same rule as send: stopping someone else's higher-trust work is a lesser
+  // harm than driving it, but it is still acting on authority you do not have.
+  const allowed = await mayDriveSession(surfaceOf(c), c.req.param('id'));
+  if (!allowed.ok) {
+    await logDenial(surfaceOf(c), 'session.kill', allowed.reason);
+    return c.json({ error: allowed.reason }, 403);
+  }
   await manager.kill(c.req.param('id'));
   return c.json({ ok: true });
 });

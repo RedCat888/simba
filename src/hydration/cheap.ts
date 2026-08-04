@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 
 import { config } from '../config.js';
 import { opencodeComplete } from './opencode.js';
+import { openAICompatComplete, openAICompatConfigured } from './openai-compat.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -157,6 +158,14 @@ export async function cheapComplete(
   // are unavailable, or the caller explicitly wants better instruction
   // following, does this reach a paid subscription.
   if (!opts.preferQuality) {
+    // A configured OpenAI-compatible endpoint goes first: if the user has
+    // deliberately pointed Simba at one, that is a stronger signal than any
+    // default here. Inert when unset.
+    if (openAICompatConfigured()) {
+      const routed = await openAICompatComplete(trimmed, timeoutMs);
+      if (routed) return routed;
+    }
+
     if (!opts.preferSpeed) {
       const free = await opencodeComplete(trimmed, timeoutMs);
       if (free) return free;

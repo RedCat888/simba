@@ -1,6 +1,7 @@
 import { query, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
+import { releaseWorktree } from '../session/worktree.js';
 import { cheapComplete } from '../hydration/cheap.js';
 import { Router } from '../router/index.js';
 import { MissionExecutor } from '../missions/executor.js';
@@ -91,6 +92,7 @@ export class Supervisor {
         await saveHandoff().catch(() => {});
       }
       await this.titleUntitledSessions();
+      await this.reclaimCleanWorktrees();
       await this.rollUpMissionCost();
       await generateBrief(this.briefIntervalMinutes);
     } catch (err) {
@@ -272,4 +274,39 @@ export class Supervisor {
       }
     }
   }
+
+  /**
+   * Give back isolated checkouts that hold nothing.
+   *
+   * releaseWorktree was written with the isolation feature and then never
+   * called by anything, so worktrees accumulated indefinitely — four had piled
+   * up before this was noticed. Every one was clean, which is why nothing
+   * surfaced them: /api/worktrees deliberately reports only checkouts holding
+   * uncollected work, so empty ones were invisible *and* immortal.
+   *
+   * Safe by construction rather than by care: releaseWorktree refuses to remove
+   * anything dirty or holding commits no other branch has, so this can only
+   * ever reclaim directories with nothing in them. Sessions still live are
+   * excluded before it is asked.
+   */
+  private async reclaimCleanWorktrees(): Promise<void> {
+    const candidates = await query<{ id: string; worktree_path: string }>(
+      `SELECT id, worktree_path FROM sessions
+        WHERE worktree_path IS NOT NULL
+          AND status NOT IN ('running', 'idle', 'pending')`,
+    );
+
+    for (const c of candidates) {
+      if (this.manager.getLive(c.id)) continue;
+      const result = await releaseWorktree(c.id, c.worktree_path);
+      if (!result.removed) continue;
+      await recordEvent({
+        type: 'worktree.reclaimed',
+        severity: 'debug',
+        sessionId: c.id,
+        message: `${c.worktree_path}: ${result.reason}`,
+      });
+    }
+  }
+
 }

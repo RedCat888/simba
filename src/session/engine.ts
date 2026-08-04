@@ -6,6 +6,40 @@ import { markBrainLimited, markBrainStatus, setSessionStatus } from '../db/repo.
 import type { RunnerEvent, RunnerSession } from '../runner/types.js';
 
 /**
+ * Retry a durable write a few times before giving up.
+ *
+ * Exported and standalone so it can be tested against directly. The previous
+ * version of this policy lived inline inside the engine, which meant the only
+ * way to check it was to reimplement it in a test — and a test that
+ * reimplements the thing it checks verifies nothing about the code that ships.
+ *
+ * Three attempts with a short backoff. The failures worth surviving here are
+ * momentary — a restart, a saturated pool, a lock — and anything durable will
+ * still be broken a second later, so retrying longer only delays the report.
+ */
+export async function withRetry(
+  attempt: () => Promise<void>,
+  opts: { attempts?: number; backoffMs?: number } = {},
+): Promise<{ attemptsUsed: number; error: unknown | null }> {
+  const attempts = opts.attempts ?? 3;
+  const backoff = opts.backoffMs ?? 150;
+  let lastErr: unknown = null;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await attempt();
+      return { attemptsUsed: i + 1, error: null };
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1 && backoff > 0) {
+        await new Promise((r) => setTimeout(r, backoff * (i + 1)));
+      }
+    }
+  }
+  return { attemptsUsed: attempts, error: lastErr };
+}
+
+/**
  * Turns a process exit code into something a human can act on.
  *
  * Windows reports crashes as huge unsigned NTSTATUS values, so the audit log
@@ -92,13 +126,59 @@ export class SessionEngine extends EventEmitter {
     this.consuming = true;
 
     for await (const event of this.runner.events()) {
-      try {
-        await this.persist(event);
-      } catch (err) {
-        console.error('[engine] persist failed', event.kind, err);
-      }
+      await this.persistWithRetry(event);
       this.emit('event', event);
     }
+  }
+
+  /**
+   * Persist an event, retrying briefly before giving up loudly.
+   *
+   * Every persistence error used to be logged to the console and discarded. A
+   * transient database hiccup therefore lost transcript, tool and usage rows
+   * while the live client saw the event arrive perfectly — so the session looked
+   * healthy and its record was quietly incomplete. Postgres is the source of
+   * truth here, which makes a dropped write a correctness bug rather than a
+   * logging one: checkpoints, hydration and cost accounting all read what
+   * survived.
+   *
+   * Three attempts with a short backoff. The failures worth surviving are
+   * momentary — a restart, a saturated pool, a lock — and anything durable will
+   * still be broken in a second, so retrying longer only delays the report.
+   */
+  private async persistWithRetry(e: RunnerEvent): Promise<void> {
+    const { attemptsUsed, error } = await withRetry(() => this.persist(e));
+
+    if (!error) {
+      if (attemptsUsed > 1) {
+        await recordEvent({
+          type: 'session.persist_recovered',
+          severity: 'warn',
+          sessionId: this.sessionId,
+          agentId: this.agentId,
+          message: `persisted ${e.kind} on attempt ${attemptsUsed}`,
+        });
+      }
+      return;
+    }
+    const lastErr = error;
+
+    // Out of attempts. Say so in the audit log rather than only the console:
+    // the whole point of an append-only log is that data loss leaves a trace,
+    // and a console line in a background process is not a trace anyone finds.
+    const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    console.error('[engine] persist failed after retries', e.kind, message);
+    await recordEvent({
+      type: 'session.persist_failed',
+      severity: 'critical',
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      message: `lost a ${e.kind} event: ${message.slice(0, 300)}`,
+      data: { kind: e.kind },
+    }).catch(() => {
+      // If even the audit log is unreachable the database is down, and there is
+      // nowhere durable left to complain to.
+    });
   }
 
   private async persist(e: RunnerEvent): Promise<void> {

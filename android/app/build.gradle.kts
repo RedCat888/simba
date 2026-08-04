@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,8 +16,36 @@ android {
         applicationId = "com.operator.simba"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // Minutes since 2024-01-01, so every build is a higher number than the
+        // last one without anyone remembering to bump it.
+        //
+        // This was pinned at 1 for every APK ever published here, which is why
+        // reinstalling appeared to do nothing: Android compares versionCode
+        // against the installed app, sees no increase, and declines to treat it
+        // as an upgrade. The download had been succeeding all along - the
+        // install was the no-op, and from the outside those look identical.
+        //
+        // Minutes rather than seconds because versionCode is a signed 32-bit
+        // int; seconds since 1970 would already be 1.7 billion and leave almost
+        // no headroom, while this is around 1.1 million and lasts millennia.
+        versionCode = (
+            (System.currentTimeMillis() - 1704067200000L) / 60000L
+        ).toInt()
+        versionName = "0.1." + (
+            (System.currentTimeMillis() - 1704067200000L) / 60000L
+        ).toInt()
+
+        // A visible build stamp, so "did the new APK actually install" is a
+        // question the phone can answer. Without it an update that failed to
+        // download is indistinguishable from one that installed and changed
+        // nothing, which is exactly the confusion this is fixing.
+        buildConfigField(
+            "String",
+            "BUILD_STAMP",
+            // SimpleDateFormat rather than java.time: the Kotlin DSL script
+            // classpath does not expose java.time here.
+            "\"" + SimpleDateFormat("MMM d HH:mm").format(Date()) + "\"",
+        )
     }
 
     buildTypes {

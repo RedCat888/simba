@@ -906,6 +906,14 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         // The ladder, in the order failover actually walks it — the sequence is
         // the point, not the set. Each row can be asked whether it really works
         // and benched without touching the machine.
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("BUILD", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+            Meta(BuildConfig.BUILD_STAMP, Accent)
+        }
+
         Text("DESIGN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
         Card {
             val design = LocalDesign.current

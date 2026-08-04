@@ -221,6 +221,15 @@ export class MissionExecutor {
         await this.log(m.id, `planning could not start: ${result.error}`, 'warn');
         continue;
       }
+
+      // Bind the session to the mission permanently. planning_session_id is
+      // cleared once the plan lands, so without this the cost of planning -
+      // which can be the most expensive part - disappears from the mission's
+      // total and from the budget it is enforced against.
+      await query(`UPDATE sessions SET mission_id = $2 WHERE id = $1`, [
+        result.sessionId,
+        m.id,
+      ]);
       await query(
         `UPDATE missions
             SET started_at = coalesce(started_at, now()),
@@ -305,6 +314,14 @@ export class MissionExecutor {
         await this.log(s.mission_id, `could not start step "${s.title}": ${result.error}`, 'warn', s.id);
         continue;
       }
+
+      // Same reasoning: a requeue clears the step's session_id and the next
+      // attempt overwrites it, so attempts that failed would otherwise cost
+      // nothing as far as the ceiling is concerned.
+      await query(`UPDATE sessions SET mission_id = $2 WHERE id = $1`, [
+        result.sessionId,
+        s.mission_id,
+      ]);
 
       await query(
         `UPDATE mission_steps

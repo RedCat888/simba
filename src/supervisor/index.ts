@@ -47,13 +47,18 @@ export class Supervisor {
    */
   private async rollUpMissionCost(): Promise<void> {
     await query(
+      // Every session the mission ever spent on, including planning and
+      // superseded attempts. Joining through mission_steps counted only the
+      // session each step currently points at, so planning cost and every
+      // retry vanished - and the budget ceiling is enforced against this
+      // number, which made it the wrong number in the direction that matters.
       `UPDATE missions m
           SET cost_used_usd = sub.total, updated_at = now()
          FROM (
-           SELECT st.mission_id, coalesce(sum(s.total_cost_usd), 0) AS total
-             FROM mission_steps st
-             JOIN sessions s ON s.id = st.session_id
-            GROUP BY st.mission_id
+           SELECT s.mission_id, coalesce(sum(s.total_cost_usd), 0) AS total
+             FROM sessions s
+            WHERE s.mission_id IS NOT NULL
+            GROUP BY s.mission_id
          ) sub
         WHERE m.id = sub.mission_id AND m.cost_used_usd <> sub.total`,
     );

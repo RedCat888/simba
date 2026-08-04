@@ -2,6 +2,7 @@ import { query, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { releaseWorktree } from '../session/worktree.js';
+import { learn } from '../knowledge/learn.js';
 import { cheapComplete } from '../hydration/cheap.js';
 import { Router } from '../router/index.js';
 import { MissionExecutor } from '../missions/executor.js';
@@ -98,6 +99,7 @@ export class Supervisor {
       }
       await this.titleUntitledSessions();
       await this.reclaimCleanWorktrees();
+      await this.harvestLessons();
       await this.rollUpMissionCost();
       await generateBrief(this.briefIntervalMinutes);
     } catch (err) {
@@ -313,5 +315,72 @@ export class Supervisor {
       });
     }
   }
+
+  /**
+   * Distil finished work into skills, without being asked.
+   *
+   * /learn covers the deliberate case. This covers the one that matters: a
+   * store that fills only when someone remembers to invoke it stays roughly as
+   * empty as it shipped.
+   *
+   * The signal is a session that *struggled and then succeeded*. Tool failures
+   * followed by a completed session is where the lesson lives — a run that
+   * worked first time teaches nothing worth writing down, and one that failed
+   * outright has no working procedure to record. Near-silent sessions are
+   * skipped for the same reason.
+   *
+   * One per tick, on the free tier. Learning that competes with real work for
+   * concurrency or subscription headroom is learning that gets switched off,
+   * and there is no hurry — the sessions are already finished.
+   */
+  private async harvestLessons(): Promise<number> {
+    const candidates = await query<{ id: string; agent: string; failures: number; calls: number }>(
+      `SELECT s.id, a.slug AS agent,
+              count(*) FILTER (WHERE t.is_error)::int AS failures,
+              count(t.id)::int AS calls
+         FROM sessions s
+         JOIN agents a ON a.id = s.agent_id
+         LEFT JOIN tool_calls t ON t.session_id = s.id
+        WHERE s.learned_at IS NULL
+          AND s.status IN ('completed','idle')
+          -- Settled: a session that ended seconds ago may still be being
+          -- written to, and half a transcript distils into half a lesson.
+          AND s.last_activity_at < now() - interval '3 minutes'
+        GROUP BY s.id, a.slug
+       HAVING count(*) FILTER (WHERE t.is_error) > 0
+          AND count(t.id) >= 5
+        ORDER BY count(*) FILTER (WHERE t.is_error) DESC
+        LIMIT 1`,
+    );
+
+    let learned = 0;
+    for (const c of candidates) {
+      // Marked before the attempt, not after. Distillation can fail, and
+      // retrying the same session every fifteen seconds forever is worse than
+      // missing one lesson.
+      await query(`UPDATE sessions SET learned_at = now() WHERE id = $1`, [c.id]);
+
+      const result = await learn({ from: 'session', sessionId: c.id });
+      if (result.learned) {
+        learned += 1;
+        await recordEvent({
+          type: 'skill.learned',
+          severity: 'info',
+          sessionId: c.id,
+          message: `learned "${result.name}" from ${c.agent} (${c.failures} failures, ${c.calls} tool calls)`,
+          data: { skill: result.name, created: result.created },
+        });
+      } else {
+        await recordEvent({
+          type: 'skill.not_learned',
+          severity: 'debug',
+          sessionId: c.id,
+          message: `nothing reusable in ${c.agent} session: ${result.reason ?? 'unknown'}`,
+        });
+      }
+    }
+    return learned;
+  }
+
 
 }

@@ -356,6 +356,11 @@ fun SimbaTheme(
     CompositionLocalProvider(
         LocalDesign provides design,
         LocalDensityScale provides densityFor(design),
+        // The scales the whole UI is measured against. See Tokens.kt for why
+        // there are eight type sizes rather than the eighteen this app had.
+        LocalTypeScale provides typeScaleFor(design),
+        LocalSpaceScale provides spaceScaleFor(design),
+        LocalRadiusScale provides radiusScaleFor(design),
         LocalStatusColors provides when {
             dark -> DarkStatus
             design == Design.Console -> ConsoleLightStatus

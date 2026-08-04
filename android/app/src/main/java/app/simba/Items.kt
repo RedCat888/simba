@@ -642,3 +642,20 @@ fun BackButton(onBack: () -> Unit) {
         )
     }
 }
+
+
+/**
+ * The horizontal inset a screen's own controls should use.
+ *
+ * Rows set their own, per design; anything else on the screen — a button, a
+ * banner, a form — has to match it or the column visibly steps in and out as
+ * you scroll. This is that number, and it is the design's, not a constant.
+ */
+@Composable
+fun Modifier.screenPad(): Modifier = this.padding(
+    horizontal = when (LocalDesign.current) {
+        Design.Fluid -> 16.dp
+        Design.Material -> 12.dp
+        Design.Console -> 10.dp
+    },
+)

@@ -1,6 +1,7 @@
 package com.operator.simba
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -51,7 +52,14 @@ class ShareActivity : ComponentActivity() {
             Intent.ACTION_SEND -> {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                 val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
-                val stream = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+                // The typed overload only exists from Tiramisu; below that the
+                // deprecated one is the only one there is.
+                val stream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+                }
                 listOfNotNull(
                     subject?.takeIf { it.isNotBlank() },
                     text?.takeIf { it.isNotBlank() },

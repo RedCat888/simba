@@ -557,7 +557,17 @@ class SimbaApi(
             ).build(),
         )
 
-    suspend fun createMission(title: String, objective: String, criteria: String?): String =
+    /**
+     * [schedule] is plain English — "every morning", "weekdays at 9". The
+     * gateway parses it and refuses what it cannot understand rather than
+     * defaulting, so a mission never quietly runs at an hour nobody chose.
+     */
+    suspend fun createMission(
+        title: String,
+        objective: String,
+        criteria: String?,
+        schedule: String? = null,
+    ): String =
         call(
             req("/api/missions").post(
                 json.encodeToString(
@@ -567,6 +577,9 @@ class SimbaApi(
                         put("objective", kotlinx.serialization.json.JsonPrimitive(objective))
                         if (!criteria.isNullOrBlank()) {
                             put("acceptanceCriteria", kotlinx.serialization.json.JsonPrimitive(criteria))
+                        }
+                        if (!schedule.isNullOrBlank()) {
+                            put("schedule", kotlinx.serialization.json.JsonPrimitive(schedule))
                         }
                     },
                 ).toRequestBody("application/json".toMediaType()),

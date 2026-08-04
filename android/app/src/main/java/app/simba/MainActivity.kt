@@ -281,16 +281,26 @@ private fun ErrorBanner(error: String?) {
 
 @Composable
 private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
+    var creating by remember { mutableStateOf(false) }
+    val design = LocalDesign.current
+
+    // Material puts the primary action in its FAB, which is the component that
+    // decides where the eye goes; the other two designs have no FAB, so they
+    // put it in the heading. Showing both would be two controls doing one job.
+    DisposableEffect(Unit) {
+        MaterialActions.newMission = { creating = true }
+        onDispose { MaterialActions.newMission = null }
+    }
+
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item { ErrorBanner(vm.error) }
 
         vm.briefs.firstOrNull()?.let { b ->
             item {
-                Card {
+                Card(Modifier.screenPad()) {
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -323,6 +333,19 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
             }
         }
 
+        if (design != Design.Material) {
+            item {
+                SectionHeading("Missions") {
+                    Text(
+                        "+ new",
+                        fontSize = 12.sp,
+                        color = Accent,
+                        modifier = Modifier.clickable { creating = true },
+                    )
+                }
+            }
+        }
+
         if (vm.missions.isEmpty() && vm.error == null) {
             item {
                 EmptyState(
@@ -334,6 +357,110 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
 
         items(vm.missions, key = { it.id }) { m -> MissionCard(m) { open(m.id) } }
     }
+
+    if (creating) {
+        NewMissionDialog(
+            onDismiss = { creating = false },
+            onCreate = { title, objective, criteria, schedule ->
+                creating = false
+                vm.viewModelScope.launch {
+                    runCatching { vm.api?.createMission(title, objective, criteria, schedule) }
+                        .onFailure { vm.error = it.message }
+                    vm.refresh()
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Starting a mission from the phone.
+ *
+ * The gateway has had a create route the whole time and nothing called it, so
+ * missions — the thing the system is built around — could only be started from
+ * the desktop. The three fields are the three the planner actually needs: what
+ * to call it, what it is for, and how anyone will know it worked. Acceptance is
+ * optional but asked for anyway, because a mission with no end condition is how
+ * one runs all night and finishes nothing.
+ */
+@Composable
+private fun NewMissionDialog(onDismiss: () -> Unit, onCreate: (String, String, String?, String?) -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var objective by remember { mutableStateOf("") }
+    var criteria by remember { mutableStateOf("") }
+    var repeats by remember { mutableStateOf(false) }
+    var schedule by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Panel,
+        title = { Text("New mission", color = Fg) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = objective,
+                    onValueChange = { objective = it },
+                    label = { Text("What should it achieve?", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 6,
+                )
+                OutlinedTextField(
+                    value = criteria,
+                    onValueChange = { criteria = it },
+                    label = { Text("Done when… (optional)", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = repeats, onCheckedChange = { repeats = it })
+                    Text("Run on a schedule", color = Dim, fontSize = 12.5.sp)
+                }
+                // Plain English, because nobody states a recurring objective in
+                // cron and requiring it is what stops the feature being used.
+                // An unparseable phrase is refused by the gateway rather than
+                // defaulted, so a mission never runs at an hour nobody chose.
+                if (repeats) {
+                    OutlinedTextField(
+                        value = schedule,
+                        onValueChange = { schedule = it },
+                        label = { Text("When?", fontSize = 12.sp) },
+                        placeholder = { Text("every morning", fontSize = 12.sp, color = Faint) },
+                        singleLine = true,
+                        supportingText = {
+                            Text("“every morning”, “weekdays at 9”, “every 30 minutes”", fontSize = 10.5.sp)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onCreate(
+                        title.trim(),
+                        objective.trim(),
+                        criteria.trim().ifBlank { null },
+                        schedule.trim().takeIf { repeats && it.isNotBlank() },
+                    )
+                },
+                enabled = title.isNotBlank() && objective.isNotBlank() &&
+                    (!repeats || schedule.isNotBlank()),
+            ) { Text("Start", color = Accent, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Dim) } },
+    )
 }
 
 @Composable
@@ -399,20 +526,19 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
     val d = detail
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item {
-            TextButton(onClick = back) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Info, modifier = Modifier.size(16.dp))
-                Text("  All missions", color = Info, fontSize = 12.5.sp)
+            Row(Modifier.screenPad().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                BackButton(back)
+                Text("All missions", color = Dim, fontSize = 12.5.sp, modifier = Modifier.padding(start = 4.dp))
             }
         }
 
-        if (d == null) { item { CenteredNote("Loading…") }; return@LazyColumn }
+        if (d == null) { item { LoadingState(3) }; return@LazyColumn }
 
         item {
-            Card {
+            Card(Modifier.screenPad()) {
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -535,8 +661,7 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item { ErrorBanner(vm.error) }
         if (vm.agents.isEmpty() && vm.error == null) {
@@ -596,34 +721,47 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
     val live = vm.sessions.filter { it.status in listOf("running", "idle") }
     val past = vm.sessions.filter { it.status !in listOf("running", "idle") }.take(30)
 
+    fun start() {
+        if (starting || simba == null) return
+        starting = true
+        scope.launch {
+            val r = runCatching {
+                vm.api?.startAgent(simba.slug, "Hey — what's going on with the system right now?")
+            }.getOrNull()
+            starting = false
+            vm.refresh()
+            r?.sessionId?.let { open(it, simba.name) } ?: run { vm.error = r?.error }
+        }
+    }
+
+    // Same rule as missions: Material's FAB is the primary action, so the
+    // inline button would be the second control for the same job.
+    DisposableEffect(simba) {
+        MaterialActions.newChat = { start() }
+        onDispose { MaterialActions.newChat = null }
+    }
+
+    // Read outside the list builder: the lambda passed to LazyColumn is not
+    // composable, so a CompositionLocal cannot be looked up inside it.
+    val design = LocalDesign.current
+
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item {
-            Button(
-                onClick = {
-                    if (starting || simba == null) return@Button
-                    starting = true
-                    scope.launch {
-                        val r = runCatching {
-                            vm.api?.startAgent(simba.slug, "Hey — what's going on with the system right now?")
-                        }.getOrNull()
-                        starting = false
-                        vm.refresh()
-                        r?.sessionId?.let { open(it, simba.name) } ?: run { vm.error = r?.error }
-                    }
-                },
-                enabled = !starting,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
-            ) {
-                Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
-                Text(
-                    if (starting) "  Starting…" else "  Talk to ${simba?.name ?: "Simba"}",
-                    fontWeight = FontWeight.SemiBold,
-                )
+        if (design != Design.Material) {
+            item {
+                Button(
+                    onClick = { start() },
+                    enabled = !starting,
+                    modifier = Modifier.fillMaxWidth().screenPad().padding(top = 6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
+                ) {
+                    Text(
+                        if (starting) "Starting…" else "Talk to ${simba?.name ?: "Simba"}",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
         }
 
@@ -824,52 +962,30 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         clientSecret = ctx.accessClientSecret()
     }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        SectionHeading("Design") { Meta(BuildConfig.BUILD_STAMP, Accent) }
+
+        // The picker is the one place the three designs are described rather
+        // than merely used, so each is named with its own argument beside it —
+        // choosing between three words tells you nothing.
+        val design = LocalDesign.current
+        Design.entries.forEach { d ->
+            ItemRow(
+                title = d.label,
+                subtitle = d.blurb,
+                badge = if (d == design) ItemMeta("in use", Tone.Accented) else null,
+                onClick = { scope.launch { ctx.saveDesign(d) } },
+            )
+        }
+
         // The ladder, in the order failover actually walks it — the sequence is
         // the point, not the set. Each row can be asked whether it really works
         // and benched without touching the machine.
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("BUILD", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-            Meta(BuildConfig.BUILD_STAMP, Accent)
-        }
-
-        Text("DESIGN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-        Card {
-            val design = LocalDesign.current
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Design.entries.forEach { d ->
-                    val on = d == design
-                    Text(
-                        d.label,
-                        fontSize = 12.sp,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                        color = if (on) OnAccent else Dim,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (on) Accent else Panel2)
-                            .clickable { scope.launch { ctx.saveDesign(d) } }
-                            .padding(vertical = 9.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.height(7.dp))
-            Text(design.blurb, fontSize = 11.sp, color = Faint)
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("BRAINS — FAILOVER ORDER", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-            if (verifyingAll) Text("checking…", fontSize = 10.sp, color = Accent)
+        SectionHeading("Brains") {
+            if (verifyingAll) Text("checking…", fontSize = 11.sp, color = Accent)
             else Text(
                 "verify all",
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 color = Accent,
                 modifier = Modifier.clickable {
                     scope.launch {
@@ -888,111 +1004,94 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                 },
             )
         }
+        if (vm.brains.isEmpty()) {
+            EmptyState("No brains configured", "Simba has nothing to think with until a CLI is registered on the machine.")
+        }
         vm.brains.forEachIndexed { i, b ->
             val verdict = verdicts[b.slug]
-            Card {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text(
-                            "${i + 1}",
-                            fontSize = 11.sp,
-                            color = Faint,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                        Text(
-                            b.label,
-                            color = if (b.enabled) Fg else Faint,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    Pill(if (!b.enabled) "benched" else b.status, if (!b.enabled) Faint else statusColor(b.status))
-                }
-                Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Meta(b.provider)
-                    // Free brains cost nothing by construction; showing $0.00
-                    // next to them implies a meter that does not exist.
-                    if (b.provider == "opencode" || b.cli == "ollama") Meta("free", Ok)
-                    else Meta("7d $${"%.2f".format(b.cost7d ?: 0.0)}")
-                    b.limitResetsAt?.let { Meta("resets $it", Warn) }
-                }
-                // Rolling 5-hour usage. On a subscription-only setup headroom is
-                // the scarce resource, and this window is what actually predicts
-                // a brain going unavailable — a cost figure does not, because
-                // the limit is not denominated in dollars.
-                if (b.input5h > 0 || b.output5h > 0) {
-                    Row(
-                        Modifier.padding(top = 3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Meta("5h ${tokens(b.input5h)} in / ${tokens(b.output5h)} out")
-                        // Real volume at no cost is the point of the free tier,
-                        // so say so rather than leaving a blank where a price
-                        // would be.
-                        if (b.provider == "opencode" || b.cli == "ollama") {
-                            Meta("at no cost", Ok)
-                        }
-                    }
-                }
+            ItemRow(
+                // The number is the failover position, which is the only thing
+                // that distinguishes an ordered ladder from a list of brains.
+                title = "${i + 1}. ${b.label}",
                 // A brain showing "logged_out" with no explanation reads as a
                 // bug in Simba rather than a state of the account. The reason
                 // is already recorded server-side, so show it.
-                b.lastError?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        it,
-                        fontSize = 11.sp,
-                        color = if (b.status in listOf("logged_out", "error")) Err else Faint,
-                        modifier = Modifier.padding(top = 5.dp),
-                    )
-                }
-                // The live answer, kept visually distinct from the stored status
-                // so it is obvious which one was just measured.
-                verdict?.let { v ->
-                    Text(
-                        (if (v.ok) "✓ " else "✗ ") + v.detail,
-                        fontSize = 11.sp,
-                        color = if (v.ok) Ok else Err,
-                        modifier = Modifier.padding(top = 5.dp),
-                    )
-                }
-                Row(
-                    Modifier.padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    val busy = verifying == b.slug
-                    Text(
-                        if (busy) "asking…" else "verify",
-                        fontSize = 11.sp,
-                        color = if (busy) Faint else Accent,
-                        modifier = Modifier.clickable(enabled = !busy) {
-                            scope.launch {
-                                verifying = b.slug
-                                runCatching { vm.api?.verifyBrain(b.slug) }
-                                    .onSuccess { r -> if (r != null) verdicts = verdicts + (b.slug to r) }
-                                    .onFailure { e ->
-                                        verdicts = verdicts + (b.slug to VerifyResult(
-                                            slug = b.slug, ok = false,
-                                            detail = e.message ?: "request failed",
-                                        ))
+                subtitle = b.lastError?.takeIf { it.isNotBlank() },
+                badge = ItemMeta(
+                    if (!b.enabled) "benched" else b.status,
+                    if (!b.enabled) Tone.Neutral else toneFor(b.status),
+                ),
+                meta = buildList {
+                    add(ItemMeta(b.provider))
+                    // Free brains cost nothing by construction; showing $0.00
+                    // next to them implies a meter that does not exist.
+                    if (b.provider == "opencode" || b.cli == "ollama") add(ItemMeta("free", Tone.Good))
+                    else add(ItemMeta("7d $${"%.2f".format(b.cost7d ?: 0.0)}"))
+                    b.limitResetsAt?.let { add(ItemMeta("resets $it", Tone.Warn)) }
+                },
+                expanded = {
+                    Column {
+                        // Rolling 5-hour usage. On a subscription-only setup
+                        // headroom is the scarce resource, and this window is
+                        // what actually predicts a brain going unavailable — a
+                        // cost figure does not, because the limit is not
+                        // denominated in dollars.
+                        if (b.input5h > 0 || b.output5h > 0) {
+                            Text(
+                                "5h · ${tokens(b.input5h)} in / ${tokens(b.output5h)} out" +
+                                    if (b.provider == "opencode" || b.cli == "ollama") " · at no cost" else "",
+                                fontSize = 11.5.sp,
+                                color = if (b.provider == "opencode" || b.cli == "ollama") Ok else Faint,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        // The live answer, kept visually distinct from the
+                        // stored status so it is obvious which was just measured.
+                        verdict?.let { v ->
+                            Text(
+                                v.detail,
+                                fontSize = 11.5.sp,
+                                color = if (v.ok) Ok else Err,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                            val busy = verifying == b.slug
+                            Text(
+                                if (busy) "asking…" else "verify",
+                                fontSize = 12.sp,
+                                color = if (busy) Faint else Accent,
+                                modifier = Modifier.clickable(enabled = !busy) {
+                                    scope.launch {
+                                        verifying = b.slug
+                                        runCatching { vm.api?.verifyBrain(b.slug) }
+                                            .onSuccess { r -> if (r != null) verdicts = verdicts + (b.slug to r) }
+                                            .onFailure { e ->
+                                                verdicts = verdicts + (b.slug to VerifyResult(
+                                                    slug = b.slug, ok = false,
+                                                    detail = e.message ?: "request failed",
+                                                ))
+                                            }
+                                        verifying = null
+                                        vm.refresh()
                                     }
-                                verifying = null
-                                vm.refresh()
-                            }
-                        },
-                    )
-                    Text(
-                        if (b.enabled) "bench" else "restore",
-                        fontSize = 11.sp,
-                        color = if (b.enabled) Warn else Ok,
-                        modifier = Modifier.clickable {
-                            scope.launch {
-                                runCatching { vm.api?.toggleBrain(b.slug) }
-                                vm.refresh()
-                            }
-                        },
-                    )
-                }
-            }
+                                },
+                            )
+                            Text(
+                                if (b.enabled) "bench" else "restore",
+                                fontSize = 12.sp,
+                                color = if (b.enabled) Warn else Ok,
+                                modifier = Modifier.clickable {
+                                    scope.launch {
+                                        runCatching { vm.api?.toggleBrain(b.slug) }
+                                        vm.refresh()
+                                    }
+                                },
+                            )
+                        }
+                    }
+                },
+            )
         }
 
         // Work an agent produced that nothing has collected.
@@ -1002,42 +1101,24 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         // recoverable. But kept-and-invisible is its own failure: the session
         // reads "completed" while a directory somewhere holds the only copy.
         if (worktrees.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "UNCOLLECTED WORK",
-                fontSize = 10.sp,
-                color = Warn,
-                fontWeight = FontWeight.SemiBold,
-            )
+            SectionHeading("Uncollected work") {
+                Text("${worktrees.size} held", fontSize = 11.sp, color = Warn)
+            }
             worktrees.forEach { w ->
-                Card {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(w.agent, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Pill(
-                            when {
-                                // Not recoverable, so not a call to action.
-                                w.state.originMissing -> "repo gone"
-                                w.state.dirty -> "uncommitted"
-                                else -> "${w.state.ahead} commits"
-                            },
-                            if (w.state.originMissing) Faint else Warn,
-                        )
-                    }
-                    Text(
-                        w.state.branch ?: "",
-                        color = Faint,
-                        fontSize = 11.sp,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    Text(
-                        w.state.path,
-                        color = Faint,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
+                ItemRow(
+                    title = w.agent,
+                    subtitle = w.state.branch,
+                    badge = ItemMeta(
+                        when {
+                            // Not recoverable, so not a call to action.
+                            w.state.originMissing -> "repo gone"
+                            w.state.dirty -> "uncommitted"
+                            else -> "${w.state.ahead} commits"
+                        },
+                        if (w.state.originMissing) Tone.Neutral else Tone.Warn,
+                    ),
+                    expanded = { Text(w.state.path, color = Faint, fontSize = 11.sp) },
+                )
             }
         }
 
@@ -1048,12 +1129,10 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         // asked. Memory turned out to be the largest single consumer, which was
         // not the guess - so this is here to be looked at rather than assumed.
         budget?.let { b ->
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("CONTEXT PER TURN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+            SectionHeading("Context per turn") {
                 Meta("~${tokens(b.estTokens.toLong())} tokens")
             }
-            Card {
+            Card(Modifier.padding(horizontal = 16.dp)) {
                 b.slices.forEach { sl ->
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -1082,12 +1161,10 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
 
         // The stores that load every turn, and the button that tidies them.
         stores?.let { st ->
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("STORES", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+            SectionHeading("Stores") {
                 Text(
-                    if (curating) "tidying..." else "curate now",
-                    fontSize = 10.sp,
+                    if (curating) "tidying…" else "curate now",
+                    fontSize = 11.sp,
                     color = Accent,
                     modifier = Modifier.clickable(enabled = !curating) {
                         scope.launch {
@@ -1099,7 +1176,7 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                     },
                 )
             }
-            Card {
+            Card(Modifier.padding(horizontal = 16.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("memory", color = Fg, fontSize = 12.sp)
                     Meta(
@@ -1124,9 +1201,8 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
             }
         }
 
-        Spacer(Modifier.height(4.dp))
-        Text("CONNECTION", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-        Card {
+        SectionHeading("Connection")
+        Card(Modifier.padding(horizontal = 16.dp)) {
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -1188,11 +1264,11 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
             ) { Text("Save & reconnect", fontWeight = FontWeight.SemiBold) }
         }
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(18.dp))
         Button(
             onClick = { confirmPanic = true },
             colors = ButtonDefaults.buttonColors(containerColor = Err.copy(alpha = 0.15f), contentColor = Err),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         ) {
             Icon(Icons.Filled.Warning, null, modifier = Modifier.size(17.dp))
             Text("  Panic — stop every agent", fontWeight = FontWeight.SemiBold)

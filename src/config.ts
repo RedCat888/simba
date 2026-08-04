@@ -9,6 +9,28 @@ import { join } from 'node:path';
 
 const home = homedir();
 
+/**
+ * The trusted listener's bind address, constrained to loopback.
+ *
+ * Refuses rather than silently corrects: a deployment that asked to listen
+ * broadly and quietly got loopback would be confusing in a different way, and
+ * this is a security boundary — it should fail loudly enough to be noticed.
+ */
+function gatewayHost(): string {
+  const requested = process.env.SIMBA_GATEWAY_HOST;
+  if (!requested) return '127.0.0.1';
+
+  const loopback = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+  if (loopback.has(requested.toLowerCase())) return requested;
+
+  throw new Error(
+    `SIMBA_GATEWAY_HOST=${requested} is refused. The local listener grants ` +
+      `desktop authority without authentication, so binding it off-loopback ` +
+      `would expose unauthenticated control of this machine to the network. ` +
+      `Use the Cloudflare tunnel for remote access.`,
+  );
+}
+
 export const config = {
   root: join(home, 'simba'),
 
@@ -40,7 +62,23 @@ export const config = {
      * not settable by the client.
      */
     tunnelPort: Number(process.env.SIMBA_TUNNEL_PORT ?? 8788),
-    host: process.env.SIMBA_GATEWAY_HOST ?? '127.0.0.1',
+    /**
+     * Loopback only, and not merely by default.
+     *
+     * The local channel grants desktop authority with no identity check at all —
+     * that is the whole point of the port split, and it is safe precisely
+     * because nothing off this machine can reach the port. SIMBA_GATEWAY_HOST
+     * accepted any address, so a single environment variable
+     * (`SIMBA_GATEWAY_HOST=0.0.0.0`) would have exposed unauthenticated desktop
+     * authority to the entire LAN. Nothing else in the system would notice: the
+     * requests would look local because they arrived on the local port.
+     *
+     * A latent hazard rather than a live hole — the listener is bound to
+     * 127.0.0.1 today — but "one typo from catastrophic" is not a property worth
+     * keeping when the fix is to refuse the value. Reaching Simba from
+     * elsewhere is what the Cloudflare tunnel and Access are for.
+     */
+    host: gatewayHost(),
     token: process.env.SIMBA_GATEWAY_TOKEN ?? '',
   },
 

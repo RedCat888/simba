@@ -45,6 +45,17 @@ import androidx.compose.ui.unit.sp
  * single most important thing on a screen, and if everything is bold the weight
  * has stopped carrying information.
  */
+/**
+ * Tabular, lining figures.
+ *
+ * `tnum` fixes every digit to the same advance width, so a counter ticking from
+ * 19 to 20 does not reflow the line it sits in. `lnum` sets digits at cap height
+ * so they align with adjacent capitals. Neither is a default, and an interface
+ * full of live numbers without them jitters constantly — which is one of the
+ * most reliable signs that nobody sweated the details.
+ */
+private const val FIGURES = "\"tnum\" 1, \"lnum\" 1"
+
 @Immutable
 data class TypeScale(
     /** One per screen at most. The thing you are looking at. */
@@ -125,49 +136,58 @@ private fun proportional(
         lineHeight = (34 * scale).sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = (-0.7).sp,
+        fontFeatureSettings = FIGURES,
     ),
     title = TextStyle(
         fontSize = (22 * scale).sp,
         lineHeight = (27 * scale).sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = (-0.4).sp,
+        fontFeatureSettings = FIGURES,
     ),
     heading = TextStyle(
         fontSize = (17 * scale).sp,
         lineHeight = (22 * scale).sp,
         fontWeight = weightShift ?: FontWeight.SemiBold,
         letterSpacing = (-0.1).sp,
+        fontFeatureSettings = FIGURES,
     ),
     body = TextStyle(
         fontSize = (15 * scale).sp,
         lineHeight = (20 * scale).sp,
         fontWeight = FontWeight.Normal,
+        fontFeatureSettings = FIGURES,
     ),
     bodySmall = TextStyle(
         fontSize = (13 * scale).sp,
         lineHeight = (18 * scale).sp,
         fontWeight = FontWeight.Normal,
+        fontFeatureSettings = FIGURES,
     ),
     label = TextStyle(
         fontSize = (12 * scale).sp,
         lineHeight = (16 * scale).sp,
         fontWeight = FontWeight.Medium,
+        fontFeatureSettings = FIGURES,
     ),
     caption = TextStyle(
         fontSize = (11 * scale).sp,
         lineHeight = (15 * scale).sp,
         fontWeight = FontWeight.Normal,
+        fontFeatureSettings = FIGURES,
     ),
     micro = TextStyle(
         fontSize = (10 * scale).sp,
         lineHeight = (13 * scale).sp,
         fontWeight = FontWeight.Medium,
         letterSpacing = 0.4.sp,
+        fontFeatureSettings = FIGURES,
     ),
     mono = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontSize = (12 * scale).sp,
         lineHeight = (17 * scale).sp,
+        fontFeatureSettings = FIGURES,
     ),
 )
 
@@ -181,15 +201,15 @@ private fun proportional(
  * makes something cramped and setting it smaller makes it dense.
  */
 private val ConsoleType = TypeScale(
-    display = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold),
-    title = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold),
-    heading = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold),
-    body = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 17.sp),
-    bodySmall = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp),
-    label = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold),
-    caption = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 14.sp),
-    micro = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 13.sp),
-    mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp),
+    display = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = FIGURES),
+    title = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = FIGURES),
+    heading = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = FIGURES),
+    body = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 17.sp, fontFeatureSettings = FIGURES),
+    bodySmall = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp, fontFeatureSettings = FIGURES),
+    label = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = FIGURES),
+    caption = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 14.sp, fontFeatureSettings = FIGURES),
+    micro = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 13.sp, fontFeatureSettings = FIGURES),
+    mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp, fontFeatureSettings = FIGURES),
 )
 
 fun typeScaleFor(design: Design): TypeScale = when (design) {

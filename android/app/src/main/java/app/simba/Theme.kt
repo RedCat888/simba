@@ -34,40 +34,64 @@ import androidx.compose.ui.unit.sp
 // Colour schemes
 // ---------------------------------------------------------------------------
 
-// The dark scheme is the house palette, carried over from the web control center
-// so the two surfaces read as one system. Written out as full Material 3 roles
-// rather than as loose constants, so a design switch or dynamic colour can
-// replace the whole thing in one substitution.
+// The dark scheme, rebuilt after computing what the old one actually did.
+//
+// Two numbers condemned it. Adjacent surfaces were 1.064:1 apart — invisible on
+// a phone — so the elevation ladder did no work at all and containment fell
+// entirely to corner radius, which is precisely why every element on every
+// screen read as a card. And the warning colour was 11.95:1 against the canvas
+// while the brand accent was 9.53:1, so the loudest chromatic thing on any
+// screen was a warning. Five status hues crowded into a 5.9-12.0 band all shout
+// at the same volume; that is a Christmas tree, and it is arithmetic rather than
+// taste.
+//
+// The rebuilt ladder steps 1.15 / 1.15 / 1.18 / 1.22, which is visible without
+// being stripey. The accent is the loudest chromatic element at 8.55:1 and the
+// status band sits beneath it at 5.3-7.6, so a screen full of "completed" no
+// longer out-shouts the one thing you can act on.
+//
+// The accent is no longer amber. Amber on near-black is semantically
+// pre-committed to *warning*, and using it for the selected tab and the primary
+// button and the actual warnings is what destroyed its operational meaning.
+// Amber is now warning and only warning.
 private val SimbaDark = darkColorScheme(
-    primary = Color(0xFFF5A524),
-    onPrimary = Color(0xFF1A1206),
-    primaryContainer = Color(0xFF5A3D06),
-    onPrimaryContainer = Color(0xFFFFDEA8),
-    secondary = Color(0xFF5B9BF8),
-    onSecondary = Color(0xFF06172E),
-    secondaryContainer = Color(0xFF1B3557),
-    onSecondaryContainer = Color(0xFFCFE0FA),
-    tertiary = Color(0xFF3ECF8E),
-    onTertiary = Color(0xFF042315),
-    background = Color(0xFF0B0D10),
-    onBackground = Color(0xFFE6E9EF),
-    surface = Color(0xFF12151A),
-    onSurface = Color(0xFFE6E9EF),
-    surfaceVariant = Color(0xFF171B21),
-    onSurfaceVariant = Color(0xFF8B95A5),
-    surfaceContainerLowest = Color(0xFF080A0C),
-    surfaceContainerLow = Color(0xFF101318),
-    surfaceContainer = Color(0xFF12151A),
-    surfaceContainerHigh = Color(0xFF171B21),
-    surfaceContainerHighest = Color(0xFF1D2229),
-    inverseSurface = Color(0xFFE6E9EF),
-    inverseOnSurface = Color(0xFF12151A),
-    outline = Color(0xFF5C6675),
-    outlineVariant = Color(0xFF242A33),
-    error = Color(0xFFF5555A),
-    onError = Color(0xFF2A0407),
-    errorContainer = Color(0xFF54151A),
-    onErrorContainer = Color(0xFFFFDAD9),
+    // The action available now, and nothing else. See the note above on why it
+    // is no longer amber.
+    primary = Color(0xFF98A6FF),
+    onPrimary = Color(0xFF0B0D11),
+    primaryContainer = Color(0xFF2A3160),
+    onPrimaryContainer = Color(0xFFD9DEFF),
+    secondary = Color(0xFF5AA7BC),
+    onSecondary = Color(0xFF04161C),
+    secondaryContainer = Color(0xFF16313A),
+    onSecondaryContainer = Color(0xFFCDE7EF),
+    tertiary = Color(0xFF4FAE85),
+    onTertiary = Color(0xFF03190F),
+
+    // The ladder. Each step is 1.15-1.22 against the one below it, which is the
+    // whole point: the previous values were 1.06 apart and therefore identical
+    // to the eye, so containment fell entirely to corner radius and every
+    // element on every screen read as a card.
+    background = Color(0xFF0B0D11),
+    onBackground = Color(0xFFF4F7FB),
+    surface = Color(0xFF171D27),
+    onSurface = Color(0xFFF4F7FB),
+    surfaceVariant = Color(0xFF202936),
+    onSurfaceVariant = Color(0xFFC2CAD6),
+    surfaceContainerLowest = Color(0xFF070910),
+    surfaceContainerLow = Color(0xFF11161E),
+    surfaceContainer = Color(0xFF171D27),
+    surfaceContainerHigh = Color(0xFF202936),
+    surfaceContainerHighest = Color(0xFF293544),
+
+    inverseSurface = Color(0xFFF4F7FB),
+    inverseOnSurface = Color(0xFF171D27),
+    outline = Color(0xFF929DAC),
+    outlineVariant = Color(0xFF293340),
+    error = Color(0xFFD4626C),
+    onError = Color(0xFF23060A),
+    errorContainer = Color(0xFF4A1A20),
+    onErrorContainer = Color(0xFFFFD9DC),
     scrim = Color(0xFF000000),
 )
 
@@ -130,10 +154,13 @@ fun noticeColor(tone: NoticeTone): Color = when (tone) {
 @Immutable
 data class SimbaStatusColors(val ok: Color, val warn: Color, val info: Color)
 
+// Deliberately quieter than the accent (8.55:1). Status appears on nearly every
+// row; the accent appears once per screen. The frequent thing must be the
+// quieter thing or the screen reads as noise with an action hidden in it.
 private val DarkStatus = SimbaStatusColors(
-    ok = Color(0xFF3ECF8E),
-    warn = Color(0xFFF5C451),
-    info = Color(0xFF5B9BF8),
+    ok = Color(0xFF4FAE85),
+    warn = Color(0xFFC99A3B),
+    info = Color(0xFF5AA7BC),
 )
 
 private val LightStatus = SimbaStatusColors(
@@ -204,15 +231,21 @@ private val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES
  * someone to keep switching looking for a difference that is not there.
  */
 private val ConsoleDark = darkColorScheme(
-    background = Color(0xFF07090C),
-    surface = Color(0xFF0C1015),
-    surfaceContainerHigh = Color(0xFF141A21),
-    onBackground = Color(0xFFC8D3DE),
-    onSurfaceVariant = Color(0xFF8A97A6),
-    outline = Color(0xFF4A5563),
-    primary = Color(0xFF56C7F0),
+    background = Color(0xFF06080C),
+    surface = Color(0xFF10161F),
+    surfaceVariant = Color(0xFF18202B),
+    surfaceContainerLow = Color(0xFF0B0F16),
+    surfaceContainer = Color(0xFF10161F),
+    surfaceContainerHigh = Color(0xFF18202B),
+    surfaceContainerHighest = Color(0xFF212B38),
+    onBackground = Color(0xFFDCE6F0),
+    onSurface = Color(0xFFDCE6F0),
+    onSurfaceVariant = Color(0xFFAAB7C6),
+    outline = Color(0xFF7C8A9B),
+    outlineVariant = Color(0xFF232D3A),
+    primary = Color(0xFF6FD3F5),
     onPrimary = Color(0xFF04121A),
-    error = Color(0xFFF0757A),
+    error = Color(0xFFE0737B),
 )
 
 /**

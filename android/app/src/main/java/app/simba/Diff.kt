@@ -110,10 +110,7 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
                         }
                         items(d.files, key = { it.path }) { f ->
                             ItemRow(
-                                // Long paths matter at the end, not the start —
-                                // a phone-width row that truncates right shows
-                                // only directories.
-                                title = f.path.takeLast(46),
+                                title = shortPath(f.path, 46),
                                 meta = buildList {
                                     if (f.additions > 0) add(ItemMeta("+${f.additions}", Tone.Good))
                                     if (f.deletions > 0) add(ItemMeta("−${f.deletions}", Tone.Bad))

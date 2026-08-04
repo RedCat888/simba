@@ -756,3 +756,31 @@ fun Chevron(expanded: Boolean, tint: Color = Dim) {
         )
     }
 }
+
+
+/**
+ * A path shortened from the left, along segment boundaries.
+ *
+ * Naive truncation of a path is worse than useless. `takeLast(52)` on
+ * `android/app/src/main/java/com/operator/simba/Session.kt` yields
+ * `ndroid/app/src/main/java/com/operator/simba/` — cut mid-segment, and with the
+ * filename gone, which is the one part being looked for. Dropping whole leading
+ * segments and marking the cut keeps the answer to "which file" intact and
+ * spends the remaining width on however much parent context fits.
+ */
+fun shortPath(path: String, maxChars: Int = 40): String {
+    val parts = path.replace('\\', '/').split('/').filter { it.isNotBlank() }
+    if (parts.isEmpty()) return path
+    val name = parts.last()
+    // A filename alone longer than the budget is the one case where cutting
+    // inside a segment is right — and it is cut from the front, because
+    // extensions and suffixes disambiguate more than prefixes do.
+    if (name.length >= maxChars) return "…" + name.takeLast(maxChars - 1)
+
+    val out = StringBuilder(name)
+    for (i in parts.size - 2 downTo 0) {
+        if (parts[i].length + 1 + out.length > maxChars) return "…/$out"
+        out.insert(0, parts[i] + "/")
+    }
+    return out.toString()
+}

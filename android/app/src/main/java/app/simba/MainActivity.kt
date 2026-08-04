@@ -342,48 +342,40 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
 
 @Composable
 private fun MissionCard(m: Mission, onClick: () -> Unit) {
-    val pct = if (m.totalSteps > 0) m.doneSteps.toFloat() / m.totalSteps else 0f
-    val animated by animateFloatAsState(pct, label = "progress")
-
-    Card(Modifier.clickable(onClick = onClick)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                m.title,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.5.sp,
-                color = Fg,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(8.dp))
-            Pill(m.status, statusColor(m.status))
-        }
-
-        val sub = m.currentStep ?: m.blockedReason
-        if (!sub.isNullOrBlank()) {
-            Text(sub, fontSize = 12.sp, color = Dim, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        Spacer(Modifier.height(9.dp))
-        LinearProgressIndicator(
-            progress = { animated },
-            modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
-            color = if (m.failedSteps > 0) Warn else Ok,
-            trackColor = Panel2,
-            gapSize = 0.dp,
-            drawStopIndicator = {},
-        )
-
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Meta("${m.doneSteps}/${m.totalSteps} steps")
-            if (m.failedSteps > 0) Meta("${m.failedSteps} failed", Warn)
-            Meta("${m.sessionsUsed}/${m.maxSessions} sessions")
-            Meta("$${"%.2f".format(m.costUsed)}")
+    // Describes what the row *is*; the active design decides how it looks.
+    // A script mission has no steps and no cost, so its progress is its last
+    // exit code — showing "0/0 steps" for one would be reporting a number that
+    // does not apply rather than the one that does.
+    val meta = buildList {
+        if (m.isScript) {
+            m.lastExitCode?.let {
+                add(ItemMeta(if (it == 0) "exit 0" else "exit $it", if (it == 0) Tone.Good else Tone.Bad))
+            }
+            m.cron?.let { add(ItemMeta(it, Tone.Neutral)) }
+        } else {
+            add(ItemMeta("${m.doneSteps}/${m.totalSteps} steps"))
+            if (m.failedSteps > 0) add(ItemMeta("${m.failedSteps} failed", Tone.Warn))
+            add(ItemMeta("${m.sessionsUsed}/${m.maxSessions} sessions"))
+            if (m.costUsed > 0) add(ItemMeta("$" + "%.2f".format(m.costUsed)))
         }
     }
+
+    ItemRow(
+        title = m.title,
+        subtitle = m.currentStep ?: m.blockedReason ?: m.lastOutput?.take(120),
+        meta = meta,
+        badge = ItemMeta(if (m.isScript) "script" else m.status, toneFor(m.status)),
+        onClick = onClick,
+    )
+}
+
+/** Status words mapped to meaning once, rather than to a colour in each design. */
+fun toneFor(status: String): Tone = when (status) {
+    "running", "planning", "verifying" -> Tone.Accented
+    "completed", "succeeded", "available" -> Tone.Good
+    "blocked", "paused", "limited" -> Tone.Warn
+    "failed", "error", "killed", "logged_out" -> Tone.Bad
+    else -> Tone.Neutral
 }
 
 /** Token counts, short enough for a phone row. 9349 reads as 9.3k. */
@@ -557,35 +549,21 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
     ) {
         item { ErrorBanner(vm.error) }
         items(vm.agents, key = { it.id }) { a ->
-            Card {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(a.name, fontWeight = FontWeight.SemiBold, color = Fg, fontSize = 14.5.sp)
-                        Spacer(Modifier.width(7.dp))
-                        Pill("T${a.tier}", if (a.tier == 0) Accent else Dim)
-                    }
-                    Pill(a.status, statusColor(a.status))
-                }
-                a.description?.let {
-                    Text(it, fontSize = 12.sp, color = Dim, modifier = Modifier.padding(top = 4.dp))
-                }
-                Row(
-                    Modifier.padding(top = 9.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                        Meta(a.modelTier)
-                        Meta("${a.activeSessions} live")
-                        Meta("$${"%.2f".format(a.totalCost)}")
-                    }
-                    Button(
-                        onClick = { prompting = a },
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                    ) { Text("Start", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                }
-            }
+            ItemRow(
+                title = a.name,
+                subtitle = a.description,
+                meta = buildList {
+                    add(ItemMeta("tier ${a.tier}", if (a.tier == 0) Tone.Accented else Tone.Neutral))
+                    add(ItemMeta(a.modelTier))
+                    if (a.activeSessions > 0) add(ItemMeta("${a.activeSessions} live", Tone.Accented))
+                    if (a.totalCost > 0) add(ItemMeta("$" + "%.2f".format(a.totalCost)))
+                },
+                badge = ItemMeta(a.status, toneFor(a.status)),
+                // Tapping the row starts it. A separate button inside a row is
+                // a third tap target competing with the row and the design's own
+                // expansion, and every design would have to place it differently.
+                onClick = { prompting = a },
+            )
         }
     }
 
@@ -694,38 +672,21 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
-    Card(Modifier.clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                s.title ?: s.agent,
-                color = Fg,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(8.dp))
-            Pill(s.status, statusColor(s.status))
-        }
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            Meta(s.agent)
-            s.brain?.let { Meta(it) }
-            if (s.swapCount > 0) Meta("⇄ ${s.swapCount}", Accent)
-            Meta("$${"%.3f".format(s.cost)}")
-        }
-        // A session showing "failed" and nothing else reads as a defect in
-        // Simba rather than something that happened to a process. The reason
-        // was already being recorded; it just never reached here.
-        s.error?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                it,
-                fontSize = 11.sp,
-                color = Err,
-                maxLines = 2,
-                modifier = Modifier.padding(top = 5.dp),
-            )
-        }
-    }
+    ItemRow(
+        title = s.title ?: s.agent,
+        // The failure reason, when there is one, is the most useful thing the
+        // row can say - a bare "failed" reads as a defect in Simba rather than
+        // something that happened to a process.
+        subtitle = s.error,
+        meta = buildList {
+            add(ItemMeta(s.agent))
+            s.brain?.let { add(ItemMeta(it)) }
+            if (s.swapCount > 0) add(ItemMeta("swapped ${s.swapCount}x", Tone.Accented))
+            if (s.cost > 0) add(ItemMeta("$" + "%.3f".format(s.cost)))
+        },
+        badge = ItemMeta(s.status, toneFor(s.status)),
+        onClick = onClick,
+    )
 }
 
 @Composable

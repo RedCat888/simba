@@ -2,6 +2,7 @@ import { query, one } from '../db/index.js';
 import { captureGitState } from './git.js';
 import { recall } from '../knowledge/embed.js';
 import { buildSkillIndex } from '../knowledge/skills.js';
+import { buildMemorySection } from '../knowledge/memory.js';
 
 /**
  * Context assembly — the component that makes an agent an identity rather than
@@ -66,6 +67,15 @@ export async function buildHydrationBrief(
   );
 
   parts.push(section('Standing brief', agent.standing_brief));
+
+  // ---- Memory: what this agent knows without being asked --------------------
+  //
+  // Placed before skills because it is smaller and more load-bearing: skills
+  // are looked up when relevant, memory has to be true on every turn. A fact
+  // like "there is no simba Postgres role" only prevents the mistake if it is
+  // already present — an agent that would have to search for it will not.
+  const memory = await buildMemorySection(agentId);
+  if (memory) parts.push(section('What you already know', memory));
 
   // ---- Skills: the index only, never the bodies -----------------------------
   //

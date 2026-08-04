@@ -9,6 +9,7 @@ import {
 import { query, one, transaction, recordEvent } from '../db/index.js';
 import { recall } from '../knowledge/embed.js';
 import { viewSkill, listSkills, saveSkill } from '../knowledge/skills.js';
+import { addMemory, removeMemory, memoryPressure } from '../knowledge/memory.js';
 import { checkAction, logDenial, type Surface } from '../policy/surface.js';
 
 /**
@@ -120,6 +121,39 @@ const TOOLS = [
         limit: { type: 'number' },
       },
       required: ['q'],
+    },
+  },
+  {
+    name: 'memory_add',
+    description:
+      'Remember a durable fact so it is present on every future turn without being searched for. ' +
+      'Use for things about this machine, the accounts, or how the operator wants things done — ' +
+      'anything you would otherwise rediscover. Memory is deliberately capped: when it is full ' +
+      'you must remove something first. A single fact belongs here; anything with steps belongs ' +
+      'in a skill via skill_save.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['environment', 'preference', 'convention', 'person'] },
+        content: { type: 'string', description: 'One fact, under 400 characters.' },
+        source: { type: 'string', description: 'How you know it.' },
+        mine_only: {
+          type: 'boolean',
+          description: 'Scope to this agent instead of sharing it with all agents.',
+        },
+      },
+      required: ['kind', 'content'],
+    },
+  },
+  {
+    name: 'memory_remove',
+    description:
+      'Forget a memory that is wrong or no longer true. Matches on the text you saw in your ' +
+      'brief. Removing is how you make room when memory is full.',
+    inputSchema: {
+      type: 'object',
+      properties: { match: { type: 'string' } },
+      required: ['match'],
     },
   },
   {
@@ -469,6 +503,29 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
             relevance: Number((1 - h.distance).toFixed(3)),
             content: h.content.slice(0, 1200),
           })),
+        );
+      }
+
+      case 'memory_add': {
+        const result = await addMemory({
+          kind: String(args.kind) as 'environment' | 'preference' | 'convention' | 'person',
+          content: String(args.content),
+          source: args.source ? String(args.source) : 'learned while working',
+          agentId: args.mine_only ? AGENT_ID : null,
+          sessionId: SESSION_ID,
+        });
+        if (!result.ok) return text(`Not remembered: ${result.error}`);
+        const p = await memoryPressure(AGENT_ID);
+        return text(
+          `Remembered. Memory is now ${p.global.used}/${p.global.cap} shared` +
+            `, ${p.own.used}/${p.own.cap} yours.`,
+        );
+      }
+
+      case 'memory_remove': {
+        const r = await removeMemory(String(args.match), AGENT_ID);
+        return text(
+          r.removed > 0 ? `Forgot: ${r.content}` : `No memory matched "${String(args.match)}".`,
         );
       }
 

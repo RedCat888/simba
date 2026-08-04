@@ -123,7 +123,7 @@ const DESTRUCTIVE_COMMANDS = [
  * a PreToolUse hook and Ollama checks it in its own loop; Codex, Cursor and
  * OpenCode do not enforce it at all.
  */
-function denyRulesFor(patterns: string[]): Record<string, 'allow' | 'deny'> {
+export function denyRulesFor(patterns: string[]): Record<string, 'allow' | 'deny'> {
   const rules: Record<string, 'allow' | 'deny'> = {};
 
   for (const cmd of DESTRUCTIVE_COMMANDS) {

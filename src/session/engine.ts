@@ -13,7 +13,7 @@ import type { RunnerEvent, RunnerSession } from '../runner/types.js';
  * useless. That number is 0xC0000409, a fatal runtime check failure, and
  * knowing that is the difference between "the CLI crashed" and "no idea".
  */
-function describeExit(code: number | null, signal: string | null): string {
+export function describeExit(code: number | null, signal: string | null): string {
   if (signal) return `killed by signal ${signal}`;
   if (code === null) return 'process ended without an exit code (killed or timed out)';
   if (code === 0) return 'exited cleanly';

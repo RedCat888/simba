@@ -15,7 +15,9 @@
     "simba": "tsx src/cli.ts",
     "build:mcp": "node scripts/build-mcp.mjs",
     "migrate": "powershell -ExecutionPolicy Bypass -File scripts/migrate.ps1",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

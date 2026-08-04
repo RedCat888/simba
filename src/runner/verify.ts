@@ -44,7 +44,7 @@ export interface VerifyResult {
  * Every one of these CLIs echoes the real model in its JSON output, so the
  * discrepancy is detectable — it simply was not being looked at.
  */
-function reportedModels(out: string): string[] {
+export function reportedModels(out: string): string[] {
   const seen = new Set<string>();
 
   // Two shapes, because Claude emits different ones depending on config.
@@ -80,7 +80,7 @@ function reportedModels(out: string): string[] {
  * definition, so this asks whether the resolved model plausibly *is* the
  * requested one rather than whether the strings match.
  */
-function looksLikeSameModel(asked: string, got: string): boolean {
+export function looksLikeSameModel(asked: string, got: string): boolean {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const a = norm(asked);
   const g = norm(got);
@@ -169,7 +169,7 @@ async function runOnce(
  * the middle, so prefer those and fall back to the tail only when neither is
  * present.
  */
-function extractMessage(body: string): string {
+export function extractMessage(body: string): string {
   const candidates = [
     ...body.matchAll(/"responseBody"\s*:\s*"((?:[^"\\]|\\.){3,400})"/g),
     ...body.matchAll(/"message"\s*:\s*"((?:[^"\\]|\\.){3,400})"/g),

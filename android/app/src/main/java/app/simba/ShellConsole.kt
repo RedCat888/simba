@@ -47,7 +47,7 @@ fun ConsoleShell(
     current: Destination,
     onNavigate: (Destination) -> Unit,
     status: ShellStatus,
-    content: @Composable () -> Unit,
+    content: @Composable (Destination) -> Unit,
 ) {
     var command by remember { mutableStateOf("") }
     val suggestion = remember(command) { Destination.match(command) }
@@ -161,7 +161,7 @@ fun ConsoleShell(
             }
         },
     ) {
-        content()
+        content(current)
     }
 }
 

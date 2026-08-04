@@ -153,11 +153,13 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                 spend7d = vm.stats?.totalCost ?: 0.0,
                 error = vm.error,
             ),
-        ) {
+        ) { shown ->
             when {
                 !ready -> LoadingState()
                 openMission != null -> MissionDetailScreen(vm, openMission!!) { openMission = null }
-                else -> when (dest) {
+                // `shown`, not `dest`: during a Fluid transition the outgoing
+                // half is asked to draw the destination being left.
+                else -> when (shown) {
                     Destination.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
                     Destination.Missions -> MissionsScreen(vm) { openMission = it }
                     Destination.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }

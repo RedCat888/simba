@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The pre-Android-12 half of the same rule, and it has to be stated separately
+  because `dataExtractionRules` is ignored below API 31 while this is ignored
+  above it. Between them they cover every version this app runs on.
+
+  See data_extraction_rules.xml for why: the DataStore holds the gateway URL and
+  the Cloudflare Access service token, and the encrypted preferences are sealed
+  to a hardware key nothing can carry off the device anyway.
+-->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+</full-backup-content>

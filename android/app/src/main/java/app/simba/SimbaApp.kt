@@ -4,7 +4,6 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -28,6 +27,7 @@ object Prefs {
 }
 
 const val BRIEF_CHANNEL = "simba_briefs"
+const val ACTIVITY_CHANNEL = "simba_activity"
 
 class SimbaApp : Application() {
 
@@ -38,7 +38,6 @@ class SimbaApp : Application() {
     }
 
     private fun createChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(
@@ -51,6 +50,18 @@ class SimbaApp : Application() {
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = "Periodic summaries of what your agents are doing"
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(
+                ACTIVITY_CHANNEL,
+                "Progress",
+                // Low by default: most of these are things finishing, which is
+                // good news you can read later. The ones that are not — a
+                // mission blocked, a brain gone — raise their own priority.
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Missions finishing or blocking, skills learned, brains running out"
             },
         )
     }

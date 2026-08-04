@@ -56,7 +56,7 @@ fun FluidShell(
     current: Destination,
     onNavigate: (Destination) -> Unit,
     status: ShellStatus,
-    content: @Composable () -> Unit,
+    content: @Composable (Destination) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
 
@@ -103,16 +103,18 @@ fun FluidShell(
             }
         },
     ) {
-        // Content itself cross-fades with a small scale, so a destination
-        // change reads as one space rearranging rather than a page swap.
+        // Content itself cross-fades, so a destination change reads as one
+        // space rearranging rather than a page swap. The lambda renders the
+        // destination it is *given*, not the current one — otherwise both
+        // halves of the transition are the same screen and nothing crosses.
         AnimatedContent(
             targetState = current,
             transitionSpec = {
                 (fadeIn(tween(260)) togetherWith fadeOut(tween(160)))
             },
             label = "fluid-content",
-        ) { _ ->
-            Box(Modifier.fillMaxSize()) { content() }
+        ) { dest ->
+            Box(Modifier.fillMaxSize()) { content(dest) }
         }
     }
 }

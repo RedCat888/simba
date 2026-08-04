@@ -37,7 +37,7 @@ fun MaterialShell(
     current: Destination,
     onNavigate: (Destination) -> Unit,
     status: ShellStatus,
-    content: @Composable () -> Unit,
+    content: @Composable (Destination) -> Unit,
 ) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         rememberTopAppBarState(),
@@ -121,7 +121,7 @@ fun MaterialShell(
                     }
                 }
             }
-            Box(Modifier.weight(1f)) { content() }
+            Box(Modifier.weight(1f)) { content(current) }
         }
     }
 }

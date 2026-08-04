@@ -91,7 +91,7 @@ class BriefWorker(
         )
         fresh.take(3).forEach { e ->
             val urgent = e.severity == "error" || e.type == "mission.blocked"
-            val n = NotificationCompat.Builder(ctx, BRIEF_CHANNEL)
+            val n = NotificationCompat.Builder(ctx, ACTIVITY_CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(e.label)
                 .setContentText(e.message.take(120))

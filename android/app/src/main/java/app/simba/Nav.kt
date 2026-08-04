@@ -83,7 +83,13 @@ fun DesignShell(
     onNavigate: (Destination) -> Unit,
     /** Live status the shell may surface however it wants — or ignore. */
     status: ShellStatus,
-    content: @Composable () -> Unit,
+    /**
+     * Rendered for a destination rather than fixed, so a shell that animates
+     * between destinations has something to animate *from*. Fluid needs it;
+     * the other two call it once with the current destination and ignore the
+     * capability, which costs them nothing.
+     */
+    content: @Composable (Destination) -> Unit,
 ) {
     when (design) {
         Design.Fluid -> FluidShell(current, onNavigate, status, content)

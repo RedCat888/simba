@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing leaves the device.
+
+  allowBackup is already false, but Android 12+ wants this stated explicitly and
+  it is worth stating: this app's DataStore holds the gateway URL and the
+  Cloudflare Access service token, and its EncryptedSharedPreferences are sealed
+  to a hardware key that no transfer can carry. A cloud backup of either is at
+  best useless and at worst a copy of a credential somewhere it was never meant
+  to be.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

@@ -159,6 +159,33 @@ async function runOnce(
  * "Say OK" keeps a deterministic answer to test against while still going to the
  * real model.
  */
+/**
+ * Pulls the human-readable part out of a failure.
+ *
+ * Taking the last 220 characters is the obvious approach and produces things
+ * like `auth/entitlement: ,"x-github-edge-region":"iad","x-github-request-id":…`
+ * — the tail of a failure is usually response headers, not the reason. These
+ * CLIs all put the reason in a `message` or `responseBody` field somewhere in
+ * the middle, so prefer those and fall back to the tail only when neither is
+ * present.
+ */
+function extractMessage(body: string): string {
+  const candidates = [
+    ...body.matchAll(/"responseBody"\s*:\s*"((?:[^"\\]|\\.){3,400})"/g),
+    ...body.matchAll(/"message"\s*:\s*"((?:[^"\\]|\\.){3,400})"/g),
+  ]
+    .map((m) => (m[1] ?? '').replace(/\\n/g, ' ').replace(/\\"/g, '"').trim())
+    // Skip generic wrappers that restate the status without saying anything.
+    .filter((s) => s && !/^(error|failed|request failed)$/i.test(s));
+
+  if (candidates.length > 0) {
+    // The innermost message is usually the specific one; the outer layers are
+    // the transport restating it.
+    return candidates[candidates.length - 1]!.slice(0, 220);
+  }
+  return body.slice(-220);
+}
+
 const PROMPT = 'Say OK';
 
 export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<VerifyResult> {
@@ -274,10 +301,10 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
   }
 
   const detail = authFailure
-    ? `auth/entitlement: ${body.slice(-220)}`
+    ? `auth/entitlement: ${extractMessage(body)}`
     : limited
-      ? `rate limited: ${body.slice(-220)}`
-      : `no answer (exit ${r.code}): ${body.slice(-220)}`;
+      ? `rate limited: ${extractMessage(body)}`
+      : `no answer (exit ${r.code}): ${extractMessage(body)}`;
 
   return { ok: false, detail, ms: r.ms, model };
 }

@@ -52,6 +52,12 @@ export async function getSurface(slug: string): Promise<Surface | null> {
   return row;
 }
 
+/** The same lookup by id, for callers holding a session's origin_surface_id. */
+export async function getSurfaceById(id: string): Promise<Surface | null> {
+  const rows = await query<Surface>(`SELECT * FROM surfaces WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
 export function invalidateSurfaceCache(): void {
   cache.clear();
 }
@@ -88,9 +94,19 @@ export async function canReachAgent(surface: Surface, agentSlug: string): Promis
     return { allowed: false, reason: `"${agentSlug}" is not in ${surface.slug}'s allow-list` };
   }
 
+  // 'pending' counts. A session row is inserted as pending the moment a launch
+  // begins and only becomes running once the CLI reports back, so excluding it
+  // left a window where a started-but-not-yet-running session was invisible to
+  // the ceiling — and two simultaneous starts could each see spare capacity.
+  //
+  // This narrows the race rather than closing it: the count and the insert are
+  // still two statements. claimSessionSlot() below is the atomic version, used
+  // on the path that actually creates the row. This remains the cheap
+  // pre-flight check, so a caller gets a clear refusal instead of a constraint
+  // violation.
   const rows = await query<{ n: number }>(
     `SELECT count(*)::int AS n FROM sessions
-      WHERE origin_surface_id = $1 AND status IN ('running','idle')`,
+      WHERE origin_surface_id = $1 AND status IN ('running','idle','pending')`,
     [surface.id],
   );
   const n = rows[0]?.n ?? 0;
@@ -147,4 +163,58 @@ export async function logDenial(
     message: `${surface?.slug ?? 'unknown'} denied ${what}: ${reason}`,
     data: { surface: surface?.slug ?? null, what, reason },
   });
+}
+
+/**
+ * Claim a concurrency slot and create the session row in one statement.
+ *
+ * The pre-flight check above is check-then-act: two starts arriving together
+ * both count, both see room, and both proceed. On a phone limited to one
+ * session that is the difference between the limit meaning something and not.
+ *
+ * `INSERT … SELECT … WHERE (SELECT count(*) …) < limit` evaluates the count
+ * inside the same statement that writes the row, so Postgres serialises them.
+ * Returns null when the slot was not available, which the caller reports rather
+ * than treating as an error — being at capacity is a normal outcome.
+ */
+export async function claimSessionSlot(
+  surface: Surface,
+  row: {
+    sessionId: string;
+    agentId: string;
+    cli: string;
+    brainId: string;
+    nodeId: string | null;
+    projectId: string | null;
+    cwd: string;
+    continuingSessionId: string | null;
+    swapCount: number;
+  },
+): Promise<boolean> {
+  const inserted = await query<{ id: string }>(
+    `INSERT INTO sessions
+       (id, agent_id, cli, brain_account_id, node_id, project_id, cwd, status,
+        hydrated_from_session_id, swap_count, origin_surface_id, started_at, last_activity_at)
+     SELECT $1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10, now(), now()
+      WHERE (
+        SELECT count(*) FROM sessions s
+         WHERE s.origin_surface_id = $10
+           AND s.status IN ('running','idle','pending')
+      ) < $11
+     RETURNING id`,
+    [
+      row.sessionId,
+      row.agentId,
+      row.cli,
+      row.brainId,
+      row.nodeId,
+      row.projectId,
+      row.cwd,
+      row.continuingSessionId,
+      row.swapCount,
+      surface.id,
+      surface.max_concurrent_sessions,
+    ],
+  );
+  return inserted.length > 0;
 }

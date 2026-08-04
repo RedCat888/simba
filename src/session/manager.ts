@@ -24,6 +24,7 @@ import { OpenCodeRunner } from '../runner/opencode.js';
 import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
 import { SessionEngine } from './engine.js';
 import { createWorktree } from './worktree.js';
+import { claimSessionSlot, getSurfaceById } from '../policy/surface.js';
 import { writeCheckpoint } from '../hydration/checkpoint.js';
 import { buildHydrationBrief } from '../hydration/bundle.js';
 import { writeSessionSettings } from './settings.js';
@@ -155,26 +156,58 @@ export class SessionManager extends EventEmitter {
 
     const sessionId = randomUUID();
 
-    await query(
-      `INSERT INTO sessions
-         (id, agent_id, cli, brain_account_id, node_id, project_id, cwd, status,
-          hydrated_from_session_id, swap_count, origin_surface_id, started_at, last_activity_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,now(),now())`,
-      [
-        sessionId,
-        agent.id,
-        brain.cli,
-        brain.id,
-        agent.node_id,
-        opts.projectId ?? null,
-        cwd,
-        opts.continuingSessionId ?? null,
-        opts.swapCount ?? 0,
-        // Inherited across failover and revival: authority is a property of
-        // where the work came from, not of which brain happens to run it now.
-        opts.surfaceId ?? null,
-      ],
-    );
+    // Claim the concurrency slot in the same statement that creates the row.
+    //
+    // The pre-flight check in canReachAgent is check-then-act: two starts
+    // arriving together both count, both see room, and both proceed. On a phone
+    // limited to one session that is the difference between the ceiling meaning
+    // something and not. Where a surface is known, the insert itself enforces
+    // it; where none is (an internal launch, a supervisor revival) there is no
+    // ceiling to enforce and a plain insert is correct.
+    const surface = opts.surfaceId ? await getSurfaceById(opts.surfaceId) : null;
+    const rowData = {
+      sessionId,
+      agentId: agent.id,
+      cli: brain.cli,
+      brainId: brain.id,
+      nodeId: agent.node_id,
+      projectId: opts.projectId ?? null,
+      cwd,
+      continuingSessionId: opts.continuingSessionId ?? null,
+      swapCount: opts.swapCount ?? 0,
+    };
+
+    if (surface) {
+      const claimed = await claimSessionSlot(surface, rowData);
+      if (!claimed) {
+        return {
+          error:
+            `${surface.slug} is at its concurrent session limit ` +
+            `(${surface.max_concurrent_sessions}). Finish or stop one first.`,
+        };
+      }
+    } else {
+      await query(
+        `INSERT INTO sessions
+           (id, agent_id, cli, brain_account_id, node_id, project_id, cwd, status,
+            hydrated_from_session_id, swap_count, origin_surface_id, started_at, last_activity_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,now(),now())`,
+        [
+          sessionId,
+          agent.id,
+          brain.cli,
+          brain.id,
+          agent.node_id,
+          opts.projectId ?? null,
+          cwd,
+          opts.continuingSessionId ?? null,
+          opts.swapCount ?? 0,
+          // Inherited across failover and revival: authority is a property of
+          // where the work came from, not of which brain happens to run it now.
+          opts.surfaceId ?? null,
+        ],
+      );
+    }
 
     // Isolate the working tree when anything else is already running.
     //

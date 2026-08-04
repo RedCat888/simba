@@ -846,10 +846,38 @@ app.get('/', async (c) => {
  * port is what makes the channel unforgeable — a client controls its headers,
  * but not which socket its connection lands on.
  */
+/**
+ * Refuse to run as a second copy.
+ *
+ * A gateway that cannot bind used to keep running: the HTTP server failed but
+ * the process stayed alive because the supervisor's timers hold the event loop
+ * open. That is the worst possible outcome — it serves nothing while looking
+ * healthy in a process list, and worse, its supervisor keeps scheduling
+ * alongside the real one. Two supervisors racing to start sessions is the same
+ * class of fault as the runaway spawner, arriving by a different route.
+ *
+ * Exiting on a bind failure makes a duplicate impossible instead of merely
+ * unlikely.
+ */
+function fatalOnBindFailure(server: { on(ev: 'error', cb: (e: NodeJS.ErrnoException) => void): void }, label: string): void {
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `[gateway] ${label} port is already in use — another Simba gateway is running. ` +
+          `Refusing to start a second supervisor. Stop the other one first.`,
+      );
+    } else {
+      console.error(`[gateway] ${label} failed to listen:`, err.message);
+    }
+    process.exit(1);
+  });
+}
+
 const localServer = serve(
   { fetch: app.fetch, port: config.gateway.port, hostname: config.gateway.host },
   (info) => console.log(`[gateway] local  http://${config.gateway.host}:${info.port}`),
 );
+fatalOnBindFailure(localServer, 'local');
 
 const tunnelServer = config.access.enabled
   ? serve(
@@ -857,6 +885,7 @@ const tunnelServer = config.access.enabled
       (info) => console.log(`[gateway] tunnel http://${config.gateway.host}:${info.port} (Access required)`),
     )
   : null;
+if (tunnelServer) fatalOnBindFailure(tunnelServer, 'tunnel');
 
 // noServer + a manual upgrade handler, rather than `verifyClient`.
 //

@@ -12,7 +12,21 @@
  * honour is telling the truth, one that silently queues is not.
  */
 
-export type RunnerCapability = 'stream' | 'steer' | 'interrupt' | 'resume' | 'worktree' | 'budget';
+export type RunnerCapability =
+  | 'stream'
+  | 'steer'
+  | 'interrupt'
+  | 'resume'
+  | 'worktree'
+  | 'budget'
+  /**
+   * Branch a conversation: continue from an existing session while leaving the
+   * original untouched. Only OpenCode offers this natively (`run --fork`), and
+   * it is worth advertising rather than emulating — forking lets a worker try a
+   * risky approach from a hydrated starting point without spending the parent
+   * session's context or corrupting it if the attempt goes wrong.
+   */
+  | 'fork';
 
 export interface RunnerCapabilities {
   readonly capabilities: ReadonlySet<RunnerCapability>;

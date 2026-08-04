@@ -55,6 +55,15 @@ const CANDIDATES: Record<string, Candidate[]> = {
     { path: join(home, 'AppData', 'Local', 'cursor-agent', 'cursor-agent.exe') },
     { path: join(home, 'AppData', 'Roaming', 'npm', 'cursor-agent.cmd') },
   ],
+  opencode: [
+    { path: process.env.SIMBA_OPENCODE_BIN ?? '' },
+    // The scoop shim is listed ahead of the AppData install deliberately: both
+    // exist on this machine at different versions and share one SQLite store,
+    // which is what produced the "no such column: name" corruption. Pinning the
+    // newer one keeps the schema consistent with whatever last wrote it.
+    { path: join(home, 'scoop', 'shims', 'opencode.exe') },
+    { path: join(home, 'AppData', 'Local', 'opencode', 'opencode-cli.exe') },
+  ],
 };
 
 /** Last-resort package-runner invocations when nothing is installed locally. */

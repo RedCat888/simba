@@ -20,6 +20,7 @@ import { ClaudeRunner, findTranscript, readTranscript } from '../runner/claude.j
 import { CodexRunner } from '../runner/codex.js';
 import { CursorRunner } from '../runner/cursor.js';
 import { OllamaRunner } from '../runner/ollama.js';
+import { OpenCodeRunner } from '../runner/opencode.js';
 import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
 import { SessionEngine } from './engine.js';
 import { writeCheckpoint } from '../hydration/checkpoint.js';
@@ -60,6 +61,7 @@ const runners: Record<string, Runner> = {
   codex: new CodexRunner(),
   'cursor-agent': new CursorRunner(),
   ollama: new OllamaRunner(),
+  opencode: new OpenCodeRunner(),
 };
 
 export class SessionManager extends EventEmitter {

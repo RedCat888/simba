@@ -82,8 +82,22 @@ export class MissionExecutor {
    * is what lets a mission survive everything that can interrupt it.
    */
   private async reopenOrphanedSteps(): Promise<number> {
-    const orphans = await query<{ id: string; mission_id: string; title: string }>(
-      `SELECT s.id, s.mission_id, s.title
+    const orphans = await query<{
+      id: string;
+      mission_id: string;
+      title: string;
+      session_id: string | null;
+      successor_id: string | null;
+    }>(
+      `SELECT s.id, s.mission_id, s.title, s.session_id,
+              -- A superseded session has a continuation: failover started a new
+              -- session and left the step pointing at the old one. Requeueing
+              -- then runs the step a second time alongside the continuation
+              -- already doing it. Finding the successor is what tells the two
+              -- cases apart.
+              (SELECT n.id FROM sessions n
+                WHERE n.hydrated_from_session_id = s.session_id
+                ORDER BY n.created_at DESC LIMIT 1) AS successor_id
          FROM mission_steps s
          LEFT JOIN sessions ss ON ss.id = s.session_id
         WHERE s.status = 'running'
@@ -91,8 +105,36 @@ export class MissionExecutor {
     );
 
     for (const o of orphans) {
-      const live = this.manager.listLive().some((l) => l.sessionId === o.id);
+      // Compare against the step's recorded session, not the step's own id.
+      // These are both UUIDs so the mistake typechecks, and it meant the guard
+      // never matched anything: a step whose session was still live could be
+      // requeued underneath itself.
+      const live = o.session_id
+        ? this.manager.listLive().some((l) => l.sessionId === o.session_id)
+        : false;
       if (live) continue;
+
+      // Failover already restarted this work. Adopt the continuation instead of
+      // starting a third attempt — otherwise the step runs twice concurrently,
+      // which for anything with an external effect is the expensive kind of bug.
+      if (o.successor_id) {
+        const successorLive = this.manager
+          .listLive()
+          .some((l) => l.sessionId === o.successor_id);
+        if (successorLive) {
+          await query(`UPDATE mission_steps SET session_id = $2 WHERE id = $1`, [
+            o.id,
+            o.successor_id,
+          ]);
+          await this.log(
+            o.mission_id,
+            `step "${o.title}" failed over; following the continuation instead of requeueing`,
+            'info',
+            o.id,
+          );
+          continue;
+        }
+      }
 
       await query(
         `UPDATE mission_steps SET status = 'pending', session_id = NULL WHERE id = $1`,

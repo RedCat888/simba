@@ -870,6 +870,51 @@ app.post('/api/missions/:id/:action', async (c) => {
       WHERE id = $1`,
     [c.req.param('id'), status],
   );
+
+  /**
+   * Stopping a mission has to stop the work, not just relabel the row.
+   *
+   * Pause and cancel previously updated the mission and nothing else. The API
+   * answered `cancelled` while the agent carried on editing files or completing
+   * an external operation, and the executor only reaps sessions for steps
+   * already marked succeeded, failed or skipped — a running step was never
+   * touched. Press cancel while something is midway through a deployment and it
+   * finishes the deployment.
+   *
+   * Killing the session leaves the step 'running' with a dead session, which
+   * reopenOrphanedSteps would ordinarily requeue. Marking it skipped first is
+   * what makes the stop stick; resuming re-plans from there rather than
+   * resurrecting a half-finished attempt.
+   */
+  if (action === 'pause' || action === 'cancel') {
+    const live = await query<{ id: string; session_id: string; seq: number }>(
+      `SELECT id, session_id, seq FROM mission_steps
+        WHERE mission_id = $1 AND status = 'running' AND session_id IS NOT NULL`,
+      [c.req.param('id')],
+    );
+
+    for (const step of live) {
+      await query(`UPDATE mission_steps SET status = 'skipped' WHERE id = $1`, [step.id]);
+      await manager.kill(step.session_id).catch(() => {
+        /* already gone; the state change is what matters */
+      });
+      await query(
+        `INSERT INTO mission_log (mission_id, level, message) VALUES ($1,'warn',$2)`,
+        [c.req.param('id'), `step ${step.seq} stopped by ${action}`],
+      );
+    }
+
+    if (live.length > 0) {
+      await recordEvent({
+        type: 'mission.stopped',
+        severity: 'info',
+        message: `${action}: killed ${live.length} running step session(s)`,
+        data: { missionId: c.req.param('id'), action, steps: live.map((s) => s.seq) },
+      });
+    }
+    return c.json({ ok: true, status, stoppedSteps: live.length });
+  }
+
   return c.json({ ok: true, status });
 });
 

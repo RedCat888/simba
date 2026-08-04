@@ -102,6 +102,64 @@ data class Brain(
     @SerialName("cost_7d") val cost7d: Double? = 0.0,
     /** Why a brain is unusable. Without it the UI shows a bare status and looks broken. */
     @SerialName("last_error") val lastError: String? = null,
+    /** Position in the failover ladder — the phone should show the order, not just the set. */
+    val priority: Int = 0,
+    val enabled: Boolean = true,
+    val cli: String = "",
+)
+
+/** Result of asking a brain, live, whether it actually works. */
+@Serializable
+data class VerifyResult(
+    val slug: String = "",
+    val ok: Boolean = false,
+    val detail: String = "",
+    val ms: Long = 0,
+    val model: String? = null,
+)
+
+@Serializable
+data class Skill(
+    val name: String = "",
+    val description: String = "",
+    val tags: List<String> = emptyList(),
+    val source: String = "",
+    val version: Int = 1,
+    @SerialName("use_count") val useCount: Int = 0,
+    @SerialName("last_used_at") val lastUsedAt: String? = null,
+    /** Size of the body, so the list can show weight without carrying it. */
+    @SerialName("body_chars") val bodyChars: Int = 0,
+)
+
+@Serializable
+data class SkillRevision(
+    val version: Int = 0,
+    val note: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+@Serializable
+data class SkillDetail(
+    val name: String = "",
+    val description: String = "",
+    val body: String = "",
+    val tags: List<String> = emptyList(),
+    val related: List<String> = emptyList(),
+    val source: String = "",
+    val version: Int = 1,
+    @SerialName("use_count") val useCount: Int = 0,
+    val history: List<SkillRevision> = emptyList(),
+)
+
+@Serializable
+data class Decision(
+    val id: String = "",
+    val statement: String = "",
+    val rationale: String? = null,
+    val topic: String? = null,
+    val confidence: String = "",
+    val status: String = "",
+    @SerialName("decided_at") val decidedAt: String? = null,
 )
 
 @Serializable
@@ -268,6 +326,22 @@ class SimbaApi(
 
     suspend fun search(q: String): List<MemoryHit> =
         get("/api/knowledge/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"))
+
+    suspend fun skills(): List<Skill> = get("/api/skills")
+    suspend fun skill(name: String): SkillDetail = get("/api/skills/$name")
+    suspend fun decisions(): List<Decision> = get("/api/decisions?limit=60")
+
+    /**
+     * Ask a brain, live, whether it works. Slow on purpose — it runs a real turn
+     * rather than reading the stored status, which is the entire point: a status
+     * is a claim about whenever something last changed it, and a stale one kept
+     * two working subscriptions benched.
+     */
+    suspend fun verifyBrain(slug: String): VerifyResult = post("/api/brains/$slug/verify")
+
+    suspend fun toggleBrain(slug: String): String = call(
+        req("/api/brains/$slug/toggle").post("{}".toRequestBody("application/json".toMediaType())).build(),
+    )
 
     suspend fun send(sessionId: String, text: String): String =
         call(

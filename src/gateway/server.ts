@@ -10,6 +10,7 @@ import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
 import { recall } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
+import { verifyBrain } from '../runner/verify.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -131,6 +132,91 @@ app.get('/api/brains', async (c) => {
       ORDER BY b.priority`,
   );
   return c.json(rows);
+});
+
+/**
+ * Skills, for the phone.
+ *
+ * The list returns descriptions and usage but never bodies — the same
+ * discipline the system prompt follows, and for a related reason: a phone
+ * scrolling a list does not want kilobytes of markdown per row.
+ */
+app.get('/api/skills', async (c) => {
+  const rows = await query(
+    `SELECT name, description, tags, source, version, use_count, last_used_at, updated_at,
+            length(body) AS body_chars
+       FROM skills
+      WHERE enabled
+      ORDER BY use_count DESC, name`,
+  );
+  return c.json(rows);
+});
+
+app.get('/api/skills/:name', async (c) => {
+  const row = await one(
+    `SELECT name, description, body, tags, related, source, version, use_count,
+            last_used_at, created_at, updated_at
+       FROM skills WHERE name = $1`,
+    [c.req.param('name')],
+  );
+  if (!row) return c.json({ error: 'no such skill' }, 404);
+
+  const history = await query(
+    `SELECT r.version, r.note, r.created_at
+       FROM skill_revisions r JOIN skills s ON s.id = r.skill_id
+      WHERE s.name = $1 ORDER BY r.version DESC LIMIT 20`,
+    [c.req.param('name')],
+  );
+  return c.json({ ...row, history });
+});
+
+/**
+ * Ask a brain whether it works, right now.
+ *
+ * This exists because two working subscriptions sat benched for days behind a
+ * stale status: cursor was marked logged_out when the real fault was a model id
+ * that did not exist in its catalog. A status is a claim about whenever
+ * something last changed it, so the phone needs a way to force the question
+ * rather than trust the record.
+ */
+app.post('/api/brains/:slug/verify', async (c) => {
+  const slug = c.req.param('slug');
+  const brain = await one<{ id: string; cli: string; tier_models: Record<string, string> }>(
+    `SELECT id, cli, tier_models FROM brain_accounts WHERE slug = $1`,
+    [slug],
+  );
+  if (!brain) return c.json({ error: 'no such brain' }, 404);
+
+  const result = await verifyBrain(slug);
+  await query(
+    `UPDATE brain_accounts
+        SET status = $2, last_error = $3, last_checked_at = now(), updated_at = now()
+      WHERE id = $1`,
+    [brain.id, result.ok ? 'available' : 'error', result.detail],
+  );
+  await recordEvent({
+    type: 'brain.verified',
+    severity: result.ok ? 'info' : 'warn',
+    message: `${slug}: ${result.ok ? 'available' : 'failed'}`,
+    data: { slug, detail: result.detail, ms: result.ms },
+  });
+  return c.json({ slug, ...result });
+});
+
+/** Bench a brain, or bring one back. */
+app.post('/api/brains/:slug/toggle', async (c) => {
+  const row = await one<{ enabled: boolean }>(
+    `UPDATE brain_accounts SET enabled = NOT enabled, updated_at = now()
+      WHERE slug = $1 RETURNING enabled`,
+    [c.req.param('slug')],
+  );
+  if (!row) return c.json({ error: 'no such brain' }, 404);
+  await recordEvent({
+    type: 'brain.toggled',
+    severity: 'info',
+    message: `${c.req.param('slug')} ${row.enabled ? 'enabled' : 'disabled'}`,
+  });
+  return c.json({ enabled: row.enabled });
 });
 
 app.get('/api/sessions', async (c) => {

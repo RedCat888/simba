@@ -86,7 +86,7 @@ private enum class Tab(val label: String, val icon: androidx.compose.ui.graphics
     Chat("Chat", Icons.Filled.Forum),
     Missions("Missions", Icons.Filled.Flag),
     Agents("Agents", Icons.Filled.SmartToy),
-    Memory("Memory", Icons.Filled.Search),
+    Memory("Knowledge", Icons.Filled.Search),
     System("System", Icons.Filled.Tune),
 }
 
@@ -159,7 +159,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     Tab.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
                     Tab.Missions -> MissionsScreen(vm) { openMission = it }
                     Tab.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
-                    Tab.Memory -> MemoryScreen(vm)
+                    Tab.Memory -> KnowledgeScreen(vm)
                     Tab.System -> SystemScreen(vm) { url, token, clientId, clientSecret ->
                         scope.launch {
                             ctx.saveGateway(url, token, clientId, clientSecret)
@@ -375,7 +375,7 @@ private fun MissionCard(m: Mission, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Meta(text: String, color: Color = Faint) {
+fun Meta(text: String, color: Color = Faint) {
     Text(text, fontSize = 11.sp, color = color)
 }
 
@@ -708,7 +708,7 @@ fun PromptDialog(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun MemoryScreen(vm: SimbaVm) {
+fun MemoryScreen(vm: SimbaVm) {
     var q by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<MemoryHit>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
@@ -797,6 +797,12 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
     var clientSecret by remember { mutableStateOf("") }
     var confirmPanic by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Live verification results, keyed by brain. Held in the composable rather
+    // than the view model because they are a snapshot of one moment, not state
+    // the rest of the app should treat as current.
+    var verdicts by remember { mutableStateOf<Map<String, VerifyResult>>(emptyMap()) }
+    var verifying by remember { mutableStateOf<String?>(null) }
+    var verifyingAll by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         url = ctx.gatewayUrl()
@@ -809,16 +815,59 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("BRAINS", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-        vm.brains.forEach { b ->
+        // The ladder, in the order failover actually walks it — the sequence is
+        // the point, not the set. Each row can be asked whether it really works
+        // and benched without touching the machine.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("BRAINS — FAILOVER ORDER", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+            if (verifyingAll) Text("checking…", fontSize = 10.sp, color = Accent)
+            else Text(
+                "verify all",
+                fontSize = 10.sp,
+                color = Accent,
+                modifier = Modifier.clickable {
+                    scope.launch {
+                        verifyingAll = true
+                        // Sequential, not parallel: each one spawns a CLI that
+                        // wants CPU and RAM, and firing six at once on a machine
+                        // already running Postgres and agents is how the box
+                        // starts swapping.
+                        vm.brains.forEach { b ->
+                            runCatching { vm.api?.verifyBrain(b.slug) }
+                                .onSuccess { r -> if (r != null) verdicts = verdicts + (b.slug to r) }
+                        }
+                        verifyingAll = false
+                        vm.refresh()
+                    }
+                },
+            )
+        }
+        vm.brains.forEachIndexed { i, b ->
+            val verdict = verdicts[b.slug]
             Card {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(b.label, color = Fg, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
-                    Pill(b.status, statusColor(b.status))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(
+                            "${i + 1}",
+                            fontSize = 11.sp,
+                            color = Faint,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        Text(
+                            b.label,
+                            color = if (b.enabled) Fg else Faint,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Pill(if (!b.enabled) "benched" else b.status, if (!b.enabled) Faint else statusColor(b.status))
                 }
                 Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Meta(b.provider)
-                    Meta("7d $${"%.2f".format(b.cost7d ?: 0.0)}")
+                    // Free brains cost nothing by construction; showing $0.00
+                    // next to them implies a meter that does not exist.
+                    if (b.provider == "opencode" || b.cli == "ollama") Meta("free", Ok)
+                    else Meta("7d $${"%.2f".format(b.cost7d ?: 0.0)}")
                     b.limitResetsAt?.let { Meta("resets $it", Warn) }
                 }
                 // A brain showing "logged_out" with no explanation reads as a
@@ -830,6 +879,53 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                         fontSize = 11.sp,
                         color = if (b.status in listOf("logged_out", "error")) Err else Faint,
                         modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+                // The live answer, kept visually distinct from the stored status
+                // so it is obvious which one was just measured.
+                verdict?.let { v ->
+                    Text(
+                        (if (v.ok) "✓ " else "✗ ") + v.detail,
+                        fontSize = 11.sp,
+                        color = if (v.ok) Ok else Err,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+                Row(
+                    Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    val busy = verifying == b.slug
+                    Text(
+                        if (busy) "asking…" else "verify",
+                        fontSize = 11.sp,
+                        color = if (busy) Faint else Accent,
+                        modifier = Modifier.clickable(enabled = !busy) {
+                            scope.launch {
+                                verifying = b.slug
+                                runCatching { vm.api?.verifyBrain(b.slug) }
+                                    .onSuccess { r -> if (r != null) verdicts = verdicts + (b.slug to r) }
+                                    .onFailure { e ->
+                                        verdicts = verdicts + (b.slug to VerifyResult(
+                                            slug = b.slug, ok = false,
+                                            detail = e.message ?: "request failed",
+                                        ))
+                                    }
+                                verifying = null
+                                vm.refresh()
+                            }
+                        },
+                    )
+                    Text(
+                        if (b.enabled) "bench" else "restore",
+                        fontSize = 11.sp,
+                        color = if (b.enabled) Warn else Ok,
+                        modifier = Modifier.clickable {
+                            scope.launch {
+                                runCatching { vm.api?.toggleBrain(b.slug) }
+                                vm.refresh()
+                            }
+                        },
                     )
                 }
             }

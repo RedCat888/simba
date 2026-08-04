@@ -203,7 +203,7 @@ private val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES
  * over one appearance is worse than not offering the choice, since it invites
  * someone to keep switching looking for a difference that is not there.
  */
-private val DenseDark = darkColorScheme(
+private val ConsoleDark = darkColorScheme(
     background = Color(0xFF07090C),
     surface = Color(0xFF0C1015),
     surfaceContainerHigh = Color(0xFF141A21),
@@ -216,7 +216,7 @@ private val DenseDark = darkColorScheme(
 )
 
 /** Clean is the house look: warmer ink, softer surfaces, the amber accent. */
-private val CleanDark = SimbaDark
+private val FluidDark = SimbaDark
 
 @Composable
 @ReadOnlyComposable
@@ -228,8 +228,8 @@ private fun schemeFor(design: Design, dark: Boolean): ColorScheme {
         val ctx = LocalContext.current
         return if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
     }
-    if (design == Design.Dense && dark) return DenseDark
-    return if (dark) CleanDark else SimbaLight
+    if (design == Design.Console && dark) return ConsoleDark
+    return if (dark) FluidDark else SimbaLight
 }
 
 /**
@@ -238,7 +238,7 @@ private fun schemeFor(design: Design, dark: Boolean): ColorScheme {
  * line height; Material takes the platform's own type scale so it looks like a
  * Material app rather than this app wearing Material colours.
  */
-private val DenseType = Typography(
+private val ConsoleType = Typography(
     titleLarge = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 17.sp),
     titleMedium = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
     bodyMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 16.sp),
@@ -247,7 +247,7 @@ private val DenseType = Typography(
     labelMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
 )
 
-private val CleanType = Typography(
+private val FluidType = Typography(
     titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 0.2.sp),
     titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
     bodyMedium = TextStyle(fontSize = 14.5.sp, lineHeight = 22.sp),
@@ -257,8 +257,8 @@ private val CleanType = Typography(
 )
 
 private fun typographyFor(design: Design): Typography = when (design) {
-    Design.Clean -> CleanType
-    Design.Dense -> DenseType
+    Design.Fluid -> FluidType
+    Design.Console -> ConsoleType
     // Material's own defaults, deliberately not overridden.
     Design.Material -> Typography()
 }
@@ -269,13 +269,13 @@ private fun typographyFor(design: Design): Typography = when (design) {
  * Material takes the platform defaults.
  */
 private fun shapesFor(design: Design): Shapes = when (design) {
-    Design.Clean -> Shapes(
+    Design.Fluid -> Shapes(
         extraSmall = RoundedCornerShape(8.dp),
         small = RoundedCornerShape(12.dp),
         medium = RoundedCornerShape(16.dp),
         large = RoundedCornerShape(22.dp),
     )
-    Design.Dense -> Shapes(
+    Design.Console -> Shapes(
         extraSmall = RoundedCornerShape(2.dp),
         small = RoundedCornerShape(3.dp),
         medium = RoundedCornerShape(4.dp),
@@ -295,9 +295,9 @@ private fun shapesFor(design: Design): Shapes = when (design) {
 val LocalDensityScale = staticCompositionLocalOf { 1f }
 
 fun densityFor(design: Design): Float = when (design) {
-    Design.Clean -> 1.15f
+    Design.Fluid -> 1.15f
     Design.Material -> 1f
-    Design.Dense -> 0.72f
+    Design.Console -> 0.72f
 }
 
 /**

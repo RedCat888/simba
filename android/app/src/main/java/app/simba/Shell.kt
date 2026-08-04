@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -42,6 +44,13 @@ import androidx.compose.ui.graphics.Color
 fun SimbaShell(
     header: (@Composable () -> Unit)? = null,
     bottomBar: (@Composable () -> Unit)? = null,
+    /**
+     * Drawn *over* the content rather than beside it, inside the same inset
+     * padding. bottomBar reserves layout height, which is right for a real bar
+     * and wrong for a floating control — reserving space for something that
+     * floats gives back the screen area it was supposed to save.
+     */
+    floating: (@Composable BoxScope.() -> Unit)? = null,
     background: Color = Bg,
     /** Painted behind the system bars so they match the app's own chrome. */
     chrome: Color = Panel,
@@ -55,7 +64,23 @@ fun SimbaShell(
                 .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top)),
         ) { header?.invoke() }
 
-        Box(Modifier.fillMaxWidth().weight(1f)) { content() }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            content()
+            // Floating chrome shares the content box and respects the same
+            // bottom insets, so it clears the navigation bar and rises with the
+            // keyboard without reserving a strip of screen when idle.
+            floating?.let { f ->
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(
+                            WindowInsets.ime
+                                .union(WindowInsets.navigationBars)
+                                .only(WindowInsetsSides.Bottom),
+                        ),
+                ) { f() }
+            }
+        }
 
         Box(
             Modifier

@@ -87,14 +87,6 @@ class SimbaVm : ViewModel() {
     }
 }
 
-private enum class Tab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Chat("Chat", Icons.Filled.Forum),
-    Missions("Missions", Icons.Filled.Flag),
-    Agents("Agents", Icons.Filled.SmartToy),
-    Memory("Knowledge", Icons.Filled.Search),
-    System("System", Icons.Filled.Tune),
-}
-
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -104,7 +96,7 @@ private enum class Tab(val label: String, val icon: androidx.compose.ui.graphics
 fun SimbaRoot(vm: SimbaVm = viewModel()) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var tab by remember { mutableStateOf(Tab.Chat) }
+    var dest by remember { mutableStateOf(Destination.Chat) }
     var openMission by remember { mutableStateOf<String?>(null) }
     var openChat by remember { mutableStateOf<Pair<String, String>?>(null) }
     var ready by remember { mutableStateOf(false) }
@@ -142,37 +134,32 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
             onMoved = { moved -> openChat = moved to chat.second },
         )
 
-        else -> SimbaShell(
-            header = { SimbaTopBar(vm) },
-            bottomBar = {
-                NavigationBar(containerColor = Panel, tonalElevation = 0.dp, windowInsets = NoInsets) {
-                    Tab.entries.forEach { t ->
-                        NavigationBarItem(
-                            selected = tab == t && openMission == null,
-                            onClick = { tab = t; openMission = null; openChat = null },
-                            icon = { Icon(t.icon, contentDescription = t.label) },
-                            label = { Text(t.label, fontSize = 11.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Accent,
-                                selectedTextColor = Accent,
-                                indicatorColor = Panel2,
-                                unselectedIconColor = Faint,
-                                unselectedTextColor = Faint,
-                            ),
-                        )
-                    }
-                }
-            },
+        // The shell *is* the design. Navigation model, chrome and motion all
+        // come from whichever one is active. Previously a NavigationBar was
+        // hard-coded here, which guaranteed all three designs were the same app
+        // in different colours no matter what the theme did.
+        else -> DesignShell(
+            design = LocalDesign.current,
+            current = dest,
+            onNavigate = { dest = it; openMission = null; openChat = null },
+            status = ShellStatus(
+                connected = vm.error == null && vm.stats != null,
+                activeSessions = vm.stats?.activeSessions ?: 0,
+                runningMissions = vm.missions.count { it.status == "running" },
+                brainsAvailable = vm.stats?.brainsAvailable ?: 0,
+                spend7d = vm.stats?.totalCost ?: 0.0,
+                error = vm.error,
+            ),
         ) {
             when {
                 !ready -> CenteredNote("Connecting…")
                 openMission != null -> MissionDetailScreen(vm, openMission!!) { openMission = null }
-                else -> when (tab) {
-                    Tab.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
-                    Tab.Missions -> MissionsScreen(vm) { openMission = it }
-                    Tab.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
-                    Tab.Memory -> KnowledgeScreen(vm)
-                    Tab.System -> SystemScreen(vm) { url, token, clientId, clientSecret ->
+                else -> when (dest) {
+                    Destination.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
+                    Destination.Missions -> MissionsScreen(vm) { openMission = it }
+                    Destination.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
+                    Destination.Knowledge -> KnowledgeScreen(vm)
+                    Destination.System -> SystemScreen(vm) { url, token, clientId, clientSecret ->
                         scope.launch {
                             ctx.saveGateway(url, token, clientId, clientSecret)
                             vm.api = ctx.api()

@@ -16,26 +16,37 @@ import kotlinx.coroutines.flow.map
  * a member silently resets everyone's choice to [Default] — add members instead.
  */
 enum class Design(val label: String, val blurb: String) {
-    Clean(
-        "Clean",
-        "Quiet modern surfaces, generous spacing, one accent colour.",
+    Fluid(
+        "Fluid",
+        "Motion-led. No fixed bar - a floating control morphs into the menu, and screens animate in place.",
     ),
     Material(
         "Material 3",
-        "Real Material 3, taking its colours from the wallpaper.",
+        "Google's system as specified: collapsing app bar, navigation bar, FAB, dynamic colour from your wallpaper.",
     ),
-    Dense(
-        "Dense",
-        "Console-tight: monospace, minimal chrome, most rows per screen.",
+    Console(
+        "Console",
+        "An operator's cockpit. No tabs - a command bar and a permanent status strip, built for density.",
     ),
     ;
 
     companion object {
-        val Default = Clean
+        val Default = Fluid
 
-        fun from(raw: String?): Design = entries.firstOrNull { it.name == raw } ?: Default
+        /**
+         * Old stored names still resolve. The previous three were Clean,
+         * Material and Dense, and silently resetting someone to the default
+         * because a member was renamed is exactly the trap the original comment
+         * here warned about.
+         */
+        fun from(raw: String?): Design = when (raw) {
+            "Clean" -> Fluid
+            "Dense" -> Console
+            else -> entries.firstOrNull { it.name == raw } ?: Default
+        }
     }
 }
+
 
 // The same DataStore the gateway URL lives in. The choice of design is a
 // preference, not a secret, so it does not belong in Secrets.

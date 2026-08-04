@@ -577,6 +577,21 @@ class SimbaApi(
             ),
         )
 
+    /** Stop a live session. The work stops; the transcript stays. */
+    suspend fun killSession(sessionId: String): String =
+        call(req("/api/sessions/$sessionId/kill").post("{}".toRequestBody("application/json".toMediaType())).build())
+
+    /**
+     * Move this conversation to the next brain in the ladder, now.
+     *
+     * The closest thing this architecture has to a model picker: you do not
+     * choose a model, you choose to stop using the one that is stuck. Failover
+     * already happens automatically on a limit or a crash — this is for the case
+     * where a brain is technically alive and giving you nothing useful.
+     */
+    suspend fun failoverSession(sessionId: String): String =
+        call(req("/api/sessions/$sessionId/failover").post("{}".toRequestBody("application/json".toMediaType())).build())
+
     suspend fun startAgent(slug: String, prompt: String): StartResult =
         post(
             "/api/agents/$slug/start",

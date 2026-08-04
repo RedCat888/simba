@@ -63,6 +63,18 @@ sealed interface ChatItem {
 
 class ChatState {
     val items = mutableStateListOf<ChatItem>()
+
+    /**
+     * Messages typed while the agent was still working.
+     *
+     * An agent turn here can take minutes, and the composer used to simply
+     * refuse input for all of it — so the thought you had while watching it work
+     * was either lost or had to be held in your head until it finished. They
+     * queue and go in order, which is also the only safe way to do it: two
+     * concurrent sends against one session interleave into a single confused
+     * turn.
+     */
+    val queued = mutableStateListOf<String>()
     var sending by mutableStateOf(false)
     var connected by mutableStateOf(false)
     var thinking by mutableStateOf(false)
@@ -84,6 +96,9 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var draft by remember { mutableStateOf("") }
     var showDiff by remember { mutableStateOf(false) }
+    var finding by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    var menu by remember { mutableStateOf(false) }
 
     if (showDiff) {
         DiffScreen(vm, sessionId) { showDiff = false }
@@ -181,10 +196,7 @@ fun ChatScreen(
         }
     }
 
-    fun send() {
-        val text = draft.trim()
-        if (text.isEmpty() || state.sending) return
-        draft = ""
+    fun deliver(text: String) {
         state.items.add(ChatItem.Msg("user", text, System.currentTimeMillis()))
         state.sending = true
         state.thinking = true
@@ -216,6 +228,20 @@ fun ChatScreen(
                     state.thinking = false
                 }
             state.sending = false
+            // Drain in order. Recursing rather than looping keeps one send in
+            // flight at a time, which is the whole point of the queue.
+            state.queued.removeFirstOrNull()?.let { deliver(it) }
+        }
+    }
+
+    fun send() {
+        val text = draft.trim()
+        if (text.isEmpty()) return
+        draft = ""
+        if (state.sending) {
+            state.queued.add(text)
+        } else {
+            deliver(text)
         }
     }
 
@@ -243,23 +269,93 @@ fun ChatScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                IconButton(onClick = { finding = !finding }, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Filled.Search, "Find", tint = if (finding) Accent else Dim, modifier = Modifier.size(18.dp))
+                }
                 // Reviewing what a session changed is the point at which unattended
                 // work becomes trustworthy, so it belongs one tap from the
                 // conversation rather than buried somewhere else.
                 IconButton(onClick = { showDiff = true }, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Filled.Difference, "Changes", tint = Dim, modifier = Modifier.size(18.dp))
                 }
+                Box {
+                    IconButton(onClick = { menu = true }, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Filled.MoreVert, "Session", tint = Dim, modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Switch brain") },
+                            onClick = {
+                                menu = false
+                                scope.launch {
+                                    val r = runCatching { vm.api?.failoverSession(sessionId) }
+                                    state.items.add(
+                                        ChatItem.Notice(
+                                            if (r.isSuccess) "Moving to the next brain…"
+                                            else "Not live — nothing to switch",
+                                            if (r.isSuccess) NoticeTone.Neutral else NoticeTone.Warn,
+                                            System.currentTimeMillis(),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Stop this session", color = Err) },
+                            onClick = {
+                                menu = false
+                                scope.launch {
+                                    runCatching { vm.api?.killSession(sessionId) }
+                                    vm.refresh()
+                                }
+                            },
+                        )
+                    }
+                }
                 Box(
                     Modifier.size(7.dp).clip(RoundedCornerShape(99.dp))
                         .background(if (state.connected) Ok else Faint),
                 )
+            }
+
+            /**
+             * Find in this conversation.
+             *
+             * A working session is thousands of lines of tool output, and the
+             * thing you want — the path it wrote, the error it hit — is somewhere
+             * in the middle. Scrolling for it is the single worst thing about
+             * reading a long transcript on a phone.
+             */
+            AnimatedVisibility(finding) {
+                Row(
+                    Modifier.fillMaxWidth().background(Panel2).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) {
+                        if (findQuery.isEmpty()) Text("Find in conversation", color = Faint, fontSize = 13.sp)
+                        BasicTextField(
+                            value = findQuery,
+                            onValueChange = { findQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = Fg, fontSize = 13.sp),
+                            cursorBrush = SolidColor(Accent),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Text(
+                        "close",
+                        color = Accent,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { finding = false; findQuery = "" }.padding(start = 10.dp),
+                    )
+                }
             }
         },
         bottomBar = {
             Composer(
                 draft = draft,
                 onDraft = { draft = it },
-                enabled = draft.isNotBlank() && !state.sending,
+                enabled = draft.isNotBlank(),
                 onSend = { send() },
             )
         },
@@ -273,8 +369,24 @@ fun ChatScreen(
             contentPadding = PaddingValues(start = 11.dp, end = 11.dp, top = 11.dp, bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            items(state.items) { item -> ChatRow(item) }
-            if (state.thinking) {
+            val q = findQuery.trim()
+            val shown = if (q.isEmpty()) state.items else state.items.filter { it.matches(q) }
+
+            if (q.isNotEmpty()) {
+                item {
+                    Text(
+                        if (shown.isEmpty()) "No matches" else "${shown.size} matching",
+                        color = Faint,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+            items(shown) { item -> ChatRow(item) }
+
+            // Queued messages, shown as themselves rather than as sent ones —
+            // a message that has not left yet must not look like it has.
+            if (q.isEmpty()) items(state.queued) { text -> QueuedRow(text) }
+            if (state.thinking && q.isEmpty()) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp, color = Accent)
@@ -608,6 +720,55 @@ private fun Composer(
                 keyboardActions = KeyboardActions(onSend = { if (enabled) onSend() }),
                 modifier = Modifier.weight(1f).padding(start = 6.dp),
             )
+        }
+    }
+}
+
+
+/** Does this row contain the text being searched for? */
+private fun ChatItem.matches(q: String): Boolean = when (this) {
+    is ChatItem.Msg -> text.contains(q, ignoreCase = true)
+    // Tool names count: "the step where it ran git" is a real thing to look for.
+    is ChatItem.Tool -> name.contains(q, ignoreCase = true) || detail.contains(q, ignoreCase = true)
+    is ChatItem.Failure -> text.contains(q, ignoreCase = true)
+    is ChatItem.Notice -> text.contains(q, ignoreCase = true)
+}
+
+
+/**
+ * A message waiting its turn.
+ *
+ * Deliberately not styled like a sent one. The single worst thing a chat client
+ * can do is show something as sent that has not left, so this is dimmed, has no
+ * accent, and carries the word — being unmistakable matters more here than
+ * being pretty.
+ */
+@Composable
+private fun QueuedRow(text: String) {
+    when (LocalDesign.current) {
+        Design.Console -> Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+            Text(
+                "...>",
+                color = Faint,
+                fontSize = 11.5.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(end = 7.dp),
+            )
+            Text(text, color = Faint, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+        }
+
+        else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Column(
+                Modifier
+                    .widthIn(max = 300.dp)
+                    .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 6.dp))
+                    .background(Panel)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text(text, color = Dim, fontSize = 13.5.sp, lineHeight = 19.sp)
+                Text("queued", color = Faint, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+            }
         }
     }
 }

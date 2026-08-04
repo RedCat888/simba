@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { releaseWorktree } from '../session/worktree.js';
 import { learn } from '../knowledge/learn.js';
+import { curate } from '../knowledge/curator.js';
 import { cheapComplete } from '../hydration/cheap.js';
 import { Router } from '../router/index.js';
 import { MissionExecutor } from '../missions/executor.js';
@@ -26,6 +27,8 @@ import { saveHandoff } from '../tools/handoff.js';
  */
 
 export class Supervisor {
+  /** Curation is hourly; this is when it last ran. */
+  private lastCurationAt = 0;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private readonly router: Router;
@@ -100,6 +103,17 @@ export class Supervisor {
       await this.titleUntitledSessions();
       await this.reclaimCleanWorktrees();
       await this.harvestLessons();
+
+      // Curation is hourly, not per-tick. Neither store changes fast enough to
+      // justify a model call every fifteen seconds, and consolidation is the
+      // one operation here that rewrites rather than adds.
+      if (Date.now() - this.lastCurationAt > 60 * 60_000) {
+        this.lastCurationAt = Date.now();
+        const result = await curate();
+        if (result.notes.length > 0) {
+          console.log('[curator]', result.notes.slice(0, 5).join(' | '));
+        }
+      }
       await this.rollUpMissionCost();
       await generateBrief(this.briefIntervalMinutes);
     } catch (err) {

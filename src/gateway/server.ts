@@ -15,6 +15,7 @@ import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
+import { curate, storePressure } from '../knowledge/curator.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -200,6 +201,24 @@ app.get('/api/sessions/:id/diff', async (c) => {
  * nothing measuring the total. A single number tells you that you are in
  * trouble; a breakdown tells you what to cut.
  */
+/**
+ * What the always-loaded stores cost, and a way to tidy them.
+ *
+ * GET reports pressure; POST runs curation. Curation also runs on its own
+ * schedule — this exists so it can be inspected and forced rather than only
+ * happening invisibly.
+ */
+app.get('/api/curation', async (c) => {
+  return c.json(await storePressure());
+});
+
+app.post('/api/curation', async (c) => {
+  const result = await curate({
+    skillIdleDays: Number(c.req.query('idleDays') ?? 30),
+  });
+  return c.json(result);
+});
+
 app.get('/api/agents/:slug/context', async (c) => {
   const budget = await measureContext(c.req.param('slug'), {
     sessionId: c.req.query('session') ?? null,

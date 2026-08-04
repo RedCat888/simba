@@ -761,6 +761,34 @@ app.post('/api/missions', async (c) => {
   const surface = surfaceOf(c);
   if (!surface) return c.json({ error: 'unknown origin surface' }, 403);
 
+  /**
+   * Reject an unknown owner instead of quietly promoting the mission.
+   *
+   * The insert resolved the agent with a nullable subquery, so a typo stored
+   * owner_agent_id = NULL — and both the planner and the executor default null
+   * ownership to the tier-0 `simba` agent. Asking for "windows-admn" therefore
+   * ran the whole mission as Simba, on the strongest model and with the widest
+   * authority, silently. A misspelling should not be a privilege escalation.
+   */
+  if (b.agent) {
+    const owner = await one<{ id: string }>(
+      `SELECT id FROM agents WHERE slug = $1 AND retired_at IS NULL`,
+      [b.agent],
+    );
+    if (!owner) {
+      const known = await query<{ slug: string }>(
+        `SELECT slug FROM agents WHERE retired_at IS NULL ORDER BY tier, slug`,
+      );
+      return c.json(
+        {
+          error: `unknown agent "${b.agent}"`,
+          known: known.map((a) => a.slug),
+        },
+        400,
+      );
+    }
+  }
+
   const row = await one<{ id: string }>(
     `INSERT INTO missions (title, objective, acceptance_criteria, owner_agent_id,
                            working_dir, max_sessions, max_cost_usd, cadence, cron,

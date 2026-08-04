@@ -362,6 +362,13 @@ export class MissionExecutor {
 
     // Every step finished but verification has not been claimed: move to
     // verifying so the mission cannot quietly call itself done.
+    //
+    // Failed steps are excluded deliberately. Without that exclusion a mission
+    // with one failed step moved to verifying and could never leave: completion
+    // requires every step succeeded or skipped, and budget and circuit-breaker
+    // enforcement only examine 'running' missions. It was neither retried, nor
+    // failed, nor blocked - just silently stuck, which is the worst state for
+    // something meant to run unattended.
     await query(
       `UPDATE missions
           SET status = 'verifying', updated_at = now()
@@ -369,8 +376,46 @@ export class MissionExecutor {
           AND EXISTS (SELECT 1 FROM mission_steps s WHERE s.mission_id = missions.id)
           AND NOT EXISTS (SELECT 1 FROM mission_steps s
                            WHERE s.mission_id = missions.id
-                             AND s.status IN ('pending','running'))`,
+                             AND s.status IN ('pending','running','failed'))`,
     );
+
+    // A mission whose remaining work is all failed is blocked, and says so.
+    //
+    // Blocked rather than failed: the steps that succeeded still stand, the
+    // retry action already requeues failed steps, and the app surfaces
+    // blocked_reason with the reason attached. Calling the whole mission failed
+    // would throw away work that was fine.
+    const stalled = await query<{ id: string; title: string; failed: string }>(
+      `UPDATE missions m
+          SET status = 'blocked',
+              blocked_reason = sub.reason,
+              updated_at = now()
+         FROM (
+           SELECT s.mission_id,
+                  'step(s) failed: ' || string_agg(s.seq || ' "' || s.title || '"', ', '
+                                                   ORDER BY s.seq) AS reason,
+                  string_agg(s.seq::text, ',' ORDER BY s.seq) AS seqs
+             FROM mission_steps s
+            WHERE s.status = 'failed'
+            GROUP BY s.mission_id
+         ) sub
+        WHERE m.id = sub.mission_id
+          AND m.status IN ('running','verifying')
+          AND NOT EXISTS (SELECT 1 FROM mission_steps s2
+                           WHERE s2.mission_id = m.id
+                             AND s2.status IN ('pending','running'))
+        RETURNING m.id, m.title, sub.seqs AS failed`,
+    );
+
+    for (const st of stalled) {
+      await this.log(st.id, `blocked: step(s) ${st.failed} failed and nothing is left to run`, 'error');
+      await recordEvent({
+        type: 'mission.blocked',
+        severity: 'warn',
+        message: `"${st.title}" blocked on failed step(s) ${st.failed}`,
+        data: { missionId: st.id, failedSteps: st.failed },
+      });
+    }
 
     return done.length;
   }

@@ -10,6 +10,7 @@ import { query, one, transaction, recordEvent } from '../db/index.js';
 import { recall } from '../knowledge/embed.js';
 import { viewSkill, listSkills, saveSkill } from '../knowledge/skills.js';
 import { addMemory, removeMemory, memoryPressure } from '../knowledge/memory.js';
+import { learn } from '../knowledge/learn.js';
 import { checkAction, logDenial, type Surface } from '../policy/surface.js';
 
 /**
@@ -154,6 +155,28 @@ const TOOLS = [
       type: 'object',
       properties: { match: { type: 'string' } },
       required: ['match'],
+    },
+  },
+  {
+    name: 'learn',
+    description:
+      'Distil something into a reusable skill: the work in this session, a pasted procedure, a ' +
+      'documentation URL, or a local file or directory. Use after solving something awkward, ' +
+      'or when handed instructions worth keeping. Defaults to this session. Runs on the free ' +
+      'model tier, so it costs nothing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          enum: ['session', 'text', 'url', 'path'],
+          description: 'Defaults to session.',
+        },
+        text: { type: 'string', description: 'Required when from is "text".' },
+        url: { type: 'string', description: 'Required when from is "url".' },
+        path: { type: 'string', description: 'Required when from is "path".' },
+        session_id: { type: 'string', description: 'Another session; defaults to this one.' },
+      },
     },
   },
   {
@@ -526,6 +549,33 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
         const r = await removeMemory(String(args.match), AGENT_ID);
         return text(
           r.removed > 0 ? `Forgot: ${r.content}` : `No memory matched "${String(args.match)}".`,
+        );
+      }
+
+      case 'learn': {
+        const from = String(args.from ?? 'session');
+        let source;
+        if (from === 'text') {
+          if (!args.text) return text('learn(from:"text") needs text.');
+          source = { from: 'text' as const, text: String(args.text) };
+        } else if (from === 'url') {
+          if (!args.url) return text('learn(from:"url") needs a url.');
+          source = { from: 'url' as const, url: String(args.url) };
+        } else if (from === 'path') {
+          if (!args.path) return text('learn(from:"path") needs a path.');
+          source = { from: 'path' as const, path: String(args.path) };
+        } else {
+          const sid = args.session_id ? String(args.session_id) : SESSION_ID;
+          if (!sid) return text('No session to learn from.');
+          source = { from: 'session' as const, sessionId: sid };
+        }
+
+        const r = await learn(source, { sessionId: SESSION_ID });
+        if (!r.learned) return text(`Nothing learned: ${r.reason}`);
+        return text(
+          r.created
+            ? `Learned a new skill: ${r.name}. It is in every agent's index from now on.`
+            : `Updated skill ${r.name} to v${r.version}. The previous version is kept.`,
         );
       }
 

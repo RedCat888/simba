@@ -13,6 +13,7 @@ import { askDecisions } from '../knowledge/decisions.js';
 import { verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
+import { learn } from '../knowledge/learn.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -183,6 +184,38 @@ app.get('/api/sessions/:id/diff', async (c) => {
  * discipline the system prompt follows, and for a related reason: a phone
  * scrolling a list does not want kilobytes of markdown per row.
  */
+/**
+ * Turn something into a skill, from the phone.
+ *
+ * The MCP tool covers an agent learning mid-work. This covers the other half:
+ * pointing Simba at a session that solved something, a documentation page, or a
+ * procedure worth keeping, without needing an agent running to ask.
+ */
+app.post('/api/learn', async (c) => {
+  const b = await c.req.json<{
+    from?: 'session' | 'text' | 'url' | 'path';
+    text?: string;
+    url?: string;
+    path?: string;
+    sessionId?: string;
+  }>();
+
+  const from = b.from ?? 'session';
+  try {
+    let source;
+    if (from === 'text' && b.text) source = { from: 'text' as const, text: b.text };
+    else if (from === 'url' && b.url) source = { from: 'url' as const, url: b.url };
+    else if (from === 'path' && b.path) source = { from: 'path' as const, path: b.path };
+    else if (b.sessionId) source = { from: 'session' as const, sessionId: b.sessionId };
+    else return c.json({ error: `learn(from:"${from}") is missing its input` }, 400);
+
+    const result = await learn(source, { sessionId: b.sessionId ?? null });
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+});
+
 app.get('/api/skills', async (c) => {
   const rows = await query(
     `SELECT name, description, tags, source, version, use_count, last_used_at, updated_at,

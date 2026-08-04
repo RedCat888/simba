@@ -944,6 +944,8 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
     var budget by remember { mutableStateOf<ContextBudget?>(null) }
     var stores by remember { mutableStateOf<StorePressure?>(null) }
     var curating by remember { mutableStateOf(false) }
+    var events by remember { mutableStateOf<List<SystemEvent>>(emptyList()) }
+    var allEvents by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         // Failing quietly is right here: an older gateway has no /api/worktrees,
@@ -953,6 +955,7 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         // missing section should not blank the whole screen.
         runCatching { vm.api?.contextBudget("simba") }.onSuccess { budget = it }
         runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
+        runCatching { vm.api?.events() ?: emptyList() }.onSuccess { events = it }
     }
 
     LaunchedEffect(Unit) {
@@ -1198,6 +1201,40 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                         if (st.skills.archived > 0) Meta("${st.skills.archived} archived")
                     }
                 }
+            }
+        }
+
+        // What the machine has been doing. Filtered to the events that change
+        // what a person would do, with everything else one tap away — an
+        // unfiltered feed of two hundred rows is a log, not a screen.
+        if (events.isNotEmpty()) {
+            SectionHeading("Activity") {
+                Text(
+                    if (allEvents) "notable only" else "show all",
+                    fontSize = 11.sp,
+                    color = Accent,
+                    modifier = Modifier.clickable { allEvents = !allEvents },
+                )
+            }
+            val shown = (if (allEvents) events else events.filter { it.notable }).take(30)
+            if (shown.isEmpty()) {
+                EmptyState("Nothing notable", "No missions finished, blocked, or learned anything recently.")
+            }
+            shown.forEach { e ->
+                ItemRow(
+                    title = e.label,
+                    subtitle = e.message,
+                    badge = when (e.severity) {
+                        "error" -> ItemMeta("error", Tone.Bad)
+                        "warn" -> ItemMeta("warn", Tone.Warn)
+                        else -> null
+                    },
+                    meta = buildList {
+                        add(ItemMeta(e.ts.take(16).replace('T', ' ')))
+                        e.agent?.let { add(ItemMeta(it)) }
+                        e.brain?.let { add(ItemMeta(it, Tone.Accented)) }
+                    },
+                )
             }
         }
 

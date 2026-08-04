@@ -22,6 +22,8 @@ object Prefs {
     val GATEWAY = stringPreferencesKey("gateway")
     val TOKEN = stringPreferencesKey("token")
     val LAST_BRIEF = stringPreferencesKey("last_brief")
+    /** Newest event already notified, so a poll never repeats one. */
+    val LAST_EVENT = stringPreferencesKey("last_event")
     val DESIGN = stringPreferencesKey("design")
 }
 

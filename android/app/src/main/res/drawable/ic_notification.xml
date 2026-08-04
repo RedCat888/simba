@@ -1,0 +1,25 @@
+<!--
+  The notification icon.
+
+  Android renders this as a silhouette in the status bar: every non-transparent
+  pixel becomes white regardless of what colour is declared, so it has to read
+  as a shape at 24dp with no colour and no interior detail to lean on. The stock
+  `ic_dialog_info` and `stat_notify_error` that were here before are the system's
+  own icons — a notification wearing them looks like it came from Android rather
+  than from an app, which is the one thing a status-bar icon must not do.
+
+  This is Simba's mark: a filled disc with a bite taken out of the upper right,
+  the same gesture as the launcher, legible down to 18px.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2.6c-5.19,0 -9.4,4.21 -9.4,9.4s4.21,9.4 9.4,9.4 9.4,-4.21 9.4,-9.4c0,-0.62 -0.06,-1.23 -0.18,-1.82a4.6,4.6 0,0 1,-7.4 -5.29A9.36,9.36 0,0 0,12 2.6z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18.9,2.2m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" />
+</vector>

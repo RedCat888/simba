@@ -40,6 +40,8 @@ class BriefWorker(
             return Result.success()
         }
 
+        notifyNewEvents(api)
+
         val latest = briefs.firstOrNull() ?: return Result.success()
         val lastSeen = ctx.dataStore.data.first()[Prefs.LAST_BRIEF]
         if (latest.id == lastSeen) return Result.success()
@@ -47,6 +49,62 @@ class BriefWorker(
         notify(latest)
         ctx.dataStore.edit { it[Prefs.LAST_BRIEF] = latest.id }
         return Result.success()
+    }
+
+    /**
+     * Progress, as it happens.
+     *
+     * A brief is a summary written on a cadence, which is the right shape for
+     * "here is where things stand" and the wrong one for "the mission you
+     * started is stuck". Those are the events worth interrupting for, and until
+     * now the phone learned about them whenever the next brief happened to
+     * mention them — or never.
+     *
+     * Bounded to three per poll on purpose: a night of activity should not
+     * produce a stack of forty notifications you swipe away without reading,
+     * which is how a person learns to ignore the ones that matter.
+     */
+    private suspend fun notifyNewEvents(api: SimbaApi) {
+        val events = runCatching { api.events() }.getOrElse { return }
+        val lastSeen = ctx.dataStore.data.first()[Prefs.LAST_EVENT]
+
+        val fresh = events.filter { it.notable }
+            .let { list ->
+                // Everything since the last one seen. On a first run there is no
+                // mark, and replaying the entire backlog as notifications would
+                // be the worst possible introduction — so only the newest is
+                // taken and the mark is set from there.
+                if (lastSeen == null) list.take(1)
+                else list.takeWhile { it.id.toString() != lastSeen }
+            }
+        if (fresh.isEmpty()) return
+
+        ctx.dataStore.edit { it[Prefs.LAST_EVENT] = fresh.first().id.toString() }
+
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val open = PendingIntent.getActivity(
+            ctx, 2, Intent(ctx, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        fresh.take(3).forEach { e ->
+            val urgent = e.severity == "error" || e.type == "mission.blocked"
+            val n = NotificationCompat.Builder(ctx, BRIEF_CHANNEL)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(e.label)
+                .setContentText(e.message.take(120))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(e.message))
+                .setPriority(
+                    if (urgent) NotificationCompat.PRIORITY_HIGH
+                    else NotificationCompat.PRIORITY_LOW,
+                )
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build()
+            ctx.getSystemService(NotificationManager::class.java).notify(e.id.hashCode(), n)
+        }
     }
 
     private fun notifyAuthFailure(status: Int) {
@@ -59,7 +117,7 @@ class BriefWorker(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val n = NotificationCompat.Builder(ctx, BRIEF_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Simba can't authenticate")
             .setContentText(
                 if (status == 403) "Access rejected this device (403). The service token may be revoked."
@@ -96,7 +154,7 @@ class BriefWorker(
         }
 
         val n = NotificationCompat.Builder(ctx, BRIEF_CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(brief.headline)
             .setContentText(brief.body.take(90))
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

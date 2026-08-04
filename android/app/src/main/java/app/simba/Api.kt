@@ -290,6 +290,60 @@ data class Decision(
     @SerialName("decided_at") val decidedAt: String? = null,
 )
 
+/**
+ * One thing that happened.
+ *
+ * The gateway has recorded these from the start — brains swapping, skills being
+ * written, missions blocking, worktrees kept — and nothing on the phone read
+ * them, so the only visible history was whatever a brief happened to summarise.
+ */
+@Serializable
+data class SystemEvent(
+    /** A bigserial, not a uuid — the feed relies on it being monotonic. */
+    val id: Long = 0,
+    val ts: String = "",
+    val type: String = "",
+    val severity: String = "info",
+    val message: String = "",
+    val agent: String? = null,
+    val brain: String? = null,
+) {
+    /**
+     * Worth telling someone about.
+     *
+     * The feed is everything; a notification is an interruption. Only the events
+     * that change what a person would do — work finished, work stuck, something
+     * learned, nothing left to think with — earn one.
+     */
+    val notable: Boolean
+        get() = type in NOTABLE
+
+    /** A human-facing title. Event types are dotted machine names. */
+    val label: String
+        get() = type.substringAfterLast('.').replace('_', ' ')
+            .replaceFirstChar { it.uppercase() }
+
+    companion object {
+        val NOTABLE = setOf(
+            "mission.completed",
+            "mission.blocked",
+            "mission.stopped",
+            "skill.learned",
+            "skill.created",
+            "agent.no_brain_available",
+            "brain.limit_reached",
+            "brain.logged_out",
+            "system.panic",
+            "system.leak_suspected",
+        )
+        // Deliberately absent: worktree.kept. It fires every time an agent
+        // finishes holding changes, which during a night of autonomous work is
+        // constantly, and System already lists held worktrees as their own
+        // section — a notification per kept tree would train you to swipe the
+        // whole channel away.
+    }
+}
+
 @Serializable
 data class Brief(
     val id: String = "",
@@ -450,6 +504,7 @@ class SimbaApi(
     suspend fun agents(): List<Agent> = get("/api/agents")
     suspend fun brains(): List<Brain> = get("/api/brains")
     suspend fun briefs(): List<Brief> = get("/api/briefs")
+    suspend fun events(): List<SystemEvent> = get("/api/events")
     suspend fun sessions(): List<SessionRow> = get("/api/sessions")
     suspend fun messages(id: String): List<Message> = get("/api/sessions/$id/messages")
     suspend fun tools(id: String): List<ToolCallRow> = get("/api/sessions/$id/tools")

@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 
 import { AsyncQueue } from './queue.js';
 import { resolveExecutor, buildSpawn } from './discovery.js';
+import { denyNotice } from './boundary.js';
 import type {
   BrainAccount,
   LaunchSpec,
@@ -88,12 +89,18 @@ class CursorSession implements RunnerSession {
 
     // Same framing as the Codex adapter: a bare prepended brief gets treated as
     // the instruction, and the model answers the brief rather than the task.
+    // This runner is launched with its own guardrails disabled, so nothing
+    // constrains it at the process level. The destructive-command boundary is
+    // stated to the model instead - soft, but the alternative here is nothing
+    // at all. Sent every turn rather than only the first: a boundary that
+    // relies on the model recalling turn one is not a boundary.
+    const boundary = denyNotice(this.spec.denyPatterns ?? []);
     const body =
       !this.nativeSessionId && this.spec.systemPromptAppend
         ? `<background>\nStanding context about your role. This is reference material, ` +
           `not your task.\n\n${this.spec.systemPromptAppend}\n</background>\n\n` +
           `# Your task for this session\n\n${prompt}`
-        : prompt;
+        : `${prompt}${boundary}`;
 
     const env: NodeJS.ProcessEnv = { ...process.env, ...this.spec.brain.env, ...this.spec.env };
 

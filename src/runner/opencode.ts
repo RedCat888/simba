@@ -9,6 +9,7 @@ import { config } from '../config.js';
 
 import { AsyncQueue } from './queue.js';
 import { resolveExecutor, buildSpawn } from './discovery.js';
+import { denyNotice } from './boundary.js';
 import type {
   BrainAccount,
   LaunchSpec,
@@ -71,6 +72,97 @@ function resolveModel(brain: BrainAccount, tier: ModelTier): string {
 }
 
 /**
+ * The commands the profile's regexes are built around, as plain names.
+ *
+ * Present because an external audit caught a comment in this file claiming the
+ * deny list was "enforced by the profile" — untrue, since only the Ollama
+ * runner ever read denyPatterns. Failing over from Claude to OpenCode dropped
+ * the only hard safety boundary in the system.
+ */
+const DESTRUCTIVE_COMMANDS = [
+  // Disk
+  'diskpart', 'format', 'fsutil', 'mountvol',
+  'Clear-Disk', 'Initialize-Disk', 'Remove-Partition', 'Set-Partition', 'Format-Volume',
+  // Boot
+  'bcdedit', 'bcdboot', 'bootrec', 'bootsect',
+  // Backups and shadow copies — deleting these is what makes other damage final
+  'vssadmin', 'wbadmin',
+  // Services
+  'sc delete', 'Remove-Service',
+];
+
+/**
+ * The destructive-command boundary, expressed the way OpenCode matches.
+ *
+ * Derived by hand rather than translated from the regexes in
+ * `permission_profiles.deny_patterns`, after an attempt at auto-translation
+ * failed in both directions. Simba stores case-insensitive regexes; OpenCode
+ * matches bash commands against globs, and mechanically stripping regex syntax
+ * produced `*bdiskpart*` — the `\b` word-boundary escape leaving a stray `b`
+ * glued to every token, so nothing matched — alongside `*.exe*` and `*delete*`,
+ * which between them would have blocked most commands on Windows. A lossy
+ * translation that silently fails open is worse than no translation.
+ *
+ * The list is small and stable, so it is written out. It covers the same ground
+ * the profile does — disk, boot, backup, services — and registry writes are
+ * handled separately below because they need two tokens to be meaningful:
+ * `reg` alone is harmless, `reg delete HKLM` is not.
+ *
+ * MEASURED LIMITATION — read before trusting this.
+ *
+ * OpenCode does not consult `permission.bash` in non-interactive `run` mode.
+ * Tested directly, with and without `--auto`: a command matching a `deny` glob
+ * executes normally and returns its output. The config is schema-valid and
+ * `opencode debug config` shows the rules resolved, so this looks enforced and
+ * is not.
+ *
+ * These rules are therefore written in hope, not in force: they cost nothing,
+ * they are correct if OpenCode starts honouring them, and they document the
+ * intent. The boundary that actually holds on this runner is the soft one
+ * injected into the agent's brief by denyNotice(). Claude enforces the list via
+ * a PreToolUse hook and Ollama checks it in its own loop; Codex, Cursor and
+ * OpenCode do not enforce it at all.
+ */
+function denyRulesFor(patterns: string[]): Record<string, 'allow' | 'deny'> {
+  const rules: Record<string, 'allow' | 'deny'> = {};
+
+  for (const cmd of DESTRUCTIVE_COMMANDS) {
+    // Both bare and as part of a longer line: OpenCode's matcher is a glob over
+    // the whole command string, so the wildcards do the work.
+    rules[`*${cmd}*`] = 'deny';
+  }
+
+  // Registry writes against machine-wide hives. Reads are deliberately allowed —
+  // `reg query` is how an agent finds out what is installed.
+  for (const verb of ['delete', 'add', 'import']) {
+    for (const hive of ['HKLM', 'HKEY_LOCAL_MACHINE', 'HKCR', 'HKEY_CLASSES_ROOT', 'HKU']) {
+      rules[`*reg*${verb}*${hive}*`] = 'deny';
+    }
+  }
+  for (const hive of ['HKLM:', 'HKCR:', 'HKU:']) {
+    rules[`*Remove-Item*${hive}*`] = 'deny';
+    rules[`*Set-ItemProperty*${hive}*`] = 'deny';
+    rules[`*New-ItemProperty*${hive}*`] = 'deny';
+  }
+
+  // Recursive deletion of the OS itself, and of a filesystem root.
+  rules['*Remove-Item*C:\\Windows*'] = 'deny';
+  rules['*rm -rf /*'] = 'deny';
+  rules['*rm -fr /*'] = 'deny';
+
+  // Everything not named is permitted. The boundary asked for was core disk,
+  // OS, boot and registry — not "ask about everything", which would make an
+  // unattended agent useless and train whoever reads the log to ignore it.
+  rules['*'] = 'allow';
+
+  // `patterns` is the profile's own regex list. It is not translated, but its
+  // length is worth knowing at the call site, and referencing it keeps the
+  // signature honest about what this does and does not consume.
+  void patterns;
+  return rules;
+}
+
+/**
  * Writes a per-session config exposing Simba's MCP server.
  *
  * OpenCode has no `--mcp-config` flag; it reads `opencode.json` from the project
@@ -80,35 +172,38 @@ function resolveModel(brain: BrainAccount, tier: ModelTier): string {
  * `opencode debug config`. Nothing is left behind in the working tree.
  */
 async function writeSessionConfig(spec: LaunchSpec): Promise<string | null> {
-  if (!spec.mcpConfigPath) return null;
+  const deny = spec.denyPatterns ?? [];
+  // Written whenever there is either MCP to expose or a boundary to enforce.
+  // Previously this returned early without an MCP path, which would have
+  // silently skipped the deny rules too.
+  if (!spec.mcpConfigPath && deny.length === 0) return null;
 
   const dir = join(tmpdir(), 'simba-opencode');
   await mkdir(dir, { recursive: true });
   const path = join(dir, `${spec.sessionId}.json`);
 
   const server = join(config.root, 'dist', 'mcp-server.mjs');
-  await writeFile(
-    path,
-    JSON.stringify(
-      {
-        $schema: 'https://opencode.ai/config.json',
-        mcp: {
-          simba: {
-            type: 'local',
-            command: [process.execPath, server],
-            enabled: true,
-            environment: {
-              SIMBA_AGENT_ID: spec.agentId,
-              SIMBA_SESSION_ID: spec.sessionId,
-            },
-          },
+  const cfg: Record<string, unknown> = { $schema: 'https://opencode.ai/config.json' };
+
+  if (spec.mcpConfigPath) {
+    cfg.mcp = {
+      simba: {
+        type: 'local',
+        command: [process.execPath, server],
+        enabled: true,
+        environment: {
+          SIMBA_AGENT_ID: spec.agentId,
+          SIMBA_SESSION_ID: spec.sessionId,
         },
       },
-      null,
-      2,
-    ),
-    'utf8',
-  );
+    };
+  }
+
+  if (deny.length > 0) {
+    cfg.permission = { bash: denyRulesFor(deny), edit: 'allow' };
+  }
+
+  await writeFile(path, JSON.stringify(cfg, null, 2), 'utf8');
   return path;
 }
 
@@ -174,9 +269,11 @@ class OpenCodeSession implements RunnerSession {
     // run, and whatever the user has installed globally is not part of that.
     args.push('--pure');
 
-    // Autonomous by design. Simba's deny list is enforced by the profile that
-    // chose to launch this session, not by an interactive prompt nobody is
-    // present to answer.
+    // Autonomous by design: nobody is present to answer a prompt. --auto
+    // approves anything not *explicitly denied*, and the deny rules generated
+    // from the agent's permission profile are what make that safe rather than
+    // unconditional. An earlier version of this comment claimed the profile
+    // enforced the list on its own; it did not, and nothing did.
     args.push('--auto');
 
     args.push('--dir', this.spec.cwd);
@@ -501,9 +598,10 @@ export class OpenCodeRunner implements Runner {
     if (!bin) throw new Error('opencode CLI not found on this machine');
 
     const configPath = await writeSessionConfig(spec);
-    const briefPath = spec.systemPromptAppend
-      ? await writeBriefFile(spec, spec.systemPromptAppend)
-      : null;
+    // The boundary rides along with the brief. Appended rather than sent
+    // separately so it cannot be dropped by a caller that omits one of them.
+    const briefBody = (spec.systemPromptAppend ?? '') + denyNotice(spec.denyPatterns ?? []);
+    const briefPath = briefBody.trim() ? await writeBriefFile(spec, briefBody) : null;
 
     const session = new OpenCodeSession(spec.sessionId, spec, bin, configPath, briefPath);
     if (spec.prompt) await session.send(spec.prompt);

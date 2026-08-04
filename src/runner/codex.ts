@@ -8,6 +8,7 @@ import { config } from '../config.js';
 
 import { AsyncQueue } from './queue.js';
 import { resolveExecutor, buildSpawn } from './discovery.js';
+import { denyNotice } from './boundary.js';
 import type {
   BrainAccount,
   LaunchSpec,
@@ -113,12 +114,18 @@ class CodexSession implements RunnerSession {
     // of the actual task — it replied about its role and never reached the
     // question. Fencing the brief as background and putting the task last,
     // under an explicit header, keeps the task the salient instruction.
+    // This runner is launched with its own guardrails disabled, so nothing
+    // constrains it at the process level. The destructive-command boundary is
+    // stated to the model instead - soft, but the alternative here is nothing
+    // at all. Sent every turn rather than only the first: a boundary that
+    // relies on the model recalling turn one is not a boundary.
+    const boundary = denyNotice(this.spec.denyPatterns ?? []);
     const body =
       !this.nativeSessionId && this.spec.systemPromptAppend
         ? `<background>\nStanding context about your role. This is reference material, ` +
           `not your task.\n\n${this.spec.systemPromptAppend}\n</background>\n\n` +
           `# Your task for this session\n\n${prompt}`
-        : prompt;
+        : `${prompt}${boundary}`;
 
     // The prompt goes in over stdin ("-"), never as an argument. A hydration
     // brief runs to tens of kilobytes and Windows caps a command line near 32k,

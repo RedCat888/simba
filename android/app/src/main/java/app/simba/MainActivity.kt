@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -153,7 +155,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
             ),
         ) {
             when {
-                !ready -> CenteredNote("Connecting…")
+                !ready -> LoadingState()
                 openMission != null -> MissionDetailScreen(vm, openMission!!) { openMission = null }
                 else -> when (dest) {
                     Destination.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
@@ -221,7 +223,7 @@ private fun SimbaTopBar(vm: SimbaVm) {
 @Composable
 fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     // Padding and corner radius both come from the active design rather than
-    // being fixed here. This is what makes Dense actually fit more on a screen
+    // being fixed here. This is what makes Console actually fit more on a screen
     // instead of merely being written in a smaller font: every card in the app
     // tightens at once, and no caller has to know which design is on.
     val scale = LocalDensityScale.current
@@ -257,7 +259,7 @@ fun CenteredNote(text: String) {
 @Composable
 private fun ErrorBanner(error: String?) {
     AnimatedVisibility(error != null) {
-        Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Card(Modifier.screenPad().padding(vertical = 6.dp)) {
             Text("Cannot reach Simba", color = Err, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Text(
                 error.orEmpty().take(160),
@@ -864,14 +866,18 @@ fun MemoryScreen(vm: SimbaVm) {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.screenPad().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = q,
                 onValueChange = { q = it },
                 placeholder = { Text("Ask your own history…", fontSize = 13.sp, color = Faint) },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
+                // Without declaring the action, the IME shows a newline key and
+                // the onSearch handler below is never reached — the field looked
+                // wired and did nothing when you pressed return.
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { go() }),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Accent,
@@ -889,14 +895,20 @@ fun MemoryScreen(vm: SimbaVm) {
                 "${it.embeddings} chunks indexed",
                 fontSize = 11.sp,
                 color = Faint,
-                modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                modifier = Modifier.screenPad().padding(top = 5.dp),
             )
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(6.dp))
         when {
             searching -> LoadingState(3)
-            hits.isEmpty() && searched -> EmptyState(
+            // Before the first search there is nothing to say the screen works;
+            // an empty column reads exactly like a failed load.
+            !searched -> EmptyState(
+                "Search everything Simba has read",
+                "Conversations, the vault, and the knowledge base — asked in your own words.",
+            )
+            hits.isEmpty() -> EmptyState(
                 "No matches",
                 "Nothing in the indexed history is close enough to that.",
             )

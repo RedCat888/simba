@@ -196,7 +196,7 @@ private val SimbaType = Typography(
 private val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 /**
- * Dense reads as a console: near-black, cool grey text, a cold accent.
+ * Console reads as a terminal: near-black, cool grey text, a cold accent.
  *
  * A separate palette rather than a tint of the house one, because the point of
  * offering three designs is that they are genuinely different — three names
@@ -215,7 +215,36 @@ private val ConsoleDark = darkColorScheme(
     error = Color(0xFFF0757A),
 )
 
-/** Clean is the house look: warmer ink, softer surfaces, the amber accent. */
+/**
+ * Console in light mode.
+ *
+ * This was missing, so a phone in light mode showed Console wearing Fluid's
+ * palette — warm amber accent, soft off-white surfaces, no terminal in sight.
+ * Picking a design and getting a different one is worse than the design being
+ * plain. A paper terminal rather than an inverted one: cool near-white, ink-blue
+ * text, the same cold accent so the identity survives the mode change.
+ */
+private val ConsoleLight = lightColorScheme(
+    background = Color(0xFFF4F6F8),
+    onBackground = Color(0xFF11181F),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF11181F),
+    surfaceVariant = Color(0xFFE7ECF1),
+    onSurfaceVariant = Color(0xFF4E5A67),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFFAFBFC),
+    surfaceContainer = Color(0xFFEFF2F5),
+    surfaceContainerHigh = Color(0xFFE7ECF1),
+    surfaceContainerHighest = Color(0xFFDEE5EC),
+    outline = Color(0xFF7B8794),
+    outlineVariant = Color(0xFFCBD4DD),
+    primary = Color(0xFF0A6E93),
+    onPrimary = Color(0xFFFFFFFF),
+    error = Color(0xFFB3261E),
+    onError = Color(0xFFFFFFFF),
+)
+
+/** Fluid is the house look: warmer ink, softer surfaces, the amber accent. */
 private val FluidDark = SimbaDark
 
 @Composable
@@ -228,13 +257,26 @@ private fun schemeFor(design: Design, dark: Boolean): ColorScheme {
         val ctx = LocalContext.current
         return if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
     }
-    if (design == Design.Console && dark) return ConsoleDark
-    return if (dark) FluidDark else SimbaLight
+    return when {
+        design == Design.Console -> if (dark) ConsoleDark else ConsoleLight
+        dark -> FluidDark
+        else -> SimbaLight
+    }
 }
 
 /**
- * Dense is monospace throughout and a step smaller, which is what actually buys
- * the extra rows per screen. Clean keeps the proportional face with roomier
+ * Console's status hues, which have to be readable on ink-on-paper rather than
+ * on near-black — the dark set's mint and amber vanish on white.
+ */
+private val ConsoleLightStatus = SimbaStatusColors(
+    ok = Color(0xFF0A6B42),
+    warn = Color(0xFF8A5A00),
+    info = Color(0xFF0A6E93),
+)
+
+/**
+ * Console is monospace throughout and a step smaller, which is what actually
+ * buys the extra rows per screen. Fluid keeps the proportional face with roomier
  * line height; Material takes the platform's own type scale so it looks like a
  * Material app rather than this app wearing Material colours.
  */
@@ -264,8 +306,8 @@ private fun typographyFor(design: Design): Typography = when (design) {
 }
 
 /**
- * Corner radius carries as much of a design's character as colour does. Clean
- * is generously rounded, Dense is nearly square so rows read as a table, and
+ * Corner radius carries as much of a design's character as colour does. Fluid
+ * is generously rounded, Console is nearly square so rows read as a table, and
  * Material takes the platform defaults.
  */
 private fun shapesFor(design: Design): Shapes = when (design) {
@@ -288,7 +330,7 @@ private fun shapesFor(design: Design): Shapes = when (design) {
  * How much air a design leaves around things.
  *
  * Colour and type alone still leave three variations of the same layout. This
- * is what makes Dense actually dense: components multiply their padding by it,
+ * is what makes Console actually dense: components multiply their padding by it,
  * so one value changes the whole app's rhythm without every component knowing
  * which design is active.
  */
@@ -314,7 +356,11 @@ fun SimbaTheme(
     CompositionLocalProvider(
         LocalDesign provides design,
         LocalDensityScale provides densityFor(design),
-        LocalStatusColors provides if (dark) DarkStatus else LightStatus,
+        LocalStatusColors provides when {
+            dark -> DarkStatus
+            design == Design.Console -> ConsoleLightStatus
+            else -> LightStatus
+        },
     ) {
         MaterialTheme(
             colorScheme = schemeFor(design, dark),

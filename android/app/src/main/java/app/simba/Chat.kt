@@ -56,6 +56,8 @@ fun ChatScreen(
     sessionId: String,
     title: String,
     onBack: () -> Unit,
+    /** The conversation moved to a new session id — follow it. */
+    onMoved: (String) -> Unit = {},
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -144,6 +146,22 @@ fun ChatScreen(
         state.thinking = true
         scope.launch {
             runCatching { vm.api?.send(sessionId, text) }
+                .onSuccess { r ->
+                    // The work may have moved: reviving a dead session or a
+                    // brain swap starts a new one. Without following it the
+                    // stream filter watches an id that will never speak again,
+                    // and the reply simply never appears.
+                    r?.movedTo?.takeIf { it.isNotBlank() && it != sessionId }?.let { moved ->
+                        state.items.add(
+                            ChatItem.Notice(
+                                "Continued in a new session after a restart or brain swap.",
+                                Accent,
+                                System.currentTimeMillis(),
+                            ),
+                        )
+                        onMoved(moved)
+                    }
+                }
                 .onFailure {
                     state.items.add(
                         ChatItem.Notice("Could not send: ${it.message?.take(90)}", Err, System.currentTimeMillis()),

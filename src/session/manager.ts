@@ -419,7 +419,18 @@ export class SessionManager extends EventEmitter {
     }
   }
 
-  async send(sessionId: string, text: string): Promise<void> {
+  /**
+   * Returns the session the message actually went to.
+   *
+   * Reviving or failing over creates a *new* session id, and this used to
+   * return void — so the caller kept its original id. The phone then filtered
+   * the event stream for a session that would never speak again: the
+   * continuation's output was invisible, and a second follow-up to the old id
+   * forked another child off the same parent, silently losing the first one's
+   * context. Handing back the live id is what lets a client follow the work
+   * across a swap.
+   */
+  async send(sessionId: string, text: string): Promise<{ sessionId: string }> {
     let live = this.live.get(sessionId);
 
     // No process attached: the gateway restarted, the machine slept, or the
@@ -432,12 +443,15 @@ export class SessionManager extends EventEmitter {
       if ('error' in revived) throw new Error(revived.error);
       live = this.live.get(revived.sessionId);
       if (!live) throw new Error('failed to revive session');
-      return; // the revived session was launched with this text as its prompt
+      // Launched with this text as its prompt, so the message is delivered —
+      // but the caller needs the new id to keep following the conversation.
+      return { sessionId: revived.sessionId };
     }
 
     const brain = await getBrain(live.brainId);
     await live.engine.beginTurn(brain?.tier_models?.[live.modelTier] ?? null, live.modelTier);
     await live.engine.sendUserMessage(text);
+    return { sessionId: live.sessionId };
   }
 
   /**

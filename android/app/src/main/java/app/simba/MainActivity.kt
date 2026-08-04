@@ -124,7 +124,14 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
     // vertical space from the one view where every line counts.
     if (openChat != null && ready) {
         val (sid, title) = openChat!!
-        ChatScreen(vm, sid, title) { openChat = null; vm.refresh() }
+        ChatScreen(
+            vm, sid, title,
+            onBack = { openChat = null; vm.refresh() },
+            // Re-point the screen at the session the work actually moved to.
+            // state is keyed on sessionId, so this reloads history for the
+            // continuation rather than leaving the thread watching a dead id.
+            onMoved = { moved -> openChat = moved to title },
+        )
         return
     }
 

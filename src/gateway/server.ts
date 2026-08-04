@@ -614,8 +614,11 @@ app.post('/api/sessions/:id/send', async (c) => {
     return c.json({ error: allowed.reason }, 403);
   }
   try {
-    await manager.send(c.req.param('id'), body.text);
-    return c.json({ ok: true });
+    // Hand back the session the message actually reached. A revival or failover
+    // creates a new id, and answering a bare {ok:true} left the client watching
+    // a session that would never speak again.
+    const { sessionId } = await manager.send(c.req.param('id'), body.text);
+    return c.json({ ok: true, sessionId, movedTo: sessionId !== c.req.param('id') ? sessionId : null });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
   }

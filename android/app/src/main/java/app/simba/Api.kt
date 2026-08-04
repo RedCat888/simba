@@ -209,6 +209,14 @@ data class HeldWorktree(
 )
 
 @Serializable
+data class SendResult(
+    val ok: Boolean = false,
+    val sessionId: String = "",
+    /** Set when the work moved to a new session - a revival or a brain swap. */
+    val movedTo: String? = null,
+)
+
+@Serializable
 data class Decision(
     val id: String = "",
     val statement: String = "",
@@ -404,17 +412,27 @@ class SimbaApi(
         req("/api/brains/$slug/toggle").post("{}".toRequestBody("application/json".toMediaType())).build(),
     )
 
-    suspend fun send(sessionId: String, text: String): String =
-        call(
-            req("/api/sessions/$sessionId/send")
-                .post(
-                    json.encodeToString(
-                        kotlinx.serialization.json.JsonObject.serializer(),
-                        kotlinx.serialization.json.buildJsonObject {
-                            put("text", kotlinx.serialization.json.JsonPrimitive(text))
-                        },
-                    ).toRequestBody("application/json".toMediaType()),
-                ).build(),
+    /**
+     * Sends a message and reports which session it reached.
+     *
+     * Reviving or failing over creates a new session id server-side. The reply
+     * used to be a bare {ok:true}, so the app kept filtering the event stream
+     * for a session that would never speak again - the continuation's output was
+     * invisible, and a second message forked another child off the same parent.
+     */
+    suspend fun send(sessionId: String, text: String): SendResult =
+        json.decodeFromString(
+            call(
+                req("/api/sessions/$sessionId/send")
+                    .post(
+                        json.encodeToString(
+                            kotlinx.serialization.json.JsonObject.serializer(),
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("text", kotlinx.serialization.json.JsonPrimitive(text))
+                            },
+                        ).toRequestBody("application/json".toMediaType()),
+                    ).build(),
+            ),
         )
 
     suspend fun startAgent(slug: String, prompt: String): StartResult =

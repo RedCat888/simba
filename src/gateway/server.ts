@@ -728,6 +728,46 @@ app.post('/api/missions', async (c) => {
 
 app.post('/api/missions/:id/:action', async (c) => {
   const action = c.req.param('action');
+
+  /**
+   * Raise a ceiling and carry on.
+   *
+   * A mission that hits its session or cost budget stops with the reason
+   * recorded, which is correct — that limit is the only thing standing between
+   * an unattended objective and an unbounded one. But there was no way to lift
+   * it except editing the database by hand, so from the phone a blocked mission
+   * was simply dead. Observed for real: an eight-step mission was given a
+   * six-session budget, blocked at step six exactly as designed, and needed a
+   * manual UPDATE to finish.
+   *
+   * Raising only. Lowering a ceiling mid-flight would block the mission again
+   * on the next tick, which is a confusing way to express "stop" when pause and
+   * cancel already exist.
+   */
+  if (action === 'budget') {
+    const b = await c.req.json<{ maxSessions?: number; maxCostUsd?: number }>();
+    const row = await one<{ max_sessions: number; max_cost_usd: number; status: string }>(
+      `UPDATE missions
+          SET max_sessions = greatest(max_sessions, coalesce($2, max_sessions)),
+              max_cost_usd = greatest(max_cost_usd, coalesce($3, max_cost_usd)),
+              -- Clearing the block is the point: raising the ceiling and
+              -- leaving it blocked would just require a second call.
+              status = CASE WHEN status = 'blocked' THEN 'running' ELSE status END,
+              blocked_reason = CASE WHEN status = 'blocked' THEN NULL ELSE blocked_reason END,
+              consecutive_failures = 0,
+              updated_at = now()
+        WHERE id = $1
+        RETURNING max_sessions, max_cost_usd, status`,
+      [c.req.param('id'), b.maxSessions ?? null, b.maxCostUsd ?? null],
+    );
+    if (!row) return c.json({ error: 'no such mission' }, 404);
+    await query(
+      `INSERT INTO mission_log (mission_id, level, message) VALUES ($1,'info',$2)`,
+      [c.req.param('id'), `budget raised to ${row.max_sessions} sessions / $${row.max_cost_usd}`],
+    );
+    return c.json({ ok: true, ...row });
+  }
+
   const map: Record<string, string> = {
     pause: 'paused', resume: 'running', cancel: 'cancelled', retry: 'running',
   };

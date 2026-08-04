@@ -435,11 +435,41 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
                 d.mission.acceptanceCriteria?.takeIf { it.isNotBlank() }?.let {
                     Text("Done when: $it", fontSize = 12.sp, color = Faint, modifier = Modifier.padding(top = 6.dp))
                 }
-                d.mission.blockedReason?.takeIf { it.isNotBlank() }?.let {
+                d.mission.blockedReason?.takeIf { it.isNotBlank() }?.let { reason ->
                     Spacer(Modifier.height(8.dp))
                     Box(
                         Modifier.clip(RoundedCornerShape(8.dp)).background(Warn.copy(alpha = 0.12f)).padding(9.dp),
-                    ) { Text("Blocked: $it", fontSize = 12.sp, color = Warn) }
+                    ) {
+                        Column {
+                            Text("Blocked: $reason", fontSize = 12.sp, color = Warn)
+                            // A budget block is the one kind of stop the phone
+                            // can actually clear, so offer the fix beside the
+                            // reason rather than making it a generic action.
+                            if (reason.contains("budget", ignoreCase = true) ||
+                                reason.contains("exhausted", ignoreCase = true)
+                            ) {
+                                Text(
+                                    "Raise to ${d.mission.maxSessions + 10} sessions / " +
+                                        "$${"%.0f".format(d.mission.maxCost + 10)} and continue",
+                                    fontSize = 12.sp,
+                                    color = Accent,
+                                    modifier = Modifier.padding(top = 7.dp).clickable(enabled = !busy) {
+                                        scope.launch {
+                                            busy = true
+                                            runCatching {
+                                                vm.api?.missionBudget(
+                                                    id,
+                                                    d.mission.maxSessions + 10,
+                                                    d.mission.maxCost + 10.0,
+                                                )
+                                            }
+                                            load(); busy = false
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(10.dp))

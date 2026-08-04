@@ -76,6 +76,8 @@ data class MissionFull(
     @SerialName("blocked_reason") val blockedReason: String? = null,
     @SerialName("sessions_used") val sessionsUsed: Int = 0,
     @SerialName("max_sessions") val maxSessions: Int = 0,
+    /** Needed to offer a sensible raised ceiling when a budget block happens. */
+    @SerialName("max_cost_usd") val maxCost: Double = 0.0,
 )
 
 @Serializable
@@ -428,6 +430,27 @@ class SimbaApi(
 
     suspend fun missionAction(id: String, action: String): String =
         call(req("/api/missions/$id/$action").post("{}".toRequestBody("application/json".toMediaType())).build())
+
+    /**
+     * Raise a blocked mission's ceilings and let it continue.
+     *
+     * A mission that exhausts its session or cost budget stops with the reason
+     * recorded, which is right — that limit is what keeps an unattended
+     * objective bounded. Without this the only way to lift it was editing the
+     * database, so from the phone a blocked mission was dead.
+     */
+    suspend fun missionBudget(id: String, maxSessions: Int, maxCostUsd: Double): String =
+        call(
+            req("/api/missions/$id/budget").post(
+                json.encodeToString(
+                    kotlinx.serialization.json.JsonObject.serializer(),
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("maxSessions", kotlinx.serialization.json.JsonPrimitive(maxSessions))
+                        put("maxCostUsd", kotlinx.serialization.json.JsonPrimitive(maxCostUsd))
+                    },
+                ).toRequestBody("application/json".toMediaType()),
+            ).build(),
+        )
 
     suspend fun createMission(title: String, objective: String, criteria: String?): String =
         call(

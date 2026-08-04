@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -92,6 +92,14 @@ console.log('gamma dir gone:', c ? !existsSync(c.path) : 'n/a');
 const stateA = await inspectWorktree(a.path);
 console.log('alpha still reports dirty:', stateA?.dirty);
 
+// Clean up after itself. The first run of this probe left five worktrees
+// behind and deleted the session rows that pointed at them, which is how the
+// orphan case got discovered — but leaving litter for the next run is not a
+// test strategy. Force-removed because these are throwaway repos.
+for (const p of [a.path, b.path, c?.path].filter(Boolean) as string[]) {
+  await rm(p, { recursive: true, force: true });
+}
+await rm(repo, { recursive: true, force: true });
 await query(`DELETE FROM sessions WHERE id = ANY($1::uuid[])`, [ids]);
 await closePool();
 process.exit(0);

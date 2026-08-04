@@ -180,6 +180,23 @@ data class SessionDiff(
 )
 
 @Serializable
+data class WorktreeState(
+    val path: String = "",
+    val branch: String? = null,
+    val dirty: Boolean = false,
+    val ahead: Int = 0,
+    /** Its repository is gone, so the changes cannot be recovered or merged. */
+    val originMissing: Boolean = false,
+)
+
+@Serializable
+data class HeldWorktree(
+    val sessionId: String = "",
+    val agent: String = "",
+    val state: WorktreeState = WorktreeState(),
+)
+
+@Serializable
 data class Decision(
     val id: String = "",
     val statement: String = "",
@@ -358,6 +375,7 @@ class SimbaApi(
         get("/api/knowledge/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"))
 
     suspend fun sessionDiff(id: String): SessionDiff = get("/api/sessions/$id/diff")
+    suspend fun worktrees(): List<HeldWorktree> = get("/api/worktrees")
     suspend fun skills(): List<Skill> = get("/api/skills")
     suspend fun skill(name: String): SkillDetail = get("/api/skills/$name")
     suspend fun decisions(): List<Decision> = get("/api/decisions?limit=60")

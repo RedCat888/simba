@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -142,6 +142,15 @@ export interface WorktreeState {
   branch: string | null;
   dirty: boolean;
   ahead: number;
+  /**
+   * The repository this was carved from no longer exists.
+   *
+   * A distinct state, and worth separating from ordinary uncollected work: the
+   * changes cannot be merged, diffed against anything, or recovered, because
+   * there is nothing left to merge them into. Listing it beside real pending
+   * work would overstate it and train the reader to ignore the section.
+   */
+  originMissing: boolean;
 }
 
 /** Whether a worktree still holds work nobody has collected. */
@@ -183,11 +192,19 @@ export async function inspectWorktree(path: string): Promise<WorktreeState | nul
     ahead = Number(only ?? 0) || 0;
   }
 
+  const commonDir = await gitQuiet(path, [
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ]);
+  const origin = commonDir?.replace(/[/\\]\.git$/, '') ?? null;
+
   return {
     path,
     branch,
     dirty: Boolean(status && status.length > 0),
     ahead,
+    originMissing: !origin || !existsSync(origin),
   };
 }
 
@@ -246,21 +263,49 @@ export async function releaseWorktree(
  * and a directory somewhere holds the only copy of what the agent actually did.
  */
 export async function unreapedWorktrees(): Promise<
-  Array<{ sessionId: string; agent: string; state: WorktreeState }>
+  Array<{ sessionId: string | null; agent: string; state: WorktreeState }>
 > {
-  const rows = await query<{ id: string; agent: string; worktree_path: string }>(
-    `SELECT s.id, a.slug AS agent, s.worktree_path
-       FROM sessions s JOIN agents a ON a.id = s.agent_id
-      WHERE s.worktree_path IS NOT NULL
-        AND s.status NOT IN ('running', 'idle', 'pending')`,
-  );
+  // The directory is the ground truth, not the sessions table.
+  //
+  // Joining sessions was the first attempt and it hides the worst case: a
+  // worktree whose session row is gone — deleted, reset, or never written —
+  // becomes permanently invisible while still holding the only copy of an
+  // agent's work. That was not hypothetical, it happened here immediately.
+  // Enumerating the directory finds those; the session join then supplies a
+  // name where one exists.
+  let entries: string[] = [];
+  try {
+    entries = await readdir(config.paths.worktrees);
+  } catch {
+    return []; // No worktrees directory yet.
+  }
 
-  const out: Array<{ sessionId: string; agent: string; state: WorktreeState }> = [];
-  for (const r of rows) {
-    const state = await inspectWorktree(r.worktree_path);
-    if (state && (state.dirty || state.ahead > 0)) {
-      out.push({ sessionId: r.id, agent: r.agent, state });
-    }
+  const rows = await query<{ id: string; agent: string; worktree_path: string; status: string }>(
+    `SELECT s.id, a.slug AS agent, s.worktree_path, s.status
+       FROM sessions s JOIN agents a ON a.id = s.agent_id
+      WHERE s.worktree_path IS NOT NULL`,
+  );
+  const bySessionPath = new Map(rows.map((r) => [r.worktree_path.toLowerCase(), r]));
+
+  const out: Array<{ sessionId: string | null; agent: string; state: WorktreeState }> = [];
+  for (const name of entries) {
+    const path = join(config.paths.worktrees, name);
+    const owner = bySessionPath.get(path.toLowerCase());
+
+    // A live session is still using its checkout; that is not uncollected work.
+    if (owner && ['running', 'idle', 'pending'].includes(owner.status)) continue;
+
+    const state = await inspectWorktree(path);
+    if (!state) continue;
+    if (!state.dirty && state.ahead === 0) continue;
+
+    out.push({
+      sessionId: owner?.id ?? null,
+      // The directory is named "<agent>-<session prefix>", so the agent is
+      // recoverable even when the row is not.
+      agent: owner?.agent ?? `${name.split('-')[0] ?? name} (orphaned)`,
+      state,
+    });
   }
   return out;
 }

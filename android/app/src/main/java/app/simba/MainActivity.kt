@@ -815,6 +815,13 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
     var verdicts by remember { mutableStateOf<Map<String, VerifyResult>>(emptyMap()) }
     var verifying by remember { mutableStateOf<String?>(null) }
     var verifyingAll by remember { mutableStateOf(false) }
+    var worktrees by remember { mutableStateOf<List<HeldWorktree>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        // Failing quietly is right here: an older gateway has no /api/worktrees,
+        // and the whole screen should not break because one section is missing.
+        runCatching { vm.api?.worktrees() ?: emptyList() }.onSuccess { worktrees = it }
+    }
 
     LaunchedEffect(Unit) {
         url = ctx.gatewayUrl()
@@ -938,6 +945,52 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                                 vm.refresh()
                             }
                         },
+                    )
+                }
+            }
+        }
+
+        // Work an agent produced that nothing has collected.
+        //
+        // A worktree is kept rather than deleted whenever it still holds
+        // changes, which is right — destroying unattended work is not
+        // recoverable. But kept-and-invisible is its own failure: the session
+        // reads "completed" while a directory somewhere holds the only copy.
+        if (worktrees.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "UNCOLLECTED WORK",
+                fontSize = 10.sp,
+                color = Warn,
+                fontWeight = FontWeight.SemiBold,
+            )
+            worktrees.forEach { w ->
+                Card {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(w.agent, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Pill(
+                            when {
+                                // Not recoverable, so not a call to action.
+                                w.state.originMissing -> "repo gone"
+                                w.state.dirty -> "uncommitted"
+                                else -> "${w.state.ahead} commits"
+                            },
+                            if (w.state.originMissing) Faint else Warn,
+                        )
+                    }
+                    Text(
+                        w.state.branch ?: "",
+                        color = Faint,
+                        fontSize = 11.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(
+                        w.state.path,
+                        color = Faint,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             }

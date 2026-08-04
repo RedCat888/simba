@@ -152,6 +152,34 @@ data class SkillDetail(
 )
 
 @Serializable
+data class FileDiff(
+    val path: String = "",
+    val status: String = "",
+    val additions: Int = 0,
+    val deletions: Int = 0,
+    val patch: String? = null,
+    /** The server withheld the patch because it is too large to send. */
+    val truncated: Boolean = false,
+)
+
+@Serializable
+data class DiffCommit(
+    val sha: String = "",
+    val subject: String = "",
+    val at: String = "",
+)
+
+@Serializable
+data class SessionDiff(
+    val branch: String? = null,
+    val head: String? = null,
+    val files: List<FileDiff> = emptyList(),
+    val commits: List<DiffCommit> = emptyList(),
+    @SerialName("totalAdditions") val totalAdditions: Int = 0,
+    @SerialName("totalDeletions") val totalDeletions: Int = 0,
+)
+
+@Serializable
 data class Decision(
     val id: String = "",
     val statement: String = "",
@@ -327,6 +355,7 @@ class SimbaApi(
     suspend fun search(q: String): List<MemoryHit> =
         get("/api/knowledge/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"))
 
+    suspend fun sessionDiff(id: String): SessionDiff = get("/api/sessions/$id/diff")
     suspend fun skills(): List<Skill> = get("/api/skills")
     suspend fun skill(name: String): SkillDetail = get("/api/skills/$name")
     suspend fun decisions(): List<Decision> = get("/api/decisions?limit=60")

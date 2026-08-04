@@ -11,6 +11,7 @@ import { Supervisor } from '../supervisor/index.js';
 import { recall } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
 import { verifyBrain } from '../runner/verify.js';
+import { captureSessionDiff } from '../hydration/git.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -132,6 +133,32 @@ app.get('/api/brains', async (c) => {
       ORDER BY b.priority`,
   );
   return c.json(rows);
+});
+
+/**
+ * What a session actually changed.
+ *
+ * The premise of this system is work happening while nobody watches, and until
+ * now the only record of what an agent did to the filesystem was a diffstat
+ * line. Seeing eleven files touched and not what changed in them is the wrong
+ * half to have. Reviewing the diff from the phone is what turns unattended work
+ * into work you can trust.
+ */
+app.get('/api/sessions/:id/diff', async (c) => {
+  const session = await one<{ cwd: string | null; worktree_path: string | null; started_at: Date }>(
+    `SELECT cwd, worktree_path, started_at FROM sessions WHERE id = $1`,
+    [c.req.param('id')],
+  );
+  if (!session) return c.json({ error: 'no such session' }, 404);
+
+  const dir = session.worktree_path ?? session.cwd;
+  if (!dir) return c.json({ error: 'session has no working directory' }, 404);
+
+  const diff = await captureSessionDiff(dir, {
+    since: session.started_at ? session.started_at.toISOString() : null,
+  });
+  if (!diff) return c.json({ error: 'not a git repository' }, 404);
+  return c.json(diff);
 });
 
 /**

@@ -62,6 +62,12 @@ fun ChatScreen(
     val state = remember(sessionId) { ChatState() }
     val listState = rememberLazyListState()
     var draft by remember { mutableStateOf("") }
+    var showDiff by remember { mutableStateOf(false) }
+
+    if (showDiff) {
+        DiffScreen(vm, sessionId) { showDiff = false }
+        return
+    }
 
     // History first, then live. Loading them the other way round would let an
     // event arriving mid-fetch be overwritten by the older snapshot.
@@ -169,6 +175,12 @@ fun ChatScreen(
                     fontSize = 10.5.sp,
                     color = if (state.error != null) Err else if (state.connected) Ok else Faint,
                 )
+            }
+            // Reviewing what a session changed is the point at which unattended
+            // work becomes trustworthy, so it belongs one tap from the
+            // conversation rather than buried somewhere else.
+            IconButton(onClick = { showDiff = true }, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Filled.Difference, "Changes", tint = Dim, modifier = Modifier.size(18.dp))
             }
             Box(
                 Modifier.size(7.dp).clip(RoundedCornerShape(99.dp))

@@ -14,6 +14,7 @@ import { verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
 import { learn } from '../knowledge/learn.js';
+import { measureContext } from '../hydration/budget.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -191,6 +192,22 @@ app.get('/api/sessions/:id/diff', async (c) => {
  * pointing Simba at a session that solved something, a documentation page, or a
  * procedure worth keeping, without needing an agent running to ask.
  */
+/**
+ * Where an agent's context window goes, by category.
+ *
+ * The brief has grown all night - memory, a skills index, summaries,
+ * checkpoints, git state, recall - each addition individually justified with
+ * nothing measuring the total. A single number tells you that you are in
+ * trouble; a breakdown tells you what to cut.
+ */
+app.get('/api/agents/:slug/context', async (c) => {
+  const budget = await measureContext(c.req.param('slug'), {
+    sessionId: c.req.query('session') ?? null,
+  });
+  if (!budget) return c.json({ error: 'no such agent' }, 404);
+  return c.json(budget);
+});
+
 app.post('/api/learn', async (c) => {
   const b = await c.req.json<{
     from?: 'session' | 'text' | 'url' | 'path';

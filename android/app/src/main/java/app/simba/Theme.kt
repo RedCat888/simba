@@ -398,14 +398,3 @@ private fun SystemBarAppearance(dark: Boolean) {
         }
     }
 }
-
-/** Status colours shared by agents, sessions, missions and brains. */
-@Composable
-@ReadOnlyComposable
-fun statusColor(status: String): Color = when (status.lowercase()) {
-    "running", "available", "succeeded", "completed" -> Ok
-    "idle", "pending", "planning" -> Dim
-    "waiting_limit", "limited", "blocked", "verifying", "paused" -> Warn
-    "failed", "error", "logged_out", "cancelled" -> Err
-    else -> Dim
-}

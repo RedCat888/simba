@@ -175,51 +175,6 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
     }
 }
 
-/**
- * Material's own bars pad themselves for the system bars by default. The shell
- * already does that for every destination, so they must be told not to, or the
- * inset is applied twice.
- */
-internal val NoInsets = WindowInsets(0, 0, 0, 0)
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SimbaTopBar(vm: SimbaVm) {
-    TopAppBar(
-        windowInsets = NoInsets,
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Panel, titleContentColor = Fg),
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("SIMBA", fontWeight = FontWeight.Bold, color = Accent, fontSize = 17.sp)
-                Spacer(Modifier.width(12.dp))
-                vm.stats?.let { s ->
-                    Text(
-                        "${s.activeSessions} active · ${s.brainsAvailable} brains · $${"%.2f".format(s.totalCost)}",
-                        fontSize = 11.sp,
-                        color = Dim,
-                    )
-                }
-            }
-        },
-        actions = {
-            if (vm.loading) {
-                CircularProgressIndicator(
-                    Modifier.size(18.dp).padding(end = 4.dp),
-                    strokeWidth = 2.dp,
-                    color = Accent,
-                )
-            }
-            IconButton(onClick = { vm.refresh() }) {
-                Icon(Icons.Filled.Refresh, "Refresh", tint = Dim)
-            }
-        },
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Shared pieces
-// ---------------------------------------------------------------------------
-
 @Composable
 fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     // Padding and corner radius both come from the active design rather than
@@ -235,25 +190,6 @@ fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> U
             .padding((14 * scale).dp),
         content = content,
     )
-}
-
-@Composable
-fun Pill(text: String, color: Color = Dim) {
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(99.dp))
-            .background(color.copy(alpha = 0.14f))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    ) {
-        Text(text.uppercase(), fontSize = 9.5.sp, color = color, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-fun CenteredNote(text: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, color = Faint, fontSize = 13.sp)
-    }
 }
 
 @Composable
@@ -552,7 +488,17 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
                         color = Fg,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Pill(d.mission.status, statusColor(d.mission.status))
+                    val tone = toneFor(d.mission.status)
+                    Text(
+                        d.mission.status,
+                        color = tone.color(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(tone.color().copy(alpha = 0.14f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
                 }
                 Text(
                     d.mission.objective,

@@ -60,8 +60,9 @@ data class ItemMeta(val text: String, val tone: Tone = Tone.Neutral)
 
 enum class Tone { Neutral, Good, Warn, Bad, Accented }
 
+/** The colour a tone means in this design. Public so hero surfaces match rows. */
 @Composable
-private fun Tone.color(): Color = when (this) {
+fun Tone.color(): Color = when (this) {
     Tone.Neutral -> Faint
     Tone.Good -> Ok
     Tone.Warn -> Warn

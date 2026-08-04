@@ -106,6 +106,16 @@ data class Brain(
     val priority: Int = 0,
     val enabled: Boolean = true,
     val cli: String = "",
+    /**
+     * Rolling usage. Headroom is the scarce resource on a subscription-only
+     * setup, so the 5-hour window is the number that actually predicts whether
+     * a brain is about to become unavailable.
+     */
+    @SerialName("input_5h") val input5h: Long = 0,
+    @SerialName("output_5h") val output5h: Long = 0,
+    @SerialName("cost_5h") val cost5h: Double? = 0.0,
+    @SerialName("input_7d") val input7d: Long = 0,
+    @SerialName("output_7d") val output7d: Long = 0,
 )
 
 /** Result of asking a brain, live, whether it actually works. */

@@ -374,6 +374,13 @@ private fun MissionCard(m: Mission, onClick: () -> Unit) {
     }
 }
 
+/** Token counts, short enough for a phone row. 9349 reads as 9.3k. */
+fun tokens(n: Long): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+    n >= 1_000 -> "%.1fk".format(n / 1_000.0)
+    else -> n.toString()
+}
+
 @Composable
 fun Meta(text: String, color: Color = Faint) {
     Text(text, fontSize = 11.sp, color = color)
@@ -888,6 +895,24 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                     if (b.provider == "opencode" || b.cli == "ollama") Meta("free", Ok)
                     else Meta("7d $${"%.2f".format(b.cost7d ?: 0.0)}")
                     b.limitResetsAt?.let { Meta("resets $it", Warn) }
+                }
+                // Rolling 5-hour usage. On a subscription-only setup headroom is
+                // the scarce resource, and this window is what actually predicts
+                // a brain going unavailable — a cost figure does not, because
+                // the limit is not denominated in dollars.
+                if (b.input5h > 0 || b.output5h > 0) {
+                    Row(
+                        Modifier.padding(top = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Meta("5h ${tokens(b.input5h)} in / ${tokens(b.output5h)} out")
+                        // Real volume at no cost is the point of the free tier,
+                        // so say so rather than leaving a blank where a price
+                        // would be.
+                        if (b.provider == "opencode" || b.cli == "ollama") {
+                            Meta("at no cost", Ok)
+                        }
+                    }
                 }
                 // A brain showing "logged_out" with no explanation reads as a
                 // bug in Simba rather than a state of the account. The reason

@@ -452,11 +452,12 @@ export class SessionManager extends EventEmitter {
     const row = await one<{
       agent_id: string;
       cwd: string | null;
+      worktree_path: string | null;
       native_session_id: string | null;
       brain_account_id: string | null;
       swap_count: number;
     }>(
-      `SELECT agent_id, cwd, native_session_id, brain_account_id, swap_count
+      `SELECT agent_id, cwd, worktree_path, native_session_id, brain_account_id, swap_count
          FROM sessions WHERE id = $1`,
       [sessionId],
     );
@@ -499,7 +500,12 @@ export class SessionManager extends EventEmitter {
     });
 
     return this.launch(agent, preferred, {
-      cwd: row.cwd ?? undefined,
+      // worktree_path first: an isolated session's work lives there, not in cwd.
+      // Resuming from cwd silently drops it — the continuation starts in the
+      // shared checkout without the changes, while the only copy stays stranded
+      // in a worktree nothing points at any more. That is the one failure mode
+      // worktrees were introduced to prevent.
+      cwd: row.worktree_path ?? row.cwd ?? undefined,
       projectId: agent.project_id,
       continuingSessionId: sessionId,
       resumeNativeId: canResume ? row.native_session_id! : undefined,

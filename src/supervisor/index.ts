@@ -133,9 +133,9 @@ export class Supervisor {
 
     const parked = await query<{
       id: string; agent_id: string; agent_slug: string;
-      cwd: string | null; origin_surface_id: string | null;
+      cwd: string | null; worktree_path: string | null; origin_surface_id: string | null;
     }>(
-      `SELECT s.id, s.agent_id, a.slug AS agent_slug, s.cwd, s.origin_surface_id
+      `SELECT s.id, s.agent_id, a.slug AS agent_slug, s.cwd, s.worktree_path, s.origin_surface_id
          FROM sessions s
          JOIN agents a ON a.id = s.agent_id
         WHERE s.status = 'waiting_limit'
@@ -154,7 +154,12 @@ export class Supervisor {
       const result = await this.manager.start({
         agent: p.agent_slug,
         continuingSessionId: p.id,
-        cwd: p.cwd ?? undefined,
+      // worktree_path first: an isolated session's work lives there, not in cwd.
+      // Resuming from cwd silently drops it — the continuation starts in the
+      // shared checkout without the changes, while the only copy stays stranded
+      // in a worktree nothing points at any more. That is the one failure mode
+      // worktrees were introduced to prevent.
+        cwd: p.worktree_path ?? p.cwd ?? undefined,
         // Carried through, or the resumed session comes back with a NULL
         // surface. Combined with the MCP action check, that meant a
         // phone-originated task could hit a usage limit and be auto-resumed by

@@ -414,7 +414,9 @@ private fun MissionCard(m: Mission, onClick: () -> Unit) {
             m.lastExitCode?.let {
                 add(ItemMeta(if (it == 0) "exit 0" else "exit $it", if (it == 0) Tone.Good else Tone.Bad))
             }
-            m.cron?.let { add(ItemMeta(it, Tone.Neutral)) }
+            // The phrase, not the cron. "0 7 * * *" is a correct answer to a
+            // question nobody asked, and on a phone row it reads as line noise.
+            (m.scheduleNote ?: m.cron)?.let { add(ItemMeta(it, Tone.Neutral)) }
         } else {
             add(ItemMeta("${m.doneSteps}/${m.totalSteps} steps"))
             if (m.failedSteps > 0) add(ItemMeta("${m.failedSteps} failed", Tone.Warn))

@@ -927,14 +927,14 @@ app.post('/api/missions', async (c) => {
   const row = await one<{ id: string }>(
     `INSERT INTO missions (title, objective, acceptance_criteria, owner_agent_id,
                            working_dir, max_sessions, max_cost_usd, cadence, cron,
-                           origin_surface_id, status)
+                           origin_surface_id, status, schedule_note)
      VALUES ($1,$2,$3,
              (SELECT id FROM agents WHERE slug = coalesce($4,'simba') AND retired_at IS NULL),
-             $5, coalesce($6,40), coalesce($7,25.0), coalesce($8,'continuous'), $9, $10, 'planning')
+             $5, coalesce($6,40), coalesce($7,25.0), coalesce($8,'continuous'), $9, $10, 'planning', $11)
      RETURNING id`,
     [b.title, b.objective, b.acceptanceCriteria ?? null, b.agent ?? null,
      b.workingDir ?? null, b.maxSessions ?? null, b.maxCostUsd ?? null,
-     cadence, cron, surface.id],
+     cadence, cron, surface.id, scheduleNote],
   );
 
   // A script mission never plans and never starts a session.

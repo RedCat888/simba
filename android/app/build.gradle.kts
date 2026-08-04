@@ -93,6 +93,26 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+
+    /**
+     * Screenshots without a device.
+     *
+     * The emulator on this machine crashes on startup, and even when one works
+     * it is a slow way to answer the only question that matters here — does
+     * every screen look right in all three designs. Robolectric renders the real
+     * Compose tree on the JVM, so the whole matrix is a `gradlew test` away and
+     * stays checked rather than being looked at once.
+     *
+     * `isIncludeAndroidResources` is what makes it render at all: without it the
+     * theme, the drawables and the launcher icon are absent and every screenshot
+     * comes out unstyled.
+     */
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all { it.systemProperty("robolectric.graphicsMode", "NATIVE") }
+        }
+    }
 }
 
 dependencies {
@@ -126,4 +146,10 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.compose.ui:ui-tooling-preview")
+
+    // Rendering the UI on the JVM. See testOptions above for why.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

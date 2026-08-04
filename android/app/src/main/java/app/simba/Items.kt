@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +57,12 @@ import androidx.compose.ui.unit.sp
  *   Console  — one dense monospace line with no card at all, aligned so a list
  *              reads as a table and more rows fit on a screen.
  */
+
+/**
+ * Console's status column, shared by the row, its subtitle and its expansion so
+ * everything below the title lines up under it rather than merely near it.
+ */
+private val STATUS_COLUMN = 62.dp
 
 /** A small piece of metadata. Tone carries meaning; the design decides shape. */
 data class ItemMeta(val text: String, val tone: Tone = Tone.Neutral)
@@ -260,15 +267,20 @@ private fun ConsoleItem(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             badge?.let {
-                // A leading status glyph rather than a trailing pill: scanning
+                // A leading status column rather than a trailing pill: scanning
                 // a column of states is the whole reason to render a table.
+                // Wide enough for the longest status this app actually produces
+                // ("verifying", "cancelled"), because a status abbreviated to
+                // three letters is not a status.
                 Text(
-                    it.text.take(3).lowercase(),
+                    it.text.lowercase(),
                     color = it.tone.color(),
                     fontSize = 10.5.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.width(30.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(STATUS_COLUMN),
                 )
             }
             Text(
@@ -277,15 +289,25 @@ private fun ConsoleItem(
                 fontSize = 12.5.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
+                // Without this a long title is chopped mid-word with nothing to
+                // mark it, so a truncated name reads as the whole name.
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            meta.take(2).forEach {
+            // One column, not two. Two fixed-width columns beside a status
+            // column left the title with almost nothing on a phone, and the
+            // second value overran the padding into the screen edge. The first
+            // piece of metadata is the one screens put first because it is the
+            // one that matters.
+            meta.firstOrNull()?.let {
                 Text(
                     it.text,
                     color = it.tone.color(),
                     fontSize = 10.5.sp,
                     fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(start = 8.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 10.dp).widthIn(max = 96.dp),
                 )
             }
         }
@@ -296,11 +318,31 @@ private fun ConsoleItem(
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = if (open) 6 else 1,
-                modifier = Modifier.padding(start = if (badge != null) 30.dp else 0.dp),
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = if (badge != null) STATUS_COLUMN else 0.dp),
             )
         }
+        // The rest of the metadata, on its own line, where there is room for it
+        // rather than in competition with the title.
+        if (meta.size > 1) {
+            Row(
+                Modifier.padding(start = if (badge != null) STATUS_COLUMN else 0.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                meta.drop(1).forEach {
+                    Text(
+                        it.text,
+                        color = it.tone.color(),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
         AnimatedVisibility(visible = open && expanded != null) {
-            Column(Modifier.padding(top = 6.dp, start = if (badge != null) 30.dp else 0.dp)) {
+            Column(Modifier.padding(top = 6.dp, start = if (badge != null) STATUS_COLUMN else 0.dp)) {
                 expanded?.invoke()
             }
         }

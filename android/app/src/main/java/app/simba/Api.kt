@@ -49,6 +49,15 @@ data class Mission(
     /** A script mission runs a command directly: no model, no session, no steps. */
     @SerialName("is_script") val isScript: Boolean = false,
     val cron: String? = null,
+    /**
+     * The schedule as a person would say it — "every day at 07:00".
+     *
+     * Stored rather than derived: the cron is what the phrase compiled to, and
+     * a round-trip back from `0 7 * * *` cannot recover "every morning". Null on
+     * missions created before the column existed, which is why the row falls
+     * back to the cron rather than showing nothing.
+     */
+    @SerialName("schedule_note") val scheduleNote: String? = null,
     @SerialName("last_exit_code") val lastExitCode: Int? = null,
     @SerialName("last_output") val lastOutput: String? = null,
     @SerialName("last_run_at") val lastRunAt: String? = null,

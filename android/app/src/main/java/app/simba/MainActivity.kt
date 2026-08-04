@@ -232,12 +232,17 @@ private fun SimbaTopBar(vm: SimbaVm) {
 
 @Composable
 fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    // Padding and corner radius both come from the active design rather than
+    // being fixed here. This is what makes Dense actually fit more on a screen
+    // instead of merely being written in a smaller font: every card in the app
+    // tightens at once, and no caller has to know which design is on.
+    val scale = LocalDensityScale.current
     Column(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(MaterialTheme.shapes.small)
             .background(Panel)
-            .padding(14.dp),
+            .padding((14 * scale).dp),
         content = content,
     )
 }
@@ -901,6 +906,31 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
         // The ladder, in the order failover actually walks it — the sequence is
         // the point, not the set. Each row can be asked whether it really works
         // and benched without touching the machine.
+        Text("DESIGN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+        Card {
+            val design = LocalDesign.current
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Design.entries.forEach { d ->
+                    val on = d == design
+                    Text(
+                        d.label,
+                        fontSize = 12.sp,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) OnAccent else Dim,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (on) Accent else Panel2)
+                            .clickable { scope.launch { ctx.saveDesign(d) } }
+                            .padding(vertical = 9.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+            Text(design.blurb, fontSize = 11.sp, color = Faint)
+        }
+
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("BRAINS — FAILOVER ORDER", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
             if (verifyingAll) Text("checking…", fontSize = 10.sp, color = Accent)
@@ -1159,32 +1189,6 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
                     }
                 }
             }
-        }
-
-        Spacer(Modifier.height(4.dp))
-        Text("DESIGN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-        Card {
-            val design = LocalDesign.current
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Design.entries.forEach { d ->
-                    val on = d == design
-                    Text(
-                        d.label,
-                        fontSize = 12.sp,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                        color = if (on) OnAccent else Dim,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (on) Accent else Panel2)
-                            .clickable { scope.launch { ctx.saveDesign(d) } }
-                            .padding(vertical = 9.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.height(7.dp))
-            Text(design.blurb, fontSize = 11.sp, color = Faint)
         }
 
         Spacer(Modifier.height(4.dp))

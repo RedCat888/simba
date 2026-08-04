@@ -21,11 +21,13 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // ---------------------------------------------------------------------------
@@ -193,6 +195,29 @@ private val SimbaType = Typography(
 /** Wallpaper-derived colour is API 31+; below that the static schemes stand in. */
 private val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
+/**
+ * Dense reads as a console: near-black, cool grey text, a cold accent.
+ *
+ * A separate palette rather than a tint of the house one, because the point of
+ * offering three designs is that they are genuinely different — three names
+ * over one appearance is worse than not offering the choice, since it invites
+ * someone to keep switching looking for a difference that is not there.
+ */
+private val DenseDark = darkColorScheme(
+    background = Color(0xFF07090C),
+    surface = Color(0xFF0C1015),
+    surfaceContainerHigh = Color(0xFF141A21),
+    onBackground = Color(0xFFC8D3DE),
+    onSurfaceVariant = Color(0xFF8A97A6),
+    outline = Color(0xFF4A5563),
+    primary = Color(0xFF56C7F0),
+    onPrimary = Color(0xFF04121A),
+    error = Color(0xFFF0757A),
+)
+
+/** Clean is the house look: warmer ink, softer surfaces, the amber accent. */
+private val CleanDark = SimbaDark
+
 @Composable
 @ReadOnlyComposable
 private fun schemeFor(design: Design, dark: Boolean): ColorScheme {
@@ -203,15 +228,76 @@ private fun schemeFor(design: Design, dark: Boolean): ColorScheme {
         val ctx = LocalContext.current
         return if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
     }
-    return if (dark) SimbaDark else SimbaLight
+    if (design == Design.Dense && dark) return DenseDark
+    return if (dark) CleanDark else SimbaLight
 }
+
+/**
+ * Dense is monospace throughout and a step smaller, which is what actually buys
+ * the extra rows per screen. Clean keeps the proportional face with roomier
+ * line height; Material takes the platform's own type scale so it looks like a
+ * Material app rather than this app wearing Material colours.
+ */
+private val DenseType = Typography(
+    titleLarge = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 17.sp),
+    titleMedium = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
+    bodyMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 16.sp),
+    bodySmall = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 14.sp),
+    labelSmall = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.5.sp),
+    labelMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+)
+
+private val CleanType = Typography(
+    titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 0.2.sp),
+    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
+    bodyMedium = TextStyle(fontSize = 14.5.sp, lineHeight = 22.sp),
+    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 19.sp),
+    labelSmall = TextStyle(fontSize = 10.sp),
+    labelMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+)
 
 private fun typographyFor(design: Design): Typography = when (design) {
-    Design.Clean, Design.Material, Design.Dense -> SimbaType
+    Design.Clean -> CleanType
+    Design.Dense -> DenseType
+    // Material's own defaults, deliberately not overridden.
+    Design.Material -> Typography()
 }
 
+/**
+ * Corner radius carries as much of a design's character as colour does. Clean
+ * is generously rounded, Dense is nearly square so rows read as a table, and
+ * Material takes the platform defaults.
+ */
 private fun shapesFor(design: Design): Shapes = when (design) {
-    Design.Clean, Design.Material, Design.Dense -> Shapes()
+    Design.Clean -> Shapes(
+        extraSmall = RoundedCornerShape(8.dp),
+        small = RoundedCornerShape(12.dp),
+        medium = RoundedCornerShape(16.dp),
+        large = RoundedCornerShape(22.dp),
+    )
+    Design.Dense -> Shapes(
+        extraSmall = RoundedCornerShape(2.dp),
+        small = RoundedCornerShape(3.dp),
+        medium = RoundedCornerShape(4.dp),
+        large = RoundedCornerShape(6.dp),
+    )
+    Design.Material -> Shapes()
+}
+
+/**
+ * How much air a design leaves around things.
+ *
+ * Colour and type alone still leave three variations of the same layout. This
+ * is what makes Dense actually dense: components multiply their padding by it,
+ * so one value changes the whole app's rhythm without every component knowing
+ * which design is active.
+ */
+val LocalDensityScale = staticCompositionLocalOf { 1f }
+
+fun densityFor(design: Design): Float = when (design) {
+    Design.Clean -> 1.15f
+    Design.Material -> 1f
+    Design.Dense -> 0.72f
 }
 
 /**
@@ -227,6 +313,7 @@ fun SimbaTheme(
     SystemBarAppearance(dark)
     CompositionLocalProvider(
         LocalDesign provides design,
+        LocalDensityScale provides densityFor(design),
         LocalStatusColors provides if (dark) DarkStatus else LightStatus,
     ) {
         MaterialTheme(

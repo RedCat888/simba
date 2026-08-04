@@ -452,7 +452,7 @@ class SimbaApi(
     @Volatile var accessClientId: String = "",
     @Volatile var accessClientSecret: String = "",
 ) {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
+    internal val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -468,7 +468,7 @@ class SimbaApi(
         val isAuthFailure: Boolean get() = status == 401 || status == 403
     }
 
-    private fun req(path: String): Request.Builder {
+    internal fun req(path: String): Request.Builder {
         val b = Request.Builder().url(baseUrl.trimEnd('/') + path)
         if (token.isNotBlank()) b.header("Authorization", "Bearer $token")
 
@@ -486,7 +486,7 @@ class SimbaApi(
         return b
     }
 
-    private suspend fun call(request: Request): String = withContext(Dispatchers.IO) {
+    internal suspend fun call(request: Request): String = withContext(Dispatchers.IO) {
         client.newCall(request).execute().use { res ->
             val body = res.body?.string().orEmpty()
             if (!res.isSuccessful) {
@@ -499,7 +499,13 @@ class SimbaApi(
         }
     }
 
-    private suspend inline fun <reified T> get(path: String): T =
+    /**
+     * Internal rather than public: it is inline, and an inline function visible
+     * outside the module may not touch module-internal members — which [json],
+     * [call] and [req] all are. Nothing outside this app has any business
+     * calling it anyway; the typed methods are the surface.
+     */
+    internal suspend inline fun <reified T> get(path: String): T =
         json.decodeFromString(call(req(path).get().build()))
 
     private suspend inline fun <reified T> post(path: String, bodyJson: String = "{}"): T =

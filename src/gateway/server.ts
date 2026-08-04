@@ -582,6 +582,45 @@ app.get('/api/usage/timeline', async (c) => {
   return c.json(rows);
 });
 
+/**
+ * Machine health over time, per process.
+ *
+ * The supervisor has been sampling memory every few minutes since the beginning
+ * and nothing has ever read it back. It is the most operationally useful series
+ * this system has: agents are CLI processes on a home PC, and the failure that
+ * actually happens is the box running out of memory while nobody is watching —
+ * which shows up here as free_mb falling and one process climbing, hours before
+ * anything else notices.
+ *
+ * Bucketed rather than raw. At one sample every few minutes a day is hundreds of
+ * points, which is more than a phone-width chart can draw and more than anyone
+ * can read; ten-minute buckets keep the shape and lose nothing that matters.
+ */
+app.get('/api/system/memory', async (c) => {
+  const hours = Math.min(Number(c.req.query('hours') ?? 24) || 24, 168);
+  const rows = await query(
+    `SELECT to_char(bucket, 'MM-DD HH24:MI') AS at,
+            extract(epoch FROM bucket)::bigint AS ts,
+            round(avg(free_mb))::int           AS free_mb,
+            max(total_mb)::int                 AS total_mb,
+            round(avg(claude_desktop_mb))::int AS claude_desktop_mb,
+            round(avg(claude_code_mb))::int    AS claude_code_mb,
+            round(avg(simba_mb))::int          AS simba_mb,
+            round(avg(ollama_mb))::int         AS ollama_mb,
+            round(avg(postgres_mb))::int       AS postgres_mb,
+            round(avg(process_count))::int     AS process_count
+       FROM (
+         SELECT to_timestamp(floor(extract(epoch FROM ts) / 600) * 600) AS bucket, *
+           FROM system_samples
+          WHERE ts > now() - make_interval(hours => $1)
+       ) s
+      GROUP BY bucket
+      ORDER BY bucket`,
+    [hours],
+  );
+  return c.json(rows);
+});
+
 /** Session lineage: the chain of continuations a piece of work has been through. */
 app.get('/api/sessions/:id/lineage', async (c) => {
   const rows = await query(

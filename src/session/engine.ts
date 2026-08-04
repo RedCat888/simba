@@ -6,6 +6,41 @@ import { markBrainLimited, markBrainStatus, setSessionStatus } from '../db/repo.
 import type { RunnerEvent, RunnerSession } from '../runner/types.js';
 
 /**
+ * Turns a process exit code into something a human can act on.
+ *
+ * Windows reports crashes as huge unsigned NTSTATUS values, so the audit log
+ * carried lines like `code=3221226505` — technically complete and practically
+ * useless. That number is 0xC0000409, a fatal runtime check failure, and
+ * knowing that is the difference between "the CLI crashed" and "no idea".
+ */
+function describeExit(code: number | null, signal: string | null): string {
+  if (signal) return `killed by signal ${signal}`;
+  if (code === null) return 'process ended without an exit code (killed or timed out)';
+  if (code === 0) return 'exited cleanly';
+
+  // Node surfaces these unsigned; the same value as a signed int is often the
+  // more recognisable form (4294967295 is -1).
+  const signed = code > 0x7fffffff ? code - 0x100000000 : code;
+  const hex = `0x${(code >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
+
+  const NTSTATUS: Record<number, string> = {
+    0xc0000005: 'access violation — the CLI crashed',
+    0xc0000409: 'stack buffer overrun / fatal runtime check — the CLI crashed',
+    0xc000013a: 'terminated by Ctrl+C',
+    0xc0000374: 'heap corruption — the CLI crashed',
+    0xc00000fd: 'stack overflow — the CLI crashed',
+    // Seen in this system's own history: a debugger trap or failed assertion
+    // inside the CLI, which exits without saying anything useful on stderr.
+    0x80000003: 'breakpoint / assertion trap in the CLI',
+  };
+  const known = NTSTATUS[code >>> 0];
+  if (known) return `${known} (${hex})`;
+
+  if (signed === -1) return 'exited -1 — generic failure, no diagnostic given';
+  return `exited with code ${signed}${code > 0x7fffffff ? ` (${hex})` : ''}`;
+}
+
+/**
  * Owns one live session: consumes the normalized runner stream, persists it,
  * and re-broadcasts for live consumers (the gateway's websockets).
  *
@@ -317,17 +352,31 @@ export class SessionEngine extends EventEmitter {
         const row = await one<{ status: string }>(`SELECT status FROM sessions WHERE id = $1`, [
           this.sessionId,
         ]);
+        const reason = describeExit(e.code, e.signal);
+
         // A process exit is only terminal if nothing else has already claimed a
         // more specific outcome (a swap, a deliberate kill).
         if (row && ['running', 'idle', 'pending'].includes(row.status)) {
           await setSessionStatus(this.sessionId, e.code === 0 ? 'completed' : 'failed');
+          // The reason goes on the session, not only into the event log.
+          // Six sessions were sitting at status 'failed' with a null error
+          // because the exit code was recorded as an event and nowhere else —
+          // so the app showed "failed" with no explanation, which reads as a
+          // bug in Simba rather than a thing that happened to a process.
+          if (e.code !== 0) {
+            await query(`UPDATE sessions SET error = $2 WHERE id = $1 AND error IS NULL`, [
+              this.sessionId,
+              reason,
+            ]);
+          }
         }
         await recordEvent({
           type: 'session.exit',
           severity: e.code === 0 ? 'info' : 'warn',
           sessionId: this.sessionId,
           agentId: this.agentId,
-          message: `process exited code=${e.code} signal=${e.signal ?? 'none'}`,
+          message: `process exited: ${reason}`,
+          data: { code: e.code, signal: e.signal ?? null },
         });
         this.emit('exit', { code: e.code });
         return;

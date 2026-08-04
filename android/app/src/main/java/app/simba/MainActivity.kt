@@ -664,6 +664,18 @@ private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
             if (s.swapCount > 0) Meta("⇄ ${s.swapCount}", Accent)
             Meta("$${"%.3f".format(s.cost)}")
         }
+        // A session showing "failed" and nothing else reads as a defect in
+        // Simba rather than something that happened to a process. The reason
+        // was already being recorded; it just never reached here.
+        s.error?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                it,
+                fontSize = 11.sp,
+                color = Err,
+                maxLines = 2,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
     }
 }
 

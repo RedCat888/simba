@@ -209,6 +209,8 @@ data class SessionRow(
     val brain: String? = null,
     @SerialName("total_cost_usd") val cost: Double = 0.0,
     @SerialName("swap_count") val swapCount: Int = 0,
+    /** Why it failed. A bare "failed" with no reason looks like a Simba bug. */
+    val error: String? = null,
 )
 
 @Serializable

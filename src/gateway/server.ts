@@ -248,7 +248,11 @@ app.post('/api/brains/:slug/toggle', async (c) => {
 
 app.get('/api/sessions', async (c) => {
   const rows = await query(
+    // s.error included deliberately: a session showing "failed" with no reason
+    // reads as a defect in Simba rather than something that happened to a
+    // process, and the reason was already being recorded.
     `SELECT s.id, s.status, s.title, s.description, s.tags, s.cli, s.cwd,
+            s.error,
             s.total_cost_usd, s.total_input_tokens, s.total_output_tokens,
             s.swap_count, s.created_at, s.last_activity_at,
             s.hydrated_from_session_id,

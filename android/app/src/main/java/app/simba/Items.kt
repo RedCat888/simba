@@ -1,9 +1,16 @@
 package com.operator.simba
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,6 +28,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -335,6 +343,248 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
                 fontFamily = FontFamily.Monospace,
             )
             trailing?.invoke()
+        }
+    }
+}
+
+
+/**
+ * What a list says when it has nothing in it.
+ *
+ * A list that renders nothing when empty looks exactly like one that failed to
+ * load, and making someone wonder "is this broken or is there genuinely
+ * nothing?" is a question no finished product asks. The second line matters as
+ * much as the first: knowing *why* it is empty is usually what someone actually
+ * needed.
+ */
+@Composable
+fun EmptyState(title: String, detail: String? = null) {
+    when (LocalDesign.current) {
+        Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp)) {
+            Text(
+                "-- empty --",
+                color = Faint,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                title.lowercase(),
+                color = Dim,
+                fontSize = 11.5.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            detail?.let {
+                Text(
+                    it,
+                    color = Faint,
+                    fontSize = 10.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+
+        else -> Column(
+            Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 44.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                title,
+                color = Dim,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+            )
+            detail?.let {
+                Text(
+                    it,
+                    color = Faint,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+
+/**
+ * Switching between facets of one screen.
+ *
+ * Distinct from navigation: these are views of a single question, so they stay
+ * inside the screen rather than becoming destinations. Rendered per design for
+ * the same reason rows are - a Material segmented button inside the Console
+ * design is exactly the kind of borrowed component that makes three designs
+ * collapse back into one.
+ *
+ *   Fluid    - a sliding capsule; the selection moves rather than blinking.
+ *   Material - the real SingleChoiceSegmentedButtonRow, themed by the scheme.
+ *   Console  - bracketed words, the way a TUI shows modes.
+ */
+@Composable
+fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    when (LocalDesign.current) {
+        Design.Fluid -> Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(99.dp))
+                .background(Panel)
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            labels.forEachIndexed { i, label ->
+                val on = i == selected
+                val bg by animateColorAsState(
+                    if (on) Accent.copy(alpha = 0.18f) else Color.Transparent,
+                    label = "facet-bg",
+                )
+                val fg by animateColorAsState(if (on) Accent else Faint, label = "facet-fg")
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(bg)
+                        .clickable { onSelect(i) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        color = fg,
+                        fontSize = 12.5.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+
+        Design.Material -> SingleChoiceSegmentedButtonRow(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            labels.forEachIndexed { i, label ->
+                SegmentedButton(
+                    selected = i == selected,
+                    onClick = { onSelect(i) },
+                    shape = SegmentedButtonDefaults.itemShape(i, labels.size),
+                ) { Text(label, style = MaterialTheme.typography.labelLarge) }
+            }
+        }
+
+        Design.Console -> Row(
+            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            labels.forEachIndexed { i, label ->
+                val on = i == selected
+                Text(
+                    if (on) "[${label.lowercase()}]" else " ${label.lowercase()} ",
+                    color = if (on) Accent else Faint,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.clickable { onSelect(i) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Waiting.
+ *
+ * A spinner in the middle of an empty screen tells you nothing except that
+ * something is happening somewhere. Fluid shows placeholder rows that pulse in
+ * the shape of the content about to arrive, so the layout does not jump when it
+ * does; Console prints a line, because that is what a terminal does; Material
+ * uses its own indicator, which is the point of Material.
+ */
+@Composable
+fun LoadingState(rows: Int = 4) {
+    when (LocalDesign.current) {
+        Design.Fluid -> {
+            val pulse = rememberInfiniteTransition(label = "skeleton")
+            val alpha by pulse.animateFloat(
+                initialValue = 0.35f,
+                targetValue = 0.7f,
+                animationSpec = infiniteRepeatable(
+                    tween(900, easing = LinearEasing),
+                    RepeatMode.Reverse,
+                ),
+                label = "skeleton-alpha",
+            )
+            Column(Modifier.fillMaxWidth()) {
+                repeat(rows) { i ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 5.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Panel.copy(alpha = alpha))
+                            .padding(18.dp),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(if (i % 2 == 0) 0.55f else 0.42f)
+                                .height(13.dp)
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(Panel2),
+                        )
+                        Spacer(Modifier.height(9.dp))
+                        Box(
+                            Modifier
+                                .fillMaxWidth(if (i % 2 == 0) 0.85f else 0.7f)
+                                .height(10.dp)
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(Panel2.copy(alpha = 0.6f)),
+                        )
+                    }
+                }
+            }
+        }
+
+        Design.Material -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), Alignment.Center) {
+            CircularProgressIndicator()
+        }
+
+        Design.Console -> Text(
+            "... loading",
+            color = Faint,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
+        )
+    }
+}
+
+/** A failure a screen could not recover from, said the way each design says things. */
+@Composable
+fun FailureState(message: String, onRetry: (() -> Unit)? = null) {
+    when (LocalDesign.current) {
+        Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)) {
+            Text("! $message", color = Err, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+            onRetry?.let {
+                Text(
+                    "  [retry]",
+                    color = Accent,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.clickable { it() }.padding(top = 3.dp),
+                )
+            }
+        }
+
+        else -> Column(
+            Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(message, color = Err, fontSize = 13.sp, textAlign = TextAlign.Center)
+            onRetry?.let {
+                TextButton(onClick = it, modifier = Modifier.padding(top = 4.dp)) { Text("Retry") }
+            }
         }
     }
 }

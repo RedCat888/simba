@@ -324,15 +324,10 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
 
         if (vm.missions.isEmpty() && vm.error == null) {
             item {
-                Card {
-                    Text("No missions yet", color = Fg, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "A mission is an objective that runs itself across many sessions — it plans, provisions what it needs, works, and verifies.",
-                        fontSize = 12.5.sp,
-                        color = Dim,
-                        modifier = Modifier.padding(top = 5.dp),
-                    )
-                }
+                EmptyState(
+                    "No missions yet",
+                    "A mission is an objective that runs itself across many sessions — it plans, provisions what it needs, works, and verifies.",
+                )
             }
         }
 
@@ -496,13 +491,9 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
         }
 
         item {
-            Text(
-                "PLAN — ${d.steps.size} STEPS",
-                fontSize = 10.sp,
-                color = Faint,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 4.dp, top = 4.dp),
-            )
+            SectionHeading("Plan") {
+                Text("${d.steps.size} steps", fontSize = 11.sp, color = Faint)
+            }
         }
 
         items(d.steps) { s -> StepCard(s) }
@@ -511,27 +502,26 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
 
 @Composable
 private fun StepCard(s: MissionStep) {
-    var expanded by remember { mutableStateOf(false) }
-    Card(Modifier.clickable { expanded = !expanded }) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("${s.seq}.", color = Faint, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(7.dp))
-            Text(s.title, color = Fg, fontSize = 13.5.sp, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(6.dp))
-            Pill(s.kind, Info)
-            Spacer(Modifier.width(5.dp))
-            Pill(s.status, statusColor(s.status))
-        }
-        if (expanded) {
-            Text(s.instruction, fontSize = 12.sp, color = Dim, modifier = Modifier.padding(top = 7.dp))
-        }
-        s.result?.takeIf { it.isNotBlank() }?.let {
-            Text("✓ $it", fontSize = 12.sp, color = Ok, modifier = Modifier.padding(top = 6.dp))
-        }
-        s.failures?.takeIf { it.isNotBlank() }?.let {
-            Text("✕ $it", fontSize = 12.sp, color = Err, modifier = Modifier.padding(top = 6.dp))
-        }
-    }
+    // A step carries three things worth reading — what it was told to do, what
+    // it produced, and how it failed — which is more than a subtitle can hold
+    // without truncating whichever one mattered. So they go in the expansion,
+    // and the row itself stays scannable: number, title, state.
+    ItemRow(
+        title = "${s.seq}. ${s.title}",
+        meta = listOf(ItemMeta(s.kind)),
+        badge = ItemMeta(s.status, toneFor(s.status)),
+        expanded = {
+            Column {
+                Text(s.instruction, fontSize = 12.sp, color = Dim, lineHeight = 17.sp)
+                s.result?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, fontSize = 12.sp, color = Ok, modifier = Modifier.padding(top = 8.dp))
+                }
+                s.failures?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, fontSize = 12.sp, color = Err, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -548,6 +538,9 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item { ErrorBanner(vm.error) }
+        if (vm.agents.isEmpty() && vm.error == null) {
+            item { EmptyState("No agents yet", "Agents are created from the desktop or by Simba itself.") }
+        }
         items(vm.agents, key = { it.id }) { a ->
             ItemRow(
                 title = a.name,
@@ -636,38 +629,24 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
         item { ErrorBanner(vm.error) }
 
         if (live.isNotEmpty()) {
-            item { SectionLabel("LIVE") }
+            item { SectionHeading("Live") }
             items(live, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
         }
 
         if (past.isNotEmpty()) {
-            item { SectionLabel("EARLIER") }
+            item { SectionHeading("Earlier") }
             items(past, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
         }
 
         if (vm.sessions.isEmpty() && vm.error == null) {
             item {
-                Card {
-                    Text("No conversations yet", color = Fg, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Start one above, or launch an agent from the Agents tab and it will open here.",
-                        fontSize = 12.5.sp, color = Dim, modifier = Modifier.padding(top = 5.dp),
-                    )
-                }
+                EmptyState(
+                    "No conversations yet",
+                    "Start one above, or launch an agent from Agents and it will open here.",
+                )
             }
         }
     }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text,
-        fontSize = 10.sp,
-        color = Faint,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 4.dp, top = 5.dp),
-    )
 }
 
 @Composable
@@ -777,29 +756,26 @@ fun MemoryScreen(vm: SimbaVm) {
 
         Spacer(Modifier.height(10.dp))
         when {
-            searching -> CenteredNote("Searching…")
-            hits.isEmpty() && searched -> CenteredNote("No matches.")
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            searching -> LoadingState(3)
+            hits.isEmpty() && searched -> EmptyState(
+                "No matches",
+                "Nothing in the indexed history is close enough to that.",
+            )
+            else -> LazyColumn {
                 items(hits) { h ->
-                    Card {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(
-                                h.title ?: "untitled",
-                                color = Fg,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Pill("${(h.relevance * 100).toInt()}%", Info)
-                        }
-                        h.source?.let { Text(it, fontSize = 11.sp, color = Faint, modifier = Modifier.padding(top = 2.dp)) }
-                        Text(
-                            h.content.take(400),
-                            fontSize = 12.sp,
-                            color = Dim,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
-                    }
+                    ItemRow(
+                        title = h.title ?: "untitled",
+                        // The excerpt is the answer, so it is not hidden behind
+                        // an expansion — but 400 characters of it is a wall, and
+                        // the full text is one tap away.
+                        subtitle = h.content.take(180),
+                        meta = buildList { h.source?.let { add(ItemMeta(it)) } },
+                        badge = ItemMeta(
+                            "${(h.relevance * 100).toInt()}%",
+                            if (h.relevance > 0.6f) Tone.Good else Tone.Neutral,
+                        ),
+                        expanded = { Text(h.content, fontSize = 12.sp, color = Dim, lineHeight = 17.sp) },
+                    )
                 }
             }
         }

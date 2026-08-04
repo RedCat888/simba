@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,11 +29,22 @@ import androidx.compose.ui.unit.sp
  * something you can trust rather than merely something that finished.
  */
 
-private val AddBg = Color(0xFF0E2A18)
-private val DelBg = Color(0xFF2C1214)
-private val AddFg = Color(0xFF7EE2A8)
-private val DelFg = Color(0xFFF08D92)
-private val HunkFg = Color(0xFF7AA2F7)
+/**
+ * Diff colours derived from the active theme rather than hardcoded.
+ *
+ * These were five fixed hex values, which meant a diff rendered identically in
+ * every design and ignored the palette completely - exactly the kind of detail
+ * that makes an app feel assembled rather than designed. Added and removed stay
+ * green and red because that convention is older than the app and breaking it
+ * would cost legibility for nothing, but they are now *this* design's green and
+ * red, and the row tints are derived from them so they sit correctly on each
+ * design's background.
+ */
+private val AddFg: Color @Composable @ReadOnlyComposable get() = Ok
+private val DelFg: Color @Composable @ReadOnlyComposable get() = Err
+private val HunkFg: Color @Composable @ReadOnlyComposable get() = Info
+private val AddBg: Color @Composable @ReadOnlyComposable get() = Ok.copy(alpha = 0.10f)
+private val DelBg: Color @Composable @ReadOnlyComposable get() = Err.copy(alpha = 0.10f)
 
 @Composable
 fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {

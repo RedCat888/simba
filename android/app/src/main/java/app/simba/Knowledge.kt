@@ -46,23 +46,11 @@ fun KnowledgeScreen(vm: SimbaVm) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        SingleChoiceSegmentedButtonRow(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            KnowledgeView.entries.forEachIndexed { i, v ->
-                SegmentedButton(
-                    selected = view == v,
-                    onClick = { view = v },
-                    shape = SegmentedButtonDefaults.itemShape(i, KnowledgeView.entries.size),
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = Accent.copy(alpha = 0.16f),
-                        activeContentColor = Accent,
-                        inactiveContainerColor = Panel,
-                        inactiveContentColor = Faint,
-                    ),
-                ) { Text(v.label, fontSize = 12.sp) }
-            }
-        }
+        FacetRow(
+            labels = KnowledgeView.entries.map { it.label },
+            selected = view.ordinal,
+            onSelect = { view = KnowledgeView.entries[it] },
+        )
 
         when (view) {
             // Reuses the existing screen rather than a second copy of the same
@@ -92,68 +80,46 @@ private fun SkillsList(vm: SimbaVm, open: (String) -> Unit) {
         loading = false
     }
 
-    when {
-        loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator(color = Accent, strokeWidth = 2.dp)
-        }
-        error != null -> Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
-            Text(error!!, color = Err, fontSize = 12.sp)
-        }
-        skills.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
-            Text(
-                "No skills yet. Agents write these themselves when they work out " +
-                    "something worth reusing.",
-                color = Faint,
-                fontSize = 12.sp,
-            )
-        }
-        else -> LazyColumn(
-            Modifier.fillMaxSize().padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                val learned = skills.count { it.source == "learned" }
-                Text(
-                    "${skills.size} skills · $learned written by agents themselves",
-                    fontSize = 11.sp,
-                    color = Faint,
-                    modifier = Modifier.padding(bottom = 2.dp),
+    LazyColumn(Modifier.fillMaxSize()) {
+        when {
+            loading -> item { LoadingState() }
+            error != null -> item { FailureState(error!!) }
+            skills.isEmpty() -> item {
+                EmptyState(
+                    "No skills yet",
+                    "Agents write these themselves when they work out something worth reusing.",
                 )
             }
-            items(skills, key = { it.name }) { s ->
-                Card(Modifier.clickable { open(s.name) }) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(
-                            s.name,
-                            color = Fg,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace,
-                        )
+            else -> {
+                item {
+                    val learned = skills.count { it.source == "learned" }
+                    SectionHeading("${skills.size} skills") {
+                        Text("$learned self-taught", fontSize = 11.sp, color = Faint)
+                    }
+                }
+                items(skills, key = { it.name }) { s ->
+                    ItemRow(
+                        title = s.name,
+                        subtitle = s.description,
                         // 'learned' means an agent wrote it mid-work rather than
                         // it being authored deliberately — worth being able to
                         // see at a glance which of these Simba taught itself.
-                        if (s.source == "learned") Pill("learned", Accent)
-                    }
-                    Text(
-                        s.description,
-                        color = Faint,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 4.dp),
+                        badge = if (s.source == "learned") ItemMeta("learned", Tone.Accented) else null,
+                        meta = buildList {
+                            // Usage is the honest measure of whether a skill is
+                            // earning the prompt space it costs on every turn.
+                            add(
+                                if (s.useCount == 0) {
+                                    ItemMeta("never used", Tone.Warn)
+                                } else {
+                                    ItemMeta("used ${s.useCount}×", Tone.Good)
+                                },
+                            )
+                            if (s.version > 1) add(ItemMeta("v${s.version}"))
+                            add(ItemMeta("${s.bodyChars} chars"))
+                        },
+                        onClick = { open(s.name) },
                     )
-                    Row(
-                        Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        // Usage is the honest measure of whether a skill is
-                        // earning the prompt space it costs on every turn.
-                        Meta(
-                            if (s.useCount == 0) "never used" else "used ${s.useCount}×",
-                            if (s.useCount == 0) Warn else Ok,
-                        )
-                        if (s.version > 1) Meta("v${s.version}")
-                        Meta("${s.bodyChars} chars")
-                    }
                 }
             }
         }
@@ -248,42 +214,36 @@ private fun DecisionsList(vm: SimbaVm) {
         loading = false
     }
 
-    when {
-        loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator(color = Accent, strokeWidth = 2.dp)
-        }
-        error != null -> Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
-            Text(error!!, color = Err, fontSize = 12.sp)
-        }
-        else -> LazyColumn(
-            Modifier.fillMaxSize().padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(decisions, key = { it.id }) { d ->
-                Card(Modifier.clickable { expanded = if (expanded == d.id) null else d.id }) {
-                    Text(d.statement, color = Fg, fontSize = 12.5.sp)
-                    Row(
-                        Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        d.topic?.let { Meta(it) }
-                        Meta(d.confidence, if (d.confidence == "acted_on") Ok else Faint)
-                        if (d.status == "superseded") Pill("superseded", Warn)
-                    }
+    LazyColumn(Modifier.fillMaxSize()) {
+        when {
+            loading -> item { LoadingState() }
+            error != null -> item { FailureState(error!!) }
+            decisions.isEmpty() -> item {
+                EmptyState(
+                    "No decisions recorded",
+                    "Simba records a decision when it commits to an approach, so the reasoning survives the session.",
+                )
+            }
+            else -> items(decisions, key = { it.id }) { d ->
+                ItemRow(
+                    title = d.statement,
+                    badge = if (d.status == "superseded") ItemMeta("superseded", Tone.Warn) else null,
+                    meta = buildList {
+                        d.topic?.let { add(ItemMeta(it)) }
+                        add(
+                            ItemMeta(
+                                d.confidence,
+                                if (d.confidence == "acted_on") Tone.Good else Tone.Neutral,
+                            ),
+                        )
+                    },
                     // Rationale is often several paragraphs — the reason a
                     // decision was made matters more than the decision, but not
                     // enough to make the list unscrollable.
-                    if (expanded == d.id) {
-                        d.rationale?.takeIf { it.isNotBlank() }?.let {
-                            Text(
-                                it,
-                                color = Faint,
-                                fontSize = 11.5.sp,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                        }
-                    }
-                }
+                    expanded = d.rationale?.takeIf { it.isNotBlank() }?.let {
+                        { Text(it, color = Faint, fontSize = 11.5.sp, lineHeight = 17.sp) }
+                    },
+                )
             }
         }
     }
@@ -318,13 +278,14 @@ private fun MemoryList(vm: SimbaVm) {
     }
     LaunchedEffect(Unit) { load() }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    Column(Modifier.fillMaxSize()) {
         view?.let { v ->
+            @Suppress("NAME_SHADOWING") val pad = Modifier.padding(horizontal = 16.dp)
             val used = v.pressure.global.used
             val cap = v.pressure.global.cap
             val pct = if (cap > 0) used.toFloat() / cap else 0f
             Row(
-                Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                pad.fillMaxWidth().padding(top = 6.dp, bottom = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -338,14 +299,14 @@ private fun MemoryList(vm: SimbaVm) {
             }
             LinearProgressIndicator(
                 progress = { pct },
-                modifier = Modifier.fillMaxWidth().height(3.dp),
+                modifier = pad.fillMaxWidth().height(3.dp),
                 color = if (pct > 0.75f) Warn else Accent,
                 trackColor = Panel2,
             )
 
             if (adding) {
                 Spacer(Modifier.height(8.dp))
-                Card {
+                Card(pad) {
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
@@ -383,24 +344,35 @@ private fun MemoryList(vm: SimbaVm) {
             Spacer(Modifier.height(8.dp))
         }
 
-        error?.let { Text(it, color = Err, fontSize = 11.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+        error?.let { FailureState(it) }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            items(view?.entries.orEmpty(), key = { it.id }) { m ->
-                Card {
-                    Text(m.content, color = Fg, fontSize = 12.sp)
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 5.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Meta(m.kind)
-                            m.source?.let { Meta(it.take(30)) }
-                            if (m.confirmations > 0) Meta("confirmed ${m.confirmations}x", Ok)
-                        }
+        LazyColumn(Modifier.fillMaxSize()) {
+            val entries = view?.entries.orEmpty()
+            if (view == null && error == null) {
+                item { LoadingState(3) }
+            } else if (entries.isEmpty()) {
+                item {
+                    EmptyState(
+                        "Nothing remembered yet",
+                        "Facts saved here load into every session, so keep them few and true.",
+                    )
+                }
+            }
+            items(entries, key = { it.id }) { m ->
+                ItemRow(
+                    title = m.content,
+                    meta = buildList {
+                        add(ItemMeta(m.kind))
+                        m.source?.let { add(ItemMeta(it.take(30))) }
+                        if (m.confirmations > 0) add(ItemMeta("confirmed ${m.confirmations}×", Tone.Good))
+                    },
+                    // Forgetting lives behind the expansion rather than beside
+                    // the text: it is irreversible, and an irreversible control
+                    // one stray thumb away from a scrolling list is a trap.
+                    expanded = {
                         Text(
-                            "forget",
-                            fontSize = 11.sp,
+                            "Forget this",
+                            fontSize = 12.sp,
                             color = Err,
                             modifier = Modifier.clickable {
                                 scope.launch {
@@ -409,8 +381,8 @@ private fun MemoryList(vm: SimbaVm) {
                                 }
                             },
                         )
-                    }
-                }
+                    },
+                )
             }
         }
     }

@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -293,6 +294,91 @@ fun ChatScreen(
 
 @Composable
 private fun ChatRow(item: ChatItem) {
+    when (LocalDesign.current) {
+        Design.Fluid -> FluidChatRow(item)
+        Design.Material -> MaterialChatRow(item)
+        Design.Console -> ConsoleChatRow(item)
+    }
+}
+
+/**
+ * Fluid: the assistant is not in a bubble.
+ *
+ * Every serious assistant product puts the user's words in a contained bubble
+ * and lets the reply run as plain text across the column. A bubble reads as a
+ * quoted utterance, which is right for a short thing you said and wrong for
+ * four paragraphs you are meant to sit and read. Boxing both is what makes a
+ * chat look like a toy.
+ *
+ * The per-message role caption is gone for the same reason: it labelled what
+ * alignment and colour already say, and no shipping product does it.
+ */
+@Composable
+private fun FluidChatRow(item: ChatItem) {
+    when (item) {
+        is ChatItem.Msg -> {
+            val isUser = item.role == "user"
+            if (isUser) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Box(
+                        Modifier
+                            .widthIn(max = 300.dp)
+                            .clip(
+                                RoundedCornerShape(
+                                    topStart = 20.dp,
+                                    topEnd = 20.dp,
+                                    bottomStart = 20.dp,
+                                    bottomEnd = 6.dp,
+                                ),
+                            )
+                            .background(Accent.copy(alpha = 0.16f))
+                            .padding(horizontal = 15.dp, vertical = 11.dp),
+                    ) { MessageBody(item.text, color = Fg) }
+                }
+            } else {
+                Box(Modifier.fillMaxWidth().padding(end = 24.dp, top = 2.dp, bottom = 2.dp)) {
+                    MessageBody(item.text, color = Fg)
+                }
+            }
+        }
+
+        is ChatItem.Tool -> if (item.isError) {
+            ErrorBlock(item.detail, label = item.name)
+        } else {
+            // Quiet by default: tool activity is context for the reply, not the
+            // reply. A soft surface rather than a panel competing with what the
+            // assistant actually said.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Panel.copy(alpha = 0.6f))
+                    .padding(horizontal = 13.dp, vertical = 9.dp),
+            ) {
+                ExpandableBody(item.detail, monospace = true, color = Dim, summaryPrefix = item.name)
+            }
+        }
+
+        is ChatItem.Failure -> ErrorBlock(item.text, label = "Could not send")
+
+        is ChatItem.Notice -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            val tone = noticeColor(item.tone)
+            Text(
+                item.text,
+                color = tone,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(tone.copy(alpha = 0.12f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+/** Material: tonal surfaces and the shapes Material specifies for chat. */
+@Composable
+private fun MaterialChatRow(item: ChatItem) {
     when (item) {
         is ChatItem.Msg -> {
             val isUser = item.role == "user"
@@ -300,64 +386,119 @@ private fun ChatRow(item: ChatItem) {
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
             ) {
-                Column(
-                    Modifier
-                        .widthIn(max = 320.dp)
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = 14.dp, topEnd = 14.dp,
-                                bottomStart = if (isUser) 14.dp else 4.dp,
-                                bottomEnd = if (isUser) 4.dp else 14.dp,
-                            ),
-                        )
-                        .background(if (isUser) Color(0xFF1B2A3F) else Panel)
-                        .padding(11.dp),
+                Surface(
+                    color = if (isUser) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    contentColor = if (isUser) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    shape = RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isUser) 16.dp else 4.dp,
+                        bottomEnd = if (isUser) 4.dp else 16.dp,
+                    ),
+                    modifier = Modifier.widthIn(max = 320.dp),
                 ) {
-                    Text(
-                        item.role.uppercase(),
-                        fontSize = 9.sp,
-                        color = Faint,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    MessageBody(item.text, color = Fg)
+                    Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        MessageBody(item.text, color = LocalContentColor.current)
+                    }
                 }
             }
         }
 
-        // Pairing a call with its result is the next step's job; this branch only
-        // stops the detail being an unbounded or arbitrarily clipped line.
         is ChatItem.Tool -> if (item.isError) {
             ErrorBlock(item.detail, label = item.name)
         } else {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Panel2)
-                    .padding(horizontal = 9.dp, vertical = 6.dp),
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                ExpandableBody(
-                    item.detail,
-                    monospace = true,
-                    color = Info,
-                    summaryPrefix = item.name,
-                )
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                    ExpandableBody(item.detail, monospace = true, color = Dim, summaryPrefix = item.name)
+                }
             }
         }
 
         is ChatItem.Failure -> ErrorBlock(item.text, label = "Could not send")
 
-        is ChatItem.Notice -> {
-            val tone = noticeColor(item.tone)
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(tone.copy(alpha = 0.13f))
-                        .padding(horizontal = 11.dp, vertical = 6.dp),
-                ) { Text(item.text, color = tone, fontSize = 11.5.sp) }
+        is ChatItem.Notice -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            AssistChip(
+                onClick = {},
+                label = { Text(item.text, fontSize = 12.sp) },
+                colors = AssistChipDefaults.assistChipColors(labelColor = noticeColor(item.tone)),
+            )
+        }
+    }
+}
+
+/**
+ * Console: a transcript, not a conversation.
+ *
+ * Speaker prefixes rather than bubbles. Alignment and bubble margins cost
+ * horizontal space a monospace transcript would rather spend on content, and a
+ * prefix is how every terminal, log and IRC client has shown this for decades -
+ * instantly legible to anyone who would pick this design in the first place.
+ */
+@Composable
+private fun ConsoleChatRow(item: ChatItem) {
+    when (item) {
+        is ChatItem.Msg -> {
+            val isUser = item.role == "user"
+            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+                Text(
+                    if (isUser) "you>" else "simba>",
+                    color = if (isUser) Accent else Ok,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(end = 7.dp),
+                )
+                MessageBody(item.text, color = Fg)
             }
         }
+
+        is ChatItem.Tool -> Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+            Text(
+                if (item.isError) "!" else ">",
+                color = if (item.isError) Err else Faint,
+                fontSize = 11.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 7.dp),
+            )
+            ExpandableBody(
+                item.detail,
+                monospace = true,
+                color = if (item.isError) Err else Dim,
+                summaryPrefix = item.name,
+            )
+        }
+
+        is ChatItem.Failure -> Row(Modifier.fillMaxWidth()) {
+            Text(
+                "!",
+                color = Err,
+                fontSize = 11.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 7.dp),
+            )
+            Text(item.text, color = Err, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+        }
+
+        is ChatItem.Notice -> Text(
+            "* " + item.text,
+            color = noticeColor(item.tone),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+        )
     }
 }

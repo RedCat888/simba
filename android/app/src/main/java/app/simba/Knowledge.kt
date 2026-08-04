@@ -137,61 +137,63 @@ private fun SkillDetailScreen(vm: SimbaVm, name: String, back: () -> Unit) {
             .onFailure { error = it.message }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
-        Text(
-            "‹ back",
-            color = Accent,
-            fontSize = 12.sp,
-            modifier = Modifier.clickable { back() }.padding(bottom = 10.dp),
-        )
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Row(Modifier.screenPad().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            BackButton(back)
+            Text("All skills", color = Dim, fontSize = 12.5.sp, modifier = Modifier.padding(start = 4.dp))
+        }
 
-        error?.let { Text(it, color = Err, fontSize = 12.sp) }
+        error?.let { FailureState(it) }
+        if (skill == null && error == null) LoadingState(2)
 
         skill?.let { s ->
-            Text(
-                s.name,
-                color = Fg,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-            )
-            Text(s.description, color = Faint, fontSize = 12.5.sp, modifier = Modifier.padding(top = 5.dp))
-            Row(
-                Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Meta(s.source, if (s.source == "learned") Accent else Faint)
-                Meta("v${s.version}")
-                Meta(if (s.useCount == 0) "never used" else "used ${s.useCount}×")
+            Column(Modifier.screenPad().padding(top = 10.dp)) {
+                Text(
+                    s.name,
+                    color = Fg,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                )
+                Text(
+                    s.description,
+                    color = Dim,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Row(
+                    Modifier.padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Meta(s.source, if (s.source == "learned") Accent else Faint)
+                    Meta("v${s.version}")
+                    Meta(if (s.useCount == 0) "never used" else "used ${s.useCount}×")
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
-            Card {
-                // Monospace throughout: bodies are procedures with commands and
-                // paths in them, and proportional text makes those harder to
-                // read and to copy correctly.
-                Text(s.body, color = Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            // Monospace, copyable, and height-bounded by the same block every
+            // other long body in the app goes through — a skill body is a
+            // procedure with commands and paths in it, and a raw Text of it was
+            // the one place left that could grow without limit.
+            Spacer(Modifier.height(14.dp))
+            Card(Modifier.screenPad()) {
+                ExpandableBody(s.body, monospace = true, color = Fg, initiallyExpanded = true)
             }
 
             if (s.history.size > 1) {
-                Spacer(Modifier.height(12.dp))
-                Text("HISTORY", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
+                SectionHeading("History") {
+                    Text("${s.history.size} revisions", fontSize = 11.sp, color = Faint)
+                }
                 s.history.forEach { h ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("v${h.version}", color = Faint, fontSize = 11.sp)
-                        Text(
-                            h.note ?: "",
-                            color = Faint,
-                            fontSize = 11.sp,
-                            modifier = Modifier.weight(1f).padding(start = 10.dp),
-                        )
-                    }
+                    ItemRow(
+                        title = "v${h.version}",
+                        subtitle = h.note,
+                        meta = buildList { h.createdAt?.let { add(ItemMeta(it.take(10))) } },
+                    )
                 }
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

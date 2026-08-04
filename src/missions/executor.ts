@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process';
+
+import { config } from '../config.js';
 import { query, one, recordEvent } from '../db/index.js';
 import type { SessionManager } from '../session/manager.js';
 
@@ -33,13 +36,15 @@ export interface ExecutorStats {
   reopened: number;
   completed: number;
   blocked: number;
+  /** Script missions run this tick, which cost no tokens at all. */
+  scripts: number;
 }
 
 export class MissionExecutor {
   constructor(private readonly manager: SessionManager) {}
 
   async tick(): Promise<ExecutorStats> {
-    const stats: ExecutorStats = { planned: 0, started: 0, reopened: 0, completed: 0, blocked: 0 };
+    const stats: ExecutorStats = { scripts: 0, planned: 0, started: 0, reopened: 0, completed: 0, blocked: 0 };
 
     await this.reapFinishedStepSessions();
     stats.reopened += await this.reopenOrphanedSteps();
@@ -48,6 +53,7 @@ export class MissionExecutor {
     stats.started += await this.runSteps();
     stats.completed += await this.finishMissions();
     await this.wakeScheduled();
+    stats.scripts = await this.runScriptMissions();
 
     return stats;
   }
@@ -431,6 +437,91 @@ export class MissionExecutor {
           AND next_run_at <= now()`,
     );
   }
+
+  /**
+   * Run script missions directly, with no model involved.
+   *
+   * Recurring work is often a command rather than a judgement - back something
+   * up, publish a build, check a service. Routing that through an agent spends a
+   * model call, a session and a planning round to produce what a shell already
+   * produces, and adds the failure mode of the model deciding to do it slightly
+   * differently this time.
+   *
+   * Output and exit code are recorded on the mission so a scheduled script is
+   * inspectable from the phone without going to the machine.
+   */
+  private async runScriptMissions(): Promise<number> {
+    const due = await query<{ id: string; title: string; script: string; script_shell: string | null; working_dir: string | null }>(
+      `SELECT id, title, script, script_shell, working_dir
+         FROM missions
+        WHERE script IS NOT NULL
+          AND status = 'running'
+          AND (next_run_at IS NULL OR next_run_at <= now())
+        LIMIT 2`,
+    );
+
+    for (const m of due) {
+      const shell = m.script_shell ?? 'powershell';
+      const started = Date.now();
+      const result = await new Promise<{ code: number | null; out: string }>((resolve) => {
+        const [cmd, args] =
+          shell === 'bash'
+            ? ['bash', ['-lc', m.script]]
+            : shell === 'cmd'
+              ? ['cmd.exe', ['/d', '/s', '/c', m.script]]
+              : ['powershell', ['-NoProfile', '-NonInteractive', '-Command', m.script]];
+
+        const proc = spawn(cmd, args, {
+          cwd: m.working_dir ?? config.root,
+          windowsHide: true,
+        });
+        let out = '';
+        // Bounded: a runaway script must not put megabytes into a row that is
+        // read on a phone.
+        const cap = 16_000;
+        const append = (c: Buffer) => {
+          if (out.length < cap) out += c.toString().slice(0, cap - out.length);
+        };
+        try { proc.stdin.end(); } catch { /* already closed */ }
+        proc.stdout.on('data', append);
+        proc.stderr.on('data', append);
+        const timer = setTimeout(() => {
+          proc.kill();
+          resolve({ code: null, out: `${out}
+[killed after 10 minutes]` });
+        }, 10 * 60_000);
+        proc.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, out: e.message }); });
+        proc.on('close', (code) => { clearTimeout(timer); resolve({ code, out }); });
+      });
+
+      await query(
+        `UPDATE missions
+            SET last_output = $2, last_exit_code = $3, last_run_at = now(),
+                -- A one-off script mission is finished; a scheduled one waits
+                -- for wakeScheduled to bring it back.
+                status = CASE WHEN cadence = 'scheduled' THEN 'paused' ELSE 'completed' END,
+                completed_at = CASE WHEN cadence = 'scheduled' THEN completed_at ELSE now() END,
+                updated_at = now()
+          WHERE id = $1`,
+        [m.id, result.out.trim(), result.code],
+      );
+
+      const ok = result.code === 0;
+      await this.log(
+        m.id,
+        `script finished in ${Math.round((Date.now() - started) / 1000)}s, exit ${result.code}`,
+        ok ? 'info' : 'error',
+      );
+      await recordEvent({
+        type: ok ? 'mission.script_ran' : 'mission.script_failed',
+        severity: ok ? 'info' : 'warn',
+        message: `"${m.title}" exit ${result.code}`,
+        data: { missionId: m.id, exitCode: result.code },
+      });
+    }
+    return due.length;
+  }
+
 
   async log(
     missionId: string,

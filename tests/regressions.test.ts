@@ -6,6 +6,7 @@ import { denyNotice } from '../src/runner/boundary.js';
 import { describeExit } from '../src/session/engine.js';
 import { looksLikeSameModel, reportedModels, extractMessage } from '../src/runner/verify.js';
 import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js';
+import { parseSchedule } from '../src/missions/schedule.js';
 
 /**
  * Regressions for bugs that actually shipped.
@@ -153,5 +154,32 @@ describe('local channel trust', () => {
   test('channel comes from the listening port, which a client cannot set', () => {
     assert.equal(channelOf(8787), 'local');
     assert.equal(channelOf(8788), 'tunnel');
+  });
+});
+
+describe('natural-language schedules', () => {
+  test('understands the phrasings people actually use', () => {
+    // Requiring cron syntax is what stops recurring work being scheduled at all.
+    assert.equal(parseSchedule('every morning')?.cron, '0 7 * * *');
+    assert.equal(parseSchedule('every 30 minutes')?.cron, '*/30 * * * *');
+    assert.equal(parseSchedule('weekdays at 9')?.cron, '0 9 * * 1-5');
+    assert.equal(parseSchedule('every friday at 18:00')?.cron, '0 18 * * 5');
+    assert.equal(parseSchedule('daily at 6am')?.cron, '0 6 * * *');
+  });
+
+  test('passes an explicit cron expression through', () => {
+    assert.equal(parseSchedule('0 7 * * *')?.cron, '0 7 * * *');
+  });
+
+  test('refuses what it does not understand rather than guessing', () => {
+    // A schedule that silently means something else is worse than none: it
+    // would fire at an hour nobody chose, forever.
+    assert.equal(parseSchedule('sometimes'), null);
+    assert.equal(parseSchedule('when the build is green'), null);
+    assert.equal(parseSchedule(''), null);
+  });
+
+  test('reads the schedule back so a misparse is visible', () => {
+    assert.match(String(parseSchedule('every morning')?.describes), /07:00/);
   });
 });

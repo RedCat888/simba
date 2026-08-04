@@ -16,6 +16,7 @@ import { unreapedWorktrees } from '../session/worktree.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
+import { parseSchedule } from '../missions/schedule.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -827,7 +828,35 @@ app.post('/api/missions', async (c) => {
     title: string; objective: string; acceptanceCriteria?: string;
     agent?: string; workingDir?: string; maxSessions?: number; maxCostUsd?: number;
     cadence?: 'continuous' | 'scheduled'; cron?: string;
+    /** Plain English: "every morning", "weekdays at 9", "every 30 minutes". */
+    schedule?: string;
+    /** A command to run instead of an agent. No model is involved at all. */
+    script?: string;
+    scriptShell?: 'powershell' | 'bash' | 'cmd';
   }>();
+
+  // Accept a schedule in English. Cron is precise and nobody states a recurring
+  // objective that way, so requiring it is what stops the feature being used at
+  // all. A phrase that cannot be parsed is refused rather than defaulted:
+  // running something at an hour nobody chose is worse than not scheduling it.
+  let cron = b.cron ?? null;
+  let cadence: string | null = b.cadence ?? null;
+  let scheduleNote: string | null = null;
+  if (b.schedule) {
+    const parsed = parseSchedule(b.schedule);
+    if (!parsed) {
+      return c.json(
+        {
+          error: `could not understand the schedule "${b.schedule}"`,
+          examples: ['every morning', 'weekdays at 9', 'every 30 minutes', 'every friday at 18:00'],
+        },
+        400,
+      );
+    }
+    cron = parsed.cron;
+    cadence = 'scheduled';
+    scheduleNote = parsed.describes;
+  }
   if (!b.title || !b.objective) return c.json({ error: 'title and objective required' }, 400);
 
   const surface = surfaceOf(c);
@@ -871,12 +900,28 @@ app.post('/api/missions', async (c) => {
      RETURNING id`,
     [b.title, b.objective, b.acceptanceCriteria ?? null, b.agent ?? null,
      b.workingDir ?? null, b.maxSessions ?? null, b.maxCostUsd ?? null,
-     b.cadence ?? null, b.cron ?? null, surface.id],
+     cadence, cron, surface.id],
   );
 
+  // A script mission never plans and never starts a session.
+  if (b.script) {
+    await query(
+      `UPDATE missions SET script = $2, script_shell = $3, status = 'running' WHERE id = $1`,
+      [row?.id, b.script, b.scriptShell ?? 'powershell'],
+    );
+  }
+
   await query(`INSERT INTO mission_log (mission_id, message) VALUES ($1,$2)`,
-    [row?.id, `mission created from ${surface.slug}`]);
-  return c.json({ id: row?.id, status: 'planning' });
+    [row?.id, `mission created from ${surface.slug}${scheduleNote ? ` - runs ${scheduleNote}` : ''}`]);
+
+  return c.json({
+    id: row?.id,
+    status: b.script ? 'running' : 'planning',
+    // Read the schedule back so a misparse is visible now rather than after a
+    // month of firing at the wrong hour.
+    ...(scheduleNote ? { schedule: scheduleNote, cron } : {}),
+    ...(b.script ? { mode: 'script - no model will be used' } : {}),
+  });
 });
 
 app.post('/api/missions/:id/:action', async (c) => {

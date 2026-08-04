@@ -7,11 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,7 +93,7 @@ fun ConsoleShell(
                     Destination.entries.forEach { d ->
                         val on = d == current
                         Text(
-                            d.command,
+                            d.glyph + d.command,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
@@ -121,11 +118,13 @@ fun ConsoleShell(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
-                    Icon(
-                        Icons.Rounded.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = Accent,
-                        modifier = Modifier.size(15.dp),
+                    Text(
+                        ">",
+                        color = Accent,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 2.dp),
                     )
                     BasicTextField(
                         value = command,

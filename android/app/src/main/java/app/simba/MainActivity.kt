@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -403,7 +404,7 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
     ) {
         item {
             TextButton(onClick = back) {
-                Icon(Icons.Filled.ArrowBack, null, tint = Info, modifier = Modifier.size(16.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Info, modifier = Modifier.size(16.dp))
                 Text("  All missions", color = Info, fontSize = 12.5.sp)
             }
         }

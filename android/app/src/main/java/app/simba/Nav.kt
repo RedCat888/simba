@@ -39,14 +39,25 @@ enum class Destination(
     val label: String,
     /** Console addresses destinations by name typed into the command bar. */
     val command: String,
+    /**
+     * Console's icon: one character.
+     *
+     * Not a compromise — a terminal identifies things with sigils, and these are
+     * the conventional ones (`@` an entity, `#` a system, `?` a query, `*` a job,
+     * `>` a prompt). Dropping in Material glyphs here would undo the design.
+     */
+    val glyph: String,
+    /** Material's own icons, because that is what the Material design is. */
     val rounded: ImageVector,
     val outlined: ImageVector,
+    /** Fluid draws its own, in one stroke weight on one grid. See [SimbaIcons]. */
+    val fluid: ImageVector,
 ) {
-    Chat("Chat", "chat", Icons.Rounded.Forum, Icons.Outlined.Forum),
-    Missions("Missions", "missions", Icons.Rounded.Bolt, Icons.Outlined.Bolt),
-    Agents("Agents", "agents", Icons.Rounded.Hub, Icons.Outlined.Hub),
-    Knowledge("Knowledge", "know", Icons.Rounded.Insights, Icons.Outlined.Insights),
-    System("System", "sys", Icons.Rounded.Terminal, Icons.Outlined.Terminal),
+    Chat("Chat", "chat", ">", Icons.Rounded.Forum, Icons.Outlined.Forum, SimbaIcons.Chat),
+    Missions("Missions", "missions", "*", Icons.Rounded.Bolt, Icons.Outlined.Bolt, SimbaIcons.Missions),
+    Agents("Agents", "agents", "@", Icons.Rounded.Hub, Icons.Outlined.Hub, SimbaIcons.Agents),
+    Knowledge("Knowledge", "know", "?", Icons.Rounded.Insights, Icons.Outlined.Insights, SimbaIcons.Knowledge),
+    System("System", "sys", "#", Icons.Rounded.Terminal, Icons.Outlined.Terminal, SimbaIcons.System),
     ;
 
     companion object {

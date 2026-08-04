@@ -8,6 +8,21 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -210,9 +225,7 @@ fun ChatScreen(
                 Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Filled.ArrowBack, "Back", tint = Dim, modifier = Modifier.size(19.dp))
-                }
+                BackButton(onBack)
                 Column(Modifier.weight(1f).padding(start = 4.dp)) {
                     Text(title, color = Fg, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, maxLines = 1)
                     // Clipped by layout, not by take(N): the full reason is still
@@ -243,31 +256,12 @@ fun ChatScreen(
             }
         },
         bottomBar = {
-            Row(
-                Modifier.fillMaxWidth().background(Panel).padding(9.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    placeholder = { Text("Message…", fontSize = 13.sp, color = Faint) },
-                    modifier = Modifier.weight(1f),
-                    maxLines = 5,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Accent, unfocusedBorderColor = Line,
-                        focusedTextColor = Fg, unfocusedTextColor = Fg,
-                    ),
-                )
-                Spacer(Modifier.width(7.dp))
-                FilledIconButton(
-                    onClick = { send() },
-                    enabled = draft.isNotBlank() && !state.sending,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Accent, contentColor = OnAccent,
-                    ),
-                    modifier = Modifier.size(46.dp),
-                ) { Icon(Icons.Filled.Send, "Send", modifier = Modifier.size(19.dp)) }
-            }
+            Composer(
+                draft = draft,
+                onDraft = { draft = it },
+                enabled = draft.isNotBlank() && !state.sending,
+                onSend = { send() },
+            )
         },
     ) {
         LazyColumn(
@@ -500,5 +494,120 @@ private fun ConsoleChatRow(item: ChatItem) {
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
         )
+    }
+}
+
+
+/**
+ * Writing the message.
+ *
+ * The most-touched surface in the app, and until now the one place all three
+ * designs were provably identical: one OutlinedTextField and one filled circle.
+ * What a composer looks like is most of what a chat app feels like, so each
+ * design gets the one its own argument implies.
+ */
+@Composable
+private fun Composer(
+    draft: String,
+    onDraft: (String) -> Unit,
+    enabled: Boolean,
+    onSend: () -> Unit,
+) {
+    when (LocalDesign.current) {
+        // Fluid: a single capsule containing the text and the send control, so
+        // it reads as one object rather than a field with a button beside it.
+        // The send target only appears once there is something to send — a
+        // permanently-dimmed button is chrome that spends attention every time
+        // you look at it and pays out rarely.
+        Design.Fluid -> Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(Panel)
+                .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Box(Modifier.weight(1f).padding(bottom = 12.dp, top = 10.dp)) {
+                if (draft.isEmpty()) {
+                    Text("Message Simba", color = Faint, fontSize = 14.sp)
+                }
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraft,
+                    textStyle = TextStyle(color = Fg, fontSize = 14.sp, lineHeight = 20.sp),
+                    cursorBrush = SolidColor(Accent),
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            AnimatedVisibility(
+                visible = enabled,
+                enter = fadeIn(spring()) + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
+                exit = fadeOut() + scaleOut(),
+            ) {
+                Box(
+                    Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(Accent)
+                        .clickable { onSend() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(SimbaIcons.Send, "Send", tint = OnAccent, modifier = Modifier.size(19.dp))
+                }
+            }
+        }
+
+        // Material: the specified components, unmodified.
+        Design.Material -> Surface(tonalElevation = 3.dp) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraft,
+                    placeholder = { Text("Message") },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 5,
+                    shape = MaterialTheme.shapes.extraLarge,
+                )
+                Spacer(Modifier.width(8.dp))
+                FilledIconButton(
+                    onClick = onSend,
+                    enabled = enabled,
+                    modifier = Modifier.size(48.dp),
+                ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+            }
+        }
+
+        // Console: a prompt line. No button — the IME's Go key sends, which is
+        // what a terminal does with Return, and it keeps the whole width for
+        // what you are typing.
+        Design.Console -> Row(
+            Modifier
+                .fillMaxWidth()
+                .background(Panel)
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "you>",
+                color = Accent,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+            )
+            BasicTextField(
+                value = draft,
+                onValueChange = onDraft,
+                textStyle = TextStyle(color = Fg, fontSize = 12.5.sp, fontFamily = FontFamily.Monospace),
+                cursorBrush = SolidColor(Accent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { if (enabled) onSend() }),
+                modifier = Modifier.weight(1f).padding(start = 6.dp),
+            )
+        }
     }
 }

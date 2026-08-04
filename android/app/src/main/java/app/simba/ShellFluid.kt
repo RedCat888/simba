@@ -18,8 +18,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -176,7 +174,7 @@ private fun FluidNav(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         Icon(
-                            if (on) d.rounded else d.outlined,
+                            d.fluid,
                             contentDescription = d.label,
                             tint = tint,
                             modifier = Modifier.size(21.dp),
@@ -193,7 +191,15 @@ private fun FluidNav(
                     Modifier.clickable { onToggle() }.padding(vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.Close, "Close", tint = Faint, modifier = Modifier.size(17.dp))
+                    // A handle rather than a cross: the sheet is being put
+                    // back, not dismissed, and the shape says which.
+                    Box(
+                        Modifier
+                            .width(34.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(Faint),
+                    )
                 }
             } else {
                 val pressed = remember { mutableStateOf(false) }
@@ -211,7 +217,7 @@ private fun FluidNav(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Icon(
-                        current.rounded,
+                        current.fluid,
                         contentDescription = current.label,
                         tint = Accent,
                         modifier = Modifier.size(19.dp),

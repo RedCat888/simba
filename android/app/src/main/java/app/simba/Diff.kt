@@ -51,7 +51,6 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
     var diff by remember { mutableStateOf<SessionDiff?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
-    var open by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(sessionId) {
         runCatching { vm.api?.sessionDiff(sessionId) }
@@ -83,107 +82,60 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
             }
         },
     ) {
-        when {
-            loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                CircularProgressIndicator(color = Accent, strokeWidth = 2.dp)
-            }
-            error != null -> Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
-                Text(error!!, color = Err, fontSize = 12.sp)
-            }
-            diff == null || (diff!!.files.isEmpty() && diff!!.commits.isEmpty()) ->
-                Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
-                    Text("No changes in this session's working tree.", color = Faint, fontSize = 12.sp)
+        LazyColumn(Modifier.fillMaxSize()) {
+            val d = diff
+            when {
+                loading -> item { LoadingState(3) }
+                error != null -> item { FailureState(error!!) }
+                d == null || (d.files.isEmpty() && d.commits.isEmpty()) -> item {
+                    EmptyState(
+                        "Nothing changed",
+                        "This session's working tree is clean — it read, reasoned or ran things, but wrote no files.",
+                    )
                 }
-            else -> LazyColumn(
-                Modifier.fillMaxSize().padding(horizontal = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                val d = diff!!
 
-                if (d.commits.isNotEmpty()) {
-                    item {
-                        Text(
-                            "COMMITS",
-                            fontSize = 10.sp,
-                            color = Faint,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
-                    items(d.commits, key = { it.sha }) { c ->
-                        Card {
-                            Row {
-                                Text(
-                                    c.sha,
-                                    color = Accent,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(c.subject, color = Fg, fontSize = 12.sp, maxLines = 2)
-                            }
+                else -> {
+                    if (d.commits.isNotEmpty()) {
+                        item { SectionHeading("Commits") }
+                        items(d.commits, key = { it.sha }) { c ->
+                            ItemRow(title = c.subject, meta = listOf(ItemMeta(c.sha, Tone.Accented)))
                         }
                     }
-                }
 
-                if (d.files.isNotEmpty()) {
-                    item {
-                        Text(
-                            "UNCOMMITTED",
-                            fontSize = 10.sp,
-                            color = Faint,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
-                    }
-                    items(d.files, key = { it.path }) { f ->
-                        Card(Modifier.clickable { open = if (open == f.path) null else f.path }) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(
-                                    // Long paths matter at the end, not the
-                                    // start — a phone-width row that truncates
-                                    // right shows only directories.
-                                    f.path.takeLast(46),
-                                    color = Fg,
-                                    fontSize = 11.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    maxLines = 1,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Row {
-                                    if (f.additions > 0) {
-                                        Text("+${f.additions}", color = AddFg, fontSize = 11.sp)
-                                        Spacer(Modifier.width(5.dp))
+                    if (d.files.isNotEmpty()) {
+                        item {
+                            SectionHeading("Uncommitted") {
+                                Text("${d.files.size} files", fontSize = 11.sp, color = Faint)
+                            }
+                        }
+                        items(d.files, key = { it.path }) { f ->
+                            ItemRow(
+                                // Long paths matter at the end, not the start —
+                                // a phone-width row that truncates right shows
+                                // only directories.
+                                title = f.path.takeLast(46),
+                                meta = buildList {
+                                    if (f.additions > 0) add(ItemMeta("+${f.additions}", Tone.Good))
+                                    if (f.deletions > 0) add(ItemMeta("−${f.deletions}", Tone.Bad))
+                                    add(ItemMeta(f.status, if (f.status == "untracked") Tone.Warn else Tone.Neutral))
+                                },
+                                expanded = {
+                                    when {
+                                        f.truncated -> Text(
+                                            "Patch withheld — too large to send to the phone. " +
+                                                "Review it on the machine.",
+                                            color = Warn,
+                                            fontSize = 11.sp,
+                                        )
+                                        f.patch.isNullOrBlank() -> Text(
+                                            "No patch available.",
+                                            color = Faint,
+                                            fontSize = 11.sp,
+                                        )
+                                        else -> PatchView(f.patch)
                                     }
-                                    if (f.deletions > 0) {
-                                        Text("−${f.deletions}", color = DelFg, fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                            Row(Modifier.padding(top = 3.dp)) {
-                                Meta(f.status, if (f.status == "untracked") Warn else Faint)
-                            }
-
-                            if (open == f.path) {
-                                Spacer(Modifier.height(8.dp))
-                                when {
-                                    f.truncated -> Text(
-                                        "Patch withheld — too large to send to the phone. " +
-                                            "Review it on the machine.",
-                                        color = Warn,
-                                        fontSize = 11.sp,
-                                    )
-                                    f.patch.isNullOrBlank() -> Text(
-                                        "No patch available.",
-                                        color = Faint,
-                                        fontSize = 11.sp,
-                                    )
-                                    else -> PatchView(f.patch)
-                                }
-                            }
+                                },
+                            )
                         }
                     }
                 }

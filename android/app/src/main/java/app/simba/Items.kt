@@ -19,6 +19,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -586,5 +588,57 @@ fun FailureState(message: String, onRetry: (() -> Unit)? = null) {
                 TextButton(onClick = it, modifier = Modifier.padding(top = 4.dp)) { Text("Retry") }
             }
         }
+    }
+}
+
+
+/**
+ * Going back.
+ *
+ * Small enough to feel like a detail, which is why it was the same filled
+ * Material arrow in all three designs and in three different sizes. It is also
+ * the control people touch most after the thing they came for, so it is worth
+ * being the design's own: a stroke chevron with a press spring in Fluid, the
+ * specified auto-mirrored IconButton in Material, and `<` in Console, where a
+ * vector icon would be the only one on the screen.
+ */
+@Composable
+fun BackButton(onBack: () -> Unit) {
+    when (LocalDesign.current) {
+        Design.Fluid -> {
+            var pressed by remember { mutableStateOf(false) }
+            val scale by animateFloatAsState(
+                if (pressed) 0.88f else 1f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                label = "back-press",
+            )
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .scale(scale)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(Panel2)
+                    .clickable {
+                        pressed = true
+                        onBack()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(SimbaIcons.Back, "Back", tint = Dim, modifier = Modifier.size(17.dp))
+            }
+        }
+
+        Design.Material -> IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+        }
+
+        Design.Console -> Text(
+            "<",
+            color = Accent,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable { onBack() }.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
     }
 }

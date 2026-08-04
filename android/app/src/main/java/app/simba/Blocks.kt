@@ -134,15 +134,23 @@ fun CopyAction(text: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 6.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
-            contentDescription = if (copied) "Copied" else "Copy",
-            tint = if (copied) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-            modifier = Modifier.size(13.dp),
-        )
-        Spacer(Modifier.width(4.dp))
+        // Console says it in words; the other two use the icon plus the word,
+        // because a bare clipboard glyph is guessable and "Copy" is not.
+        if (LocalDesign.current != Design.Console) {
+            Icon(
+                if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                contentDescription = if (copied) "Copied" else "Copy",
+                tint = if (copied) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                modifier = Modifier.size(13.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+        }
         Text(
-            if (copied) "Copied" else "Copy",
+            if (LocalDesign.current == Design.Console) {
+                if (copied) "[copied]" else "[copy]"
+            } else {
+                if (copied) "Copied" else "Copy"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = if (copied) MaterialTheme.colorScheme.primary else LocalContentColor.current,
         )
@@ -173,12 +181,7 @@ private fun SummaryRow(
         )
         Spacer(Modifier.width(6.dp))
         Text(sizeHint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Icon(
-            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = if (expanded) "Collapse" else "Expand",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp),
-        )
+        Chevron(expanded, MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -364,12 +367,7 @@ fun ErrorBlock(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Icon(
-                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
+                Chevron(expanded, MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (expanded) {

@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -660,3 +662,55 @@ fun Modifier.screenPad(): Modifier = this.padding(
         Design.Console -> 10.dp
     },
 )
+
+
+/**
+ * A small action in a header or a strip.
+ *
+ * Two representations of the same action, not a fallback: Fluid and Material
+ * get the vector, Console gets the word or the sigil. Console's whole claim is
+ * that it is a terminal, and one Material glyph in a header is enough to make
+ * that read as a theme rather than a design.
+ */
+@Composable
+fun ActionIcon(
+    icon: ImageVector,
+    glyph: String,
+    label: String,
+    tint: Color = Dim,
+    onClick: () -> Unit,
+) {
+    if (LocalDesign.current == Design.Console) {
+        Text(
+            glyph,
+            color = tint,
+            fontSize = 11.5.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.clickable { onClick() }.padding(horizontal = 6.dp, vertical = 4.dp),
+        )
+    } else {
+        IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
+            Icon(icon, label, tint = tint, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** The open/closed indicator on anything that expands. */
+@Composable
+fun Chevron(expanded: Boolean, tint: Color = Dim) {
+    if (LocalDesign.current == Design.Console) {
+        Text(
+            if (expanded) "[-]" else "[+]",
+            color = tint,
+            fontSize = 10.5.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+    } else {
+        Icon(
+            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "Collapse" else "Expand",
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}

@@ -833,7 +833,7 @@ fun MemoryScreen(vm: SimbaVm) {
                 ),
             )
             Spacer(Modifier.width(8.dp))
-            IconButton(onClick = { go() }) { Icon(Icons.Filled.Search, "Search", tint = Accent) }
+            ActionIcon(Icons.Filled.Search, glyph = "[go]", label = "Search", tint = Accent) { go() }
         }
 
         vm.stats?.let {

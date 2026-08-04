@@ -269,19 +269,18 @@ fun ChatScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = { finding = !finding }, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Filled.Search, "Find", tint = if (finding) Accent else Dim, modifier = Modifier.size(18.dp))
-                }
+                ActionIcon(
+                    Icons.Filled.Search,
+                    glyph = "/find",
+                    label = "Find",
+                    tint = if (finding) Accent else Dim,
+                ) { finding = !finding }
                 // Reviewing what a session changed is the point at which unattended
                 // work becomes trustworthy, so it belongs one tap from the
                 // conversation rather than buried somewhere else.
-                IconButton(onClick = { showDiff = true }, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Filled.Difference, "Changes", tint = Dim, modifier = Modifier.size(18.dp))
-                }
+                ActionIcon(Icons.Filled.Difference, glyph = "diff", label = "Changes") { showDiff = true }
                 Box {
-                    IconButton(onClick = { menu = true }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Filled.MoreVert, "Session", tint = Dim, modifier = Modifier.size(18.dp))
-                    }
+                    ActionIcon(Icons.Filled.MoreVert, glyph = "...", label = "Session") { menu = true }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
                             text = { Text("Switch brain") },

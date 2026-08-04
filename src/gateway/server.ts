@@ -12,6 +12,7 @@ import { recall } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
 import { verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
+import { unreapedWorktrees } from '../session/worktree.js';
 import {
   canReachAgent,
   clampModelTier,
@@ -133,6 +134,20 @@ app.get('/api/brains', async (c) => {
       ORDER BY b.priority`,
   );
   return c.json(rows);
+});
+
+/**
+ * Isolated checkouts holding work nobody has collected.
+ *
+ * A worktree is kept rather than deleted whenever it still contains changes,
+ * which is the right call — destroying what an agent produced unattended is not
+ * recoverable. But kept-and-invisible is its own failure: the session list says
+ * "completed" while a directory somewhere holds the only copy of the work. This
+ * is how that stays visible.
+ */
+app.get('/api/worktrees', async (c) => {
+  const pending = await unreapedWorktrees();
+  return c.json(pending);
 });
 
 /**

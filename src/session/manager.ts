@@ -23,6 +23,7 @@ import { OllamaRunner } from '../runner/ollama.js';
 import { OpenCodeRunner } from '../runner/opencode.js';
 import type { LaunchSpec, ModelTier, Runner } from '../runner/types.js';
 import { SessionEngine } from './engine.js';
+import { createWorktree } from './worktree.js';
 import { writeCheckpoint } from '../hydration/checkpoint.js';
 import { buildHydrationBrief } from '../hydration/bundle.js';
 import { writeSessionSettings } from './settings.js';
@@ -175,6 +176,27 @@ export class SessionManager extends EventEmitter {
       ],
     );
 
+    // Isolate the working tree when anything else is already running.
+    //
+    // Two sessions sharing one checkout edit the same files, and the second to
+    // start silently invalidates whatever the first has half-finished. Rather
+    // than always paying for a worktree, this isolates only when there is
+    // something to be isolated *from* — a lone session in an empty system has
+    // nothing to collide with, and the shared checkout is what the user is
+    // actually looking at.
+    //
+    // A continuation deliberately keeps the directory it inherited: the whole
+    // value of a hot handoff is the working tree the previous brain left.
+    let workdir = cwd;
+    const others = this.listLive().filter((s) => s.sessionId !== sessionId).length;
+    if (others > 0 && !opts.continuingSessionId) {
+      const wt = await createWorktree({ repo: cwd, agentSlug: agent.slug, sessionId });
+      // createWorktree returns null outside a git repo. Falling back to the
+      // shared cwd is correct there — isolation that silently does nothing
+      // would be worse than none, and the event log records the attempt.
+      if (wt) workdir = wt.path;
+    }
+
     // A continuation gets the hydration bundle; a fresh session gets the
     // agent's standing context only.
     const brief = await buildHydrationBrief(agent.id, {
@@ -194,7 +216,10 @@ export class SessionManager extends EventEmitter {
       agentSlug: agent.slug,
       brain: toBrainAccount(brain),
       modelTier: opts.modelTier,
-      cwd,
+      // The isolated checkout when there is one. Passing the shared `cwd` here
+      // while the session row records a worktree would have the agent editing
+      // the very files the isolation exists to protect.
+      cwd: workdir,
       // The opening prompt is deliberately not handed to the runner. All user
       // input goes through the engine so it is persisted and sequenced the same
       // way regardless of whether it is the first message or the fiftieth.
@@ -217,7 +242,7 @@ export class SessionManager extends EventEmitter {
       brainId: brain.id,
       cli: brain.cli,
       modelTier: opts.modelTier,
-      cwd,
+      cwd: workdir,
       swapping: false,
     };
     this.live.set(sessionId, liveEntry);

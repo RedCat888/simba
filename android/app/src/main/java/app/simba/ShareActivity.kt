@@ -42,7 +42,7 @@ class ShareActivity : ComponentActivity() {
             return
         }
 
-        setContent { SimbaTheme { CaptureSheet(shared) } }
+        setContent { SimbaThemeHost { CaptureSheet(shared) } }
     }
 
     private fun extractShared(intent: Intent?): String? {
@@ -147,7 +147,7 @@ class ShareActivity : ComponentActivity() {
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Accent,
-                            contentColor = Color(0xFF1A1206),
+                            contentColor = OnAccent,
                         ),
                     ) { Text(if (sending) "Sending…" else "Capture", fontWeight = FontWeight.SemiBold) }
                 }

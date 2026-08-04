@@ -314,6 +314,11 @@ export class MissionExecutor {
         prompt,
         cwd: s.working_dir ?? undefined,
         surfaceId: s.surface_id,
+        // Always isolated. A mission edits for minutes or hours while whoever
+        // asked for it carries on using the same checkout; sharing it makes
+        // files change under them and, when several steps run in sequence,
+        // looks like a swarm of agents fighting over the repository.
+        isolate: true,
       });
 
       if ('error' in result) {

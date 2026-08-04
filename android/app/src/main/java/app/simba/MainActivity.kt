@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -37,8 +38,12 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Transparent bars; which way round the clock and wifi icons are drawn is
+        // decided by SimbaTheme, because the theme is the only thing that knows
+        // whether the chrome behind them ended up light or dark. Pinning it here
+        // was safe only while every design was dark.
         enableEdgeToEdge()
-        setContent { SimbaTheme { SimbaRoot() } }
+        setContent { SimbaThemeHost { SimbaRoot() } }
     }
 }
 
@@ -120,45 +125,45 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
         }
     }
 
-    // A chat takes the whole screen. The top bar and nav are chrome that steals
-    // vertical space from the one view where every line counts.
-    if (openChat != null && ready) {
-        val (sid, title) = openChat!!
-        ChatScreen(
-            vm, sid, title,
+    val chat = openChat
+    when {
+        // A chat is a destination inside the shell like any other, not a screen
+        // that returns before the layout is built. It brings its own header and
+        // composer because the top bar and bottom nav are chrome that steals
+        // vertical space from the one view where every line counts — but its
+        // insets still come from SimbaShell, which is why the header now clears
+        // the status bar and the composer clears the keyboard.
+        chat != null && ready -> ChatScreen(
+            vm, chat.first, chat.second,
             onBack = { openChat = null; vm.refresh() },
             // Re-point the screen at the session the work actually moved to.
             // state is keyed on sessionId, so this reloads history for the
             // continuation rather than leaving the thread watching a dead id.
-            onMoved = { moved -> openChat = moved to title },
+            onMoved = { moved -> openChat = moved to chat.second },
         )
-        return
-    }
 
-    Scaffold(
-        containerColor = Bg,
-        topBar = { SimbaTopBar(vm) },
-        bottomBar = {
-            NavigationBar(containerColor = Panel, tonalElevation = 0.dp) {
-                Tab.entries.forEach { t ->
-                    NavigationBarItem(
-                        selected = tab == t && openMission == null && openChat == null,
-                        onClick = { tab = t; openMission = null; openChat = null },
-                        icon = { Icon(t.icon, contentDescription = t.label) },
-                        label = { Text(t.label, fontSize = 11.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Accent,
-                            selectedTextColor = Accent,
-                            indicatorColor = Panel2,
-                            unselectedIconColor = Faint,
-                            unselectedTextColor = Faint,
-                        ),
-                    )
+        else -> SimbaShell(
+            header = { SimbaTopBar(vm) },
+            bottomBar = {
+                NavigationBar(containerColor = Panel, tonalElevation = 0.dp, windowInsets = NoInsets) {
+                    Tab.entries.forEach { t ->
+                        NavigationBarItem(
+                            selected = tab == t && openMission == null,
+                            onClick = { tab = t; openMission = null; openChat = null },
+                            icon = { Icon(t.icon, contentDescription = t.label) },
+                            label = { Text(t.label, fontSize = 11.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Accent,
+                                selectedTextColor = Accent,
+                                indicatorColor = Panel2,
+                                unselectedIconColor = Faint,
+                                unselectedTextColor = Faint,
+                            ),
+                        )
+                    }
                 }
-            }
-        },
-    ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+            },
+        ) {
             when {
                 !ready -> CenteredNote("Connecting…")
                 openMission != null -> MissionDetailScreen(vm, openMission!!) { openMission = null }
@@ -180,10 +185,18 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
     }
 }
 
+/**
+ * Material's own bars pad themselves for the system bars by default. The shell
+ * already does that for every destination, so they must be told not to, or the
+ * inset is applied twice.
+ */
+internal val NoInsets = WindowInsets(0, 0, 0, 0)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SimbaTopBar(vm: SimbaVm) {
     TopAppBar(
+        windowInsets = NoInsets,
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Panel, titleContentColor = Fg),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -576,7 +589,7 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
                     }
                     Button(
                         onClick = { prompting = a },
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF1A1206)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                     ) { Text("Start", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                 }
@@ -640,7 +653,7 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
                 },
                 enabled = !starting,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF1A1206)),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
             ) {
                 Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
                 Text(
@@ -860,11 +873,18 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
     var verifying by remember { mutableStateOf<String?>(null) }
     var verifyingAll by remember { mutableStateOf(false) }
     var worktrees by remember { mutableStateOf<List<HeldWorktree>>(emptyList()) }
+    var budget by remember { mutableStateOf<ContextBudget?>(null) }
+    var stores by remember { mutableStateOf<StorePressure?>(null) }
+    var curating by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         // Failing quietly is right here: an older gateway has no /api/worktrees,
         // and the whole screen should not break because one section is missing.
         runCatching { vm.api?.worktrees() ?: emptyList() }.onSuccess { worktrees = it }
+        // Both fail quietly: an older gateway lacks these routes, and one
+        // missing section should not blank the whole screen.
+        runCatching { vm.api?.contextBudget("simba") }.onSuccess { budget = it }
+        runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
     }
 
     LaunchedEffect(Unit) {
@@ -1058,6 +1078,115 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
             }
         }
 
+
+        // What every turn pays for, and what it is spent on.
+        //
+        // The brief grew all night and nothing measured the total until it was
+        // asked. Memory turned out to be the largest single consumer, which was
+        // not the guess - so this is here to be looked at rather than assumed.
+        budget?.let { b ->
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("CONTEXT PER TURN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+                Meta("~${tokens(b.estTokens.toLong())} tokens")
+            }
+            Card {
+                b.slices.forEach { sl ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${sl.pct}%",
+                            fontSize = 11.sp,
+                            color = if (sl.pct >= 30) Warn else Faint,
+                            modifier = Modifier.width(34.dp),
+                        )
+                        Box(
+                            Modifier.width((sl.pct.coerceAtMost(60) * 1.6).dp).height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (sl.pct >= 30) Warn else Accent),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(sl.category, color = Fg, fontSize = 11.5.sp)
+                    }
+                    sl.note?.let {
+                        Text(it, color = Faint, fontSize = 10.sp, modifier = Modifier.padding(start = 34.dp, bottom = 3.dp))
+                    }
+                }
+            }
+        }
+
+        // The stores that load every turn, and the button that tidies them.
+        stores?.let { st ->
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("STORES", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (curating) "tidying..." else "curate now",
+                    fontSize = 10.sp,
+                    color = Accent,
+                    modifier = Modifier.clickable(enabled = !curating) {
+                        scope.launch {
+                            curating = true
+                            runCatching { vm.api?.runCuration() }
+                            runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
+                            curating = false
+                        }
+                    },
+                )
+            }
+            Card {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("memory", color = Fg, fontSize = 12.sp)
+                    Meta(
+                        "${st.memory.used}/${st.memory.cap}",
+                        if (st.memory.pct > 75) Warn else Faint,
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("skills", color = Fg, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Meta("${st.skills.enabled} live")
+                        // Never-opened skills cost tokens every turn and have
+                        // returned nothing, which is the whole argument for
+                        // curation being visible rather than silent.
+                        if (st.skills.unused > 0) Meta("${st.skills.unused} unused", Warn)
+                        if (st.skills.archived > 0) Meta("${st.skills.archived} archived")
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        Text("DESIGN", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
+        Card {
+            val design = LocalDesign.current
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Design.entries.forEach { d ->
+                    val on = d == design
+                    Text(
+                        d.label,
+                        fontSize = 12.sp,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) OnAccent else Dim,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (on) Accent else Panel2)
+                            .clickable { scope.launch { ctx.saveDesign(d) } }
+                            .padding(vertical = 9.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+            Text(design.blurb, fontSize = 11.sp, color = Faint)
+        }
+
         Spacer(Modifier.height(4.dp))
         Text("CONNECTION", fontSize = 10.sp, color = Faint, fontWeight = FontWeight.SemiBold)
         Card {
@@ -1118,7 +1247,7 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
             Spacer(Modifier.height(10.dp))
             Button(
                 onClick = { save(url, token, clientId, clientSecret) },
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF1A1206)),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
             ) { Text("Save & reconnect", fontWeight = FontWeight.SemiBold) }
         }
 

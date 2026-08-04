@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 
 enum class KnowledgeView(val label: String) {
     Search("Search"),
+    Memory("Memory"),
     Skills("Skills"),
     Decisions("Decisions"),
 }
@@ -67,6 +68,7 @@ fun KnowledgeScreen(vm: SimbaVm) {
             // Reuses the existing screen rather than a second copy of the same
             // search — one of them would drift.
             KnowledgeView.Search -> MemoryScreen(vm)
+            KnowledgeView.Memory -> MemoryList(vm)
             KnowledgeView.Skills -> SkillsList(vm) { openSkill = it }
             KnowledgeView.Decisions -> DecisionsList(vm)
         }
@@ -280,6 +282,133 @@ private fun DecisionsList(vm: SimbaVm) {
                                 modifier = Modifier.padding(top = 8.dp),
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+/**
+ * What Simba knows without being asked.
+ *
+ * Worth editing from here rather than only from an agent: memory loads on every
+ * turn of every session, so a wrong entry is wrong everywhere until someone
+ * removes it. The pressure bar is shown because the store is deliberately
+ * capped — when it fills, something has to go, and seeing that coming is more
+ * useful than discovering it when a write is refused.
+ */
+@Composable
+private fun MemoryList(vm: SimbaVm) {
+    var view by remember { mutableStateOf<MemoryView?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
+    var kind by remember { mutableStateOf("environment") }
+    val scope = rememberCoroutineScope()
+
+    suspend fun load() {
+        runCatching { vm.api?.memory() }
+            .onSuccess { view = it; error = null }
+            .onFailure { error = it.message }
+    }
+    LaunchedEffect(Unit) { load() }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        view?.let { v ->
+            val used = v.pressure.global.used
+            val cap = v.pressure.global.cap
+            val pct = if (cap > 0) used.toFloat() / cap else 0f
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("$used / $cap remembered", fontSize = 11.sp, color = if (pct > 0.75f) Warn else Faint)
+                Text(
+                    if (adding) "cancel" else "+ remember",
+                    fontSize = 11.sp,
+                    color = Accent,
+                    modifier = Modifier.clickable { adding = !adding },
+                )
+            }
+            LinearProgressIndicator(
+                progress = { pct },
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = if (pct > 0.75f) Warn else Accent,
+                trackColor = Panel2,
+            )
+
+            if (adding) {
+                Spacer(Modifier.height(8.dp))
+                Card {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        label = { Text("One fact, under 400 characters", fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 4,
+                    )
+                    Row(
+                        Modifier.padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        listOf("environment", "convention", "person", "preference").forEach { k ->
+                            Text(
+                                k,
+                                fontSize = 11.sp,
+                                color = if (kind == k) Accent else Faint,
+                                modifier = Modifier.clickable { kind = k },
+                            )
+                        }
+                    }
+                    Text(
+                        "save",
+                        fontSize = 12.sp,
+                        color = Ok,
+                        modifier = Modifier.padding(top = 8.dp).clickable {
+                            scope.launch {
+                                runCatching { vm.api?.addMemory(kind, draft.trim()) }
+                                    .onFailure { error = it.message }
+                                draft = ""; adding = false; load()
+                            }
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        error?.let { Text(it, color = Err, fontSize = 11.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            items(view?.entries.orEmpty(), key = { it.id }) { m ->
+                Card {
+                    Text(m.content, color = Fg, fontSize = 12.sp)
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 5.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Meta(m.kind)
+                            m.source?.let { Meta(it.take(30)) }
+                            if (m.confirmations > 0) Meta("confirmed ${m.confirmations}x", Ok)
+                        }
+                        Text(
+                            "forget",
+                            fontSize = 11.sp,
+                            color = Err,
+                            modifier = Modifier.clickable {
+                                scope.launch {
+                                    runCatching { vm.api?.removeMemory(m.content.take(60)) }
+                                    load()
+                                }
+                            },
+                        )
                     }
                 }
             }

@@ -11,6 +11,24 @@ if ($listening) {
 $root = Split-Path -Parent $PSScriptRoot
 $env:SIMBA_GATEWAY_PORT = "$Port"
 
+# A scheduled task or an old parent process can start without the current
+# user's environment block. Load the persisted Access settings explicitly so a
+# post-reboot gateway still opens the authenticated tunnel listener on 8788.
+$persisted = Get-ItemProperty 'HKCU:\Environment' -ErrorAction SilentlyContinue
+foreach ($name in @(
+    'SIMBA_TUNNEL_ENABLED',
+    'SIMBA_ACCESS_TEAM',
+    'SIMBA_ACCESS_AUD',
+    'SIMBA_ACCESS_EMAILS',
+    'SIMBA_ACCESS_SERVICE_TOKENS',
+    'SIMBA_TUNNEL_PORT'
+)) {
+    $value = $persisted.$name
+    if (-not [string]::IsNullOrWhiteSpace($value)) {
+        [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+    }
+}
+
 # Launch through cmd: npx on Windows is a shim script, which Start-Process
 # cannot execute directly as a FilePath.
 Start-Process -FilePath 'cmd.exe' `

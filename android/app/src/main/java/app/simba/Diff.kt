@@ -48,27 +48,29 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
         loading = false
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "‹ back",
-                color = Accent,
-                fontSize = 13.sp,
-                modifier = Modifier.clickable { onBack() },
-            )
-            Spacer(Modifier.width(12.dp))
-            diff?.let { d ->
-                Text("+${d.totalAdditions}", color = AddFg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.width(6.dp))
-                Text("−${d.totalDeletions}", color = DelFg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.width(10.dp))
-                Text(d.branch ?: "", color = Faint, fontSize = 11.sp)
+    SimbaShell(
+        header = {
+            Row(
+                Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "‹ back",
+                    color = Accent,
+                    fontSize = 13.sp,
+                    modifier = Modifier.clickable { onBack() },
+                )
+                Spacer(Modifier.width(12.dp))
+                diff?.let { d ->
+                    Text("+${d.totalAdditions}", color = AddFg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(6.dp))
+                    Text("−${d.totalDeletions}", color = DelFg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(10.dp))
+                    Text(d.branch ?: "", color = Faint, fontSize = 11.sp)
+                }
             }
-        }
-
+        },
+    ) {
         when {
             loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator(color = Accent, strokeWidth = 2.dp)

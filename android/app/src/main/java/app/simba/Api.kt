@@ -46,6 +46,12 @@ data class Mission(
     @SerialName("max_sessions") val maxSessions: Int = 0,
     @SerialName("cost_used") val costUsed: Double = 0.0,
     @SerialName("max_cost_usd") val maxCost: Double = 0.0,
+    /** A script mission runs a command directly: no model, no session, no steps. */
+    @SerialName("is_script") val isScript: Boolean = false,
+    val cron: String? = null,
+    @SerialName("last_exit_code") val lastExitCode: Int? = null,
+    @SerialName("last_output") val lastOutput: String? = null,
+    @SerialName("last_run_at") val lastRunAt: String? = null,
 )
 
 @Serializable
@@ -215,6 +221,63 @@ data class SendResult(
     /** Set when the work moved to a new session - a revival or a brain swap. */
     val movedTo: String? = null,
 )
+
+@Serializable
+data class MemoryEntry(
+    val id: String = "",
+    val kind: String = "",
+    val content: String = "",
+    val source: String? = null,
+    val confirmations: Int = 0,
+)
+
+@Serializable
+data class MemoryScope(val used: Int = 0, val cap: Int = 0)
+
+@Serializable
+data class MemoryPressure(
+    val global: MemoryScope = MemoryScope(),
+    val own: MemoryScope = MemoryScope(),
+)
+
+@Serializable
+data class MemoryView(
+    val entries: List<MemoryEntry> = emptyList(),
+    val pressure: MemoryPressure = MemoryPressure(),
+)
+
+@Serializable
+data class BudgetSlice(
+    val category: String = "",
+    val chars: Int = 0,
+    val estTokens: Int = 0,
+    val pct: Int = 0,
+    val note: String? = null,
+)
+
+@Serializable
+data class ContextBudget(
+    val agent: String = "",
+    val totalChars: Int = 0,
+    val estTokens: Int = 0,
+    val slices: List<BudgetSlice> = emptyList(),
+)
+
+@Serializable
+data class SkillPressure(
+    val enabled: Int = 0,
+    val archived: Int = 0,
+    val unused: Int = 0,
+)
+
+@Serializable
+data class StorePressure(
+    val memory: MemoryScopePct = MemoryScopePct(),
+    val skills: SkillPressure = SkillPressure(),
+)
+
+@Serializable
+data class MemoryScopePct(val used: Int = 0, val cap: Int = 0, val pct: Int = 0)
 
 @Serializable
 data class Decision(
@@ -396,6 +459,30 @@ class SimbaApi(
 
     suspend fun sessionDiff(id: String): SessionDiff = get("/api/sessions/$id/diff")
     suspend fun worktrees(): List<HeldWorktree> = get("/api/worktrees")
+    suspend fun memory(): MemoryView = get("/api/memory")
+
+    suspend fun addMemory(kind: String, content: String): String = call(
+        req("/api/memory").post(
+            json.encodeToString(
+                kotlinx.serialization.json.JsonObject.serializer(),
+                kotlinx.serialization.json.buildJsonObject {
+                    put("kind", kotlinx.serialization.json.JsonPrimitive(kind))
+                    put("content", kotlinx.serialization.json.JsonPrimitive(content))
+                },
+            ).toRequestBody("application/json".toMediaType()),
+        ).build(),
+    )
+
+    suspend fun removeMemory(match: String): String = call(
+        req("/api/memory?match=" + java.net.URLEncoder.encode(match, "UTF-8")).delete().build(),
+    )
+
+    suspend fun contextBudget(agent: String): ContextBudget = get("/api/agents/$agent/context")
+    suspend fun storePressure(): StorePressure = get("/api/curation")
+    suspend fun runCuration(): String = call(
+        req("/api/curation").post("{}".toRequestBody("application/json".toMediaType())).build(),
+    )
+
     suspend fun skills(): List<Skill> = get("/api/skills")
     suspend fun skill(name: String): SkillDetail = get("/api/skills/$name")
     suspend fun decisions(): List<Decision> = get("/api/decisions?limit=60")

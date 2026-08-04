@@ -22,6 +22,7 @@ object Prefs {
     val GATEWAY = stringPreferencesKey("gateway")
     val TOKEN = stringPreferencesKey("token")
     val LAST_BRIEF = stringPreferencesKey("last_brief")
+    val DESIGN = stringPreferencesKey("design")
 }
 
 const val BRIEF_CHANNEL = "simba_briefs"

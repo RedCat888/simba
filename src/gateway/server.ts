@@ -16,6 +16,7 @@ import { unreapedWorktrees } from '../session/worktree.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
+import { listMemory, addMemory, removeMemory, memoryPressure } from '../knowledge/memory.js';
 import { parseSchedule } from '../missions/schedule.js';
 import {
   canReachAgent,
@@ -209,6 +210,39 @@ app.get('/api/sessions/:id/diff', async (c) => {
  * schedule — this exists so it can be inspected and forced rather than only
  * happening invisibly.
  */
+/**
+ * Memory, for the phone.
+ *
+ * The MCP tools cover an agent editing its own memory. These cover the operator
+ * reading and correcting it, which matters more: memory is loaded on every turn
+ * of every session, so a wrong entry is wrong everywhere until someone removes
+ * it, and until now the only way to see it was to query Postgres.
+ */
+app.get('/api/memory', async (c) => {
+  const rows = await listMemory(null);
+  const pressure = await memoryPressure(null);
+  return c.json({ entries: rows, pressure });
+});
+
+app.post('/api/memory', async (c) => {
+  const b = await c.req.json<{ kind?: string; content?: string; source?: string }>();
+  if (!b.content) return c.json({ error: 'content required' }, 400);
+  const result = await addMemory({
+    kind: (b.kind ?? 'environment') as 'environment' | 'preference' | 'convention' | 'person',
+    content: b.content,
+    source: b.source ?? 'added from the app',
+  });
+  if (!result.ok) return c.json({ error: result.error }, 409);
+  return c.json({ ok: true, pressure: await memoryPressure(null) });
+});
+
+app.delete('/api/memory', async (c) => {
+  const match = c.req.query('match');
+  if (!match) return c.json({ error: 'match required' }, 400);
+  const r = await removeMemory(match, null);
+  return c.json(r);
+});
+
 app.get('/api/curation', async (c) => {
   return c.json(await storePressure());
 });

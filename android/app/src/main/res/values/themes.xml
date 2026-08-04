@@ -1,12 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Simba" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#0B0D10</item>
-        <item name="android:navigationBarColor">#0B0D10</item>
-        <item name="android:windowBackground">#0B0D10</item>
+    <!--
+      Parent is DeviceDefault, not the legacy android:Theme.Material. Nothing in
+      this app inflates an XML view — both activities are ComponentActivity +
+      setContent — so the window theme's only jobs are the pre-first-frame
+      background and suppressing the decor title. The Material 3 colour scheme
+      comes from Compose (Theme.kt), which is also where dynamic colour lives.
+
+      No statusBarColor/navigationBarColor here on purpose: enableEdgeToEdge()
+      overrides both at runtime, and hardcoded dark bars would fight a light or
+      wallpaper-derived scheme.
+    -->
+    <style name="Theme.Simba" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <!-- The only colour drawn before Compose composes. A resource, so
+             values-night can match the scheme instead of always being dark. -->
+        <item name="android:windowBackground">@color/window_background</item>
     </style>
 
-    <style name="Theme.Simba.Transparent" parent="android:Theme.Material.Dialog.NoActionBar">
+    <!--
+      ShareActivity's floating capture sheet. All five items below are what make
+      it a translucent dialog over the app the user shared from; they are
+      explicit overrides, so they do not depend on the parent supplying them.
+    -->
+    <style name="Theme.Simba.Transparent" parent="android:Theme.DeviceDefault.Dialog.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>

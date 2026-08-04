@@ -1,7 +1,6 @@
 package com.operator.simba
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,8 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -39,7 +39,10 @@ sealed interface ChatItem {
 
     data class Msg(val role: String, val text: String, override val at: Long) : ChatItem
     data class Tool(val name: String, val detail: String, val isError: Boolean, override val at: Long) : ChatItem
-    data class Notice(val text: String, val tone: Color, override val at: Long) : ChatItem
+    data class Notice(val text: String, val tone: NoticeTone, override val at: Long) : ChatItem
+
+    /** Something went wrong locally. Kept whole — the cause line is derived, not cut. */
+    data class Failure(val text: String, override val at: Long) : ChatItem
 }
 
 class ChatState {
@@ -84,7 +87,7 @@ fun ChatScreen(
                     tools.map {
                         ChatItem.Tool(
                             it.name,
-                            it.resultText?.take(300) ?: "",
+                            it.resultText.orEmpty(),
                             it.isError,
                             it.seqHint,
                         )
@@ -102,29 +105,40 @@ fun ChatScreen(
             val now = System.currentTimeMillis()
             when (ev) {
                 is StreamEvent.Connected -> { state.connected = true; state.error = null }
-                is StreamEvent.Disconnected -> { state.connected = false; state.error = ev.reason }
+                is StreamEvent.Disconnected -> {
+                    state.connected = false
+                    state.error = ev.reason
+                    // The header can only show one clipped line, so the whole
+                    // reason lands in the thread too — deduped, because a flaky
+                    // link would otherwise repeat itself forever.
+                    val reason = ev.reason.orEmpty()
+                    val last = state.items.lastOrNull()
+                    if (reason.isNotBlank() && !(last is ChatItem.Failure && last.text == reason)) {
+                        state.items.add(ChatItem.Failure(reason, now))
+                    }
+                }
                 is StreamEvent.Text -> if (ev.sessionId == sessionId && ev.text.isNotBlank()) {
                     state.thinking = false
                     state.items.add(ChatItem.Msg(ev.role, ev.text, now))
                 }
                 is StreamEvent.ToolCall -> if (ev.sessionId == sessionId) {
                     state.thinking = true
-                    state.items.add(ChatItem.Tool(ev.name, ev.args.take(200), false, now))
+                    state.items.add(ChatItem.Tool(ev.name, ev.args, false, now))
                 }
                 is StreamEvent.ToolResult -> if (ev.sessionId == sessionId) {
-                    state.items.add(ChatItem.Tool("↳", ev.text.take(300), ev.isError, now))
+                    state.items.add(ChatItem.Tool("↳", ev.text, ev.isError, now))
                 }
                 is StreamEvent.TurnEnd -> if (ev.sessionId == sessionId) state.thinking = false
                 is StreamEvent.RateLimit -> if (ev.sessionId == sessionId && ev.status != "allowed") {
                     state.items.add(
-                        ChatItem.Notice("Usage limit reached — switching brains", Warn, now),
+                        ChatItem.Notice("Usage limit reached — switching brains", NoticeTone.Warn, now),
                     )
                 }
                 is StreamEvent.BrainSwap -> state.items.add(
                     ChatItem.Notice(
                         if (ev.mode == "resume") "Switched accounts — conversation carried over"
                         else "Switched models — continuing from checkpoint",
-                        Accent,
+                        NoticeTone.Neutral,
                         now,
                     ),
                 )
@@ -135,6 +149,20 @@ fun ChatScreen(
     // Follow the tail as things arrive.
     LaunchedEffect(state.items.size) {
         if (state.items.isNotEmpty()) listState.animateScrollToItem(state.items.size - 1)
+    }
+
+    // Follow the tail as the keyboard moves, too. The shell shrinks this list to
+    // make room for the raised composer, and without re-anchoring, the newest
+    // message — the one being replied to — is the first thing to slide out of
+    // view. Driven off the animated inset rather than a visible/hidden flag so
+    // the tail stays pinned for every frame of the keyboard animation, not just
+    // its start.
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    LaunchedEffect(listState, density) {
+        snapshotFlow { ime.getBottom(density) }.collect {
+            if (state.items.isNotEmpty()) listState.scrollToItem(state.items.size - 1)
+        }
     }
 
     fun send() {
@@ -155,7 +183,7 @@ fun ChatScreen(
                         state.items.add(
                             ChatItem.Notice(
                                 "Continued in a new session after a restart or brain swap.",
-                                Accent,
+                                NoticeTone.Neutral,
                                 System.currentTimeMillis(),
                             ),
                         )
@@ -164,7 +192,10 @@ fun ChatScreen(
                 }
                 .onFailure {
                     state.items.add(
-                        ChatItem.Notice("Could not send: ${it.message?.take(90)}", Err, System.currentTimeMillis()),
+                        ChatItem.Failure(
+                            it.message.orEmpty().ifBlank { it.toString() },
+                            System.currentTimeMillis(),
+                        ),
                     )
                     state.thinking = false
                 }
@@ -172,44 +203,79 @@ fun ChatScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // Header
-        Row(
-            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Filled.ArrowBack, "Back", tint = Dim, modifier = Modifier.size(19.dp))
-            }
-            Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(title, color = Fg, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, maxLines = 1)
-                Text(
-                    when {
-                        state.error != null -> state.error!!.take(40)
-                        state.thinking -> "working…"
-                        state.connected -> "live"
-                        else -> "connecting…"
-                    },
-                    fontSize = 10.5.sp,
-                    color = if (state.error != null) Err else if (state.connected) Ok else Faint,
+    SimbaShell(
+        header = {
+            Row(
+                Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Filled.ArrowBack, "Back", tint = Dim, modifier = Modifier.size(19.dp))
+                }
+                Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                    Text(title, color = Fg, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, maxLines = 1)
+                    // Clipped by layout, not by take(N): the full reason is still
+                    // in state.error and reaches the thread as a Failure row.
+                    Text(
+                        when {
+                            state.error != null -> state.error!!
+                            state.thinking -> "working…"
+                            state.connected -> "live"
+                            else -> "connecting…"
+                        },
+                        fontSize = 10.5.sp,
+                        color = if (state.error != null) Err else if (state.connected) Ok else Faint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // Reviewing what a session changed is the point at which unattended
+                // work becomes trustworthy, so it belongs one tap from the
+                // conversation rather than buried somewhere else.
+                IconButton(onClick = { showDiff = true }, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Filled.Difference, "Changes", tint = Dim, modifier = Modifier.size(18.dp))
+                }
+                Box(
+                    Modifier.size(7.dp).clip(RoundedCornerShape(99.dp))
+                        .background(if (state.connected) Ok else Faint),
                 )
             }
-            // Reviewing what a session changed is the point at which unattended
-            // work becomes trustworthy, so it belongs one tap from the
-            // conversation rather than buried somewhere else.
-            IconButton(onClick = { showDiff = true }, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Filled.Difference, "Changes", tint = Dim, modifier = Modifier.size(18.dp))
+        },
+        bottomBar = {
+            Row(
+                Modifier.fillMaxWidth().background(Panel).padding(9.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    placeholder = { Text("Message…", fontSize = 13.sp, color = Faint) },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 5,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Accent, unfocusedBorderColor = Line,
+                        focusedTextColor = Fg, unfocusedTextColor = Fg,
+                    ),
+                )
+                Spacer(Modifier.width(7.dp))
+                FilledIconButton(
+                    onClick = { send() },
+                    enabled = draft.isNotBlank() && !state.sending,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Accent, contentColor = OnAccent,
+                    ),
+                    modifier = Modifier.size(46.dp),
+                ) { Icon(Icons.Filled.Send, "Send", modifier = Modifier.size(19.dp)) }
             }
-            Box(
-                Modifier.size(7.dp).clip(RoundedCornerShape(99.dp))
-                    .background(if (state.connected) Ok else Faint),
-            )
-        }
-
+        },
+    ) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(11.dp),
+            modifier = Modifier.fillMaxSize(),
+            // Bottom-heavy on purpose: the composer sits outside this list, so the
+            // padding is breathing room under the newest message rather than
+            // clearance for the keyboard, which the shell already handles.
+            contentPadding = PaddingValues(start = 11.dp, end = 11.dp, top = 11.dp, bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             items(state.items) { item -> ChatRow(item) }
@@ -221,33 +287,6 @@ fun ChatScreen(
                     }
                 }
             }
-        }
-
-        // Composer
-        Row(
-            Modifier.fillMaxWidth().background(Panel).padding(9.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                placeholder = { Text("Message…", fontSize = 13.sp, color = Faint) },
-                modifier = Modifier.weight(1f),
-                maxLines = 5,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Accent, unfocusedBorderColor = Line,
-                    focusedTextColor = Fg, unfocusedTextColor = Fg,
-                ),
-            )
-            Spacer(Modifier.width(7.dp))
-            FilledIconButton(
-                onClick = { send() },
-                enabled = draft.isNotBlank() && !state.sending,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = Accent, contentColor = Color(0xFF1A1206),
-                ),
-                modifier = Modifier.size(46.dp),
-            ) { Icon(Icons.Filled.Send, "Send", modifier = Modifier.size(19.dp)) }
         }
     }
 }
@@ -281,54 +320,43 @@ private fun ChatRow(item: ChatItem) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(3.dp))
-                    Text(item.text, color = Fg, fontSize = 13.5.sp, lineHeight = 19.sp)
+                    MessageBody(item.text, color = Fg)
                 }
             }
         }
 
-        is ChatItem.Tool -> {
-            var expanded by remember { mutableStateOf(false) }
-            Row(
+        // Pairing a call with its result is the next step's job; this branch only
+        // stops the detail being an unbounded or arbitrarily clipped line.
+        is ChatItem.Tool -> if (item.isError) {
+            ErrorBlock(item.detail, label = item.name)
+        } else {
+            Box(
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0E1116))
-                    .clickable { expanded = !expanded }
+                    .background(Panel2)
                     .padding(horizontal = 9.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (item.isError) "✕" else "▸",
-                    color = if (item.isError) Err else Info,
-                    fontSize = 11.sp,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    item.name,
-                    color = if (item.isError) Err else Info,
-                    fontSize = 11.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    item.detail.replace('\n', ' '),
-                    color = Dim,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = if (expanded) 20 else 1,
-                    modifier = Modifier.weight(1f),
+                ExpandableBody(
+                    item.detail,
+                    monospace = true,
+                    color = Info,
+                    summaryPrefix = item.name,
                 )
             }
         }
 
+        is ChatItem.Failure -> ErrorBlock(item.text, label = "Could not send")
+
         is ChatItem.Notice -> {
+            val tone = noticeColor(item.tone)
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(item.tone.copy(alpha = 0.13f))
+                        .background(tone.copy(alpha = 0.13f))
                         .padding(horizontal = 11.dp, vertical = 6.dp),
-                ) { Text(item.text, color = item.tone, fontSize = 11.5.sp) }
+                ) { Text(item.text, color = tone, fontSize = 11.5.sp) }
             }
         }
     }

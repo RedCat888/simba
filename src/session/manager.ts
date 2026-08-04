@@ -89,6 +89,16 @@ export class SessionManager extends EventEmitter {
     brain?: string;
     /** Which surface this originated from. Recorded so actions inherit its authority. */
     surfaceId?: string | null;
+    /**
+     * Demand an isolated checkout even when nothing else is running.
+     *
+     * Concurrency is not the only reason to isolate. Unattended work in a
+     * repository someone is *using* collides with them just as badly as with
+     * another agent, and far more confusingly: a mission rewriting the Android
+     * client while the operator had it open looked like ten interfering agents when
+     * it was one mission running strictly one session at a time.
+     */
+    isolate?: boolean;
   }): Promise<{ sessionId: string } | { error: string; sleepUntil?: Date }> {
     const agent = await getAgent(opts.agent);
     if (!agent) return { error: `unknown agent: ${opts.agent}` };
@@ -104,6 +114,7 @@ export class SessionManager extends EventEmitter {
         continuingSessionId: opts.continuingSessionId ?? null,
         modelTier: opts.modelTier ?? agent.model_tier,
         surfaceId: opts.surfaceId ?? null,
+        isolate: opts.isolate ?? false,
       });
     }
 
@@ -129,6 +140,7 @@ export class SessionManager extends EventEmitter {
       continuingSessionId: opts.continuingSessionId ?? null,
       modelTier: opts.modelTier ?? agent.model_tier,
       surfaceId: opts.surfaceId ?? null,
+      isolate: opts.isolate ?? false,
     });
   }
 
@@ -144,6 +156,7 @@ export class SessionManager extends EventEmitter {
       modelTier: ModelTier;
       swapCount?: number;
       surfaceId?: string | null;
+      isolate?: boolean;
     },
   ): Promise<{ sessionId: string } | { error: string }> {
     const runner = runners[brain.cli];
@@ -222,7 +235,11 @@ export class SessionManager extends EventEmitter {
     // value of a hot handoff is the working tree the previous brain left.
     let workdir = cwd;
     const others = this.listLive().filter((s) => s.sessionId !== sessionId).length;
-    if (others > 0 && !opts.continuingSessionId) {
+    // Isolate when something else is running, or when the caller demands it.
+    // Mission work demands it: the person who asked for the change is usually
+    // also using the repository, and colliding with them is indistinguishable
+    // from colliding with another agent except that it is more alarming.
+    if ((others > 0 || opts.isolate) && !opts.continuingSessionId) {
       const wt = await createWorktree({ repo: cwd, agentSlug: agent.slug, sessionId });
       // createWorktree returns null outside a git repo. Falling back to the
       // shared cwd is correct there — isolation that silently does nothing

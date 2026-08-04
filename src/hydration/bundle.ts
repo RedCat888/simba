@@ -1,6 +1,7 @@
 import { query, one } from '../db/index.js';
 import { captureGitState } from './git.js';
 import { recall } from '../knowledge/embed.js';
+import { buildSkillIndex } from '../knowledge/skills.js';
 
 /**
  * Context assembly — the component that makes an agent an identity rather than
@@ -65,6 +66,37 @@ export async function buildHydrationBrief(
   );
 
   parts.push(section('Standing brief', agent.standing_brief));
+
+  // ---- Skills: the index only, never the bodies -----------------------------
+  //
+  // This costs tokens on every turn of every session, which is exactly why only
+  // the index goes here. An agent needs to know a procedure exists in order to
+  // ask for it; it does not need the procedure until it uses it.
+  //
+  // The instruction below is the self-improving half, and it is instruction
+  // rather than machinery on purpose: nothing can detect "this agent just worked
+  // out something reusable" from the outside, but the agent that did it knows.
+  const skillIndex = await buildSkillIndex(agent.slug);
+  if (skillIndex) {
+    parts.push(
+      section(
+        'Skills',
+        `Procedures already worked out, so you do not have to rediscover them. ` +
+          `These are one-line summaries — call \`skill_view(name)\` to load the full ` +
+          `procedure before relying on it.\n\n${skillIndex}\n\n` +
+          `Keep this store alive as you work:\n` +
+          `- When you work out a procedure worth repeating, save it with \`skill_save\`. ` +
+          `Lead the description with the trigger ("Use when …") — only the first 57 ` +
+          `characters appear in this index, so anything after that is invisible here.\n` +
+          `- When a skill turns out to be wrong, incomplete, or out of date, fix it with ` +
+          `\`skill_save\` immediately. Do not wait to be asked, and do not work around it ` +
+          `silently — the next agent will hit the same wall. Previous versions are kept, ` +
+          `so revising is safe.\n` +
+          `- Reusable procedure goes in a skill. What happened in this session goes in a ` +
+          `note or a document. Do not confuse the two.`,
+      ),
+    );
+  }
 
   // ---- Prior work: rolling summaries across this agent's history ----------
   const summaries = await query<{ title: string | null; summary: string | null; created_at: Date }>(

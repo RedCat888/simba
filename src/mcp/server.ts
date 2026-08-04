@@ -8,6 +8,7 @@ import {
 
 import { query, one, transaction, recordEvent } from '../db/index.js';
 import { recall } from '../knowledge/embed.js';
+import { viewSkill, listSkills, saveSkill } from '../knowledge/skills.js';
 import { checkAction, logDenial, type Surface } from '../policy/surface.js';
 
 /**
@@ -119,6 +120,45 @@ const TOOLS = [
         limit: { type: 'number' },
       },
       required: ['q'],
+    },
+  },
+  {
+    name: 'skill_view',
+    description:
+      'Load the full text of a skill by name. The Skills section of your brief lists only ' +
+      'one-line summaries; read the real procedure with this before relying on it.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'skill_list',
+    description:
+      'List every skill with its full description. Use when the one-line index in your ' +
+      'brief was not enough to tell whether a skill applies.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'skill_save',
+    description:
+      'Save a reusable procedure as a skill, or correct one that is wrong. Use this whenever ' +
+      'you work something out that you would otherwise have to rediscover, and whenever you ' +
+      'find an existing skill inaccurate — passing an existing name revises it and keeps the ' +
+      'old version. Lead the description with the trigger ("Use when …"): only its first 57 ' +
+      'characters appear in the always-loaded index. The body should be a concrete procedure ' +
+      'with real commands, not advice.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'lowercase-kebab-case, max 64 chars.' },
+        description: { type: 'string', description: 'Trigger first. "Use when …".' },
+        body: { type: 'string', description: 'Markdown. The actual procedure.' },
+        tags: { type: 'array', items: { type: 'string' } },
+        note: { type: 'string', description: 'Why you are writing or changing this.' },
+      },
+      required: ['name', 'description', 'body'],
     },
   },
   {
@@ -429,6 +469,49 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
             relevance: Number((1 - h.distance).toFixed(3)),
             content: h.content.slice(0, 1200),
           })),
+        );
+      }
+
+      case 'skill_view': {
+        const skill = await viewSkill(String(args.name));
+        if (!skill) {
+          // Names are guessable and models guess. Listing what does exist turns
+          // a dead end into a usable answer.
+          const available = await listSkills();
+          return text(
+            `No skill named "${String(args.name)}". Available: ` +
+              (available.map((s) => s.name).join(', ') || '(none)'),
+          );
+        }
+        return text(
+          `# ${skill.name} (v${skill.version})\n${skill.description}\n\n${skill.body}`,
+        );
+      }
+
+      case 'skill_list': {
+        const all = await listSkills();
+        if (all.length === 0) return text('No skills recorded yet.');
+        return text(
+          all
+            .map((s) => `- ${s.name} (used ${s.use_count}×) — ${s.description}`)
+            .join('\n'),
+        );
+      }
+
+      case 'skill_save': {
+        const result = await saveSkill({
+          name: String(args.name),
+          description: String(args.description),
+          body: String(args.body),
+          tags: Array.isArray(args.tags) ? (args.tags as string[]) : undefined,
+          note: args.note ? String(args.note) : undefined,
+          sessionId: SESSION_ID,
+          source: 'learned',
+        });
+        return text(
+          result.created
+            ? `Skill "${result.name}" created.`
+            : `Skill "${result.name}" revised to v${result.version}. Previous version kept.`,
         );
       }
 

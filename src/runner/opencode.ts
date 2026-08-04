@@ -181,6 +181,20 @@ class OpenCodeSession implements RunnerSession {
 
     args.push('--dir', this.spec.cwd);
 
+    // Attached only on the opening turn — a resumed session already has the
+    // brief in its history, and re-sending it every turn would re-pay for
+    // context the model can already see.
+    //
+    // `--file=` rather than `-f <path>`: the flag is declared as an array, so
+    // the space-separated form greedily consumes the next argument too. That
+    // silently ate the prompt and the turn failed with "File not found: Do
+    // exactly two things and report what happened…" — the message itself being
+    // reported as a missing filename. The `=` form binds exactly one value, and
+    // a real flag follows it below so the array is terminated either way.
+    if (this.briefPath && !this.nativeSessionId) {
+      args.push(`--file=${this.briefPath}`);
+    }
+
     if (this.nativeSessionId) {
       args.push('-s', this.nativeSessionId);
       // --fork requires --session or --continue, hence its placement here.
@@ -194,13 +208,7 @@ class OpenCodeSession implements RunnerSession {
 
     if (this.spec.effort) args.push('--variant', this.spec.effort);
 
-    // Attached only on the opening turn — a resumed session already has the
-    // brief in its own history, and re-attaching it every turn would re-pay the
-    // tokens for context the model can already see.
-    if (this.briefPath && !this.nativeSessionId) {
-      args.push('-f', this.briefPath);
-    }
-
+    // The message goes last, after every flag, so nothing can absorb it.
     args.push(prompt);
 
     const env: NodeJS.ProcessEnv = { ...process.env, ...this.spec.brain.env, ...this.spec.env };

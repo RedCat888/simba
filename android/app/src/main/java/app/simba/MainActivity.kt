@@ -870,6 +870,9 @@ private fun SystemScreen(
     var curating by remember { mutableStateOf(false) }
     var events by remember { mutableStateOf<List<SystemEvent>>(emptyList()) }
     var allEvents by remember { mutableStateOf(false) }
+    var memory by remember { mutableStateOf<List<MemorySample>>(emptyList()) }
+    var spend by remember { mutableStateOf<List<UsageDay>>(emptyList()) }
+    var surfaces by remember { mutableStateOf<List<Surface>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         // Failing quietly is right here: an older gateway has no /api/worktrees,
@@ -880,6 +883,9 @@ private fun SystemScreen(
         runCatching { vm.api?.contextBudget("simba") }.onSuccess { budget = it }
         runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
         runCatching { vm.api?.events() ?: emptyList() }.onSuccess { events = it }
+        runCatching { vm.api?.memory(hours = 24) ?: emptyList() }.onSuccess { memory = it }
+        runCatching { vm.api?.usageTimeline() ?: emptyList() }.onSuccess { spend = it }
+        runCatching { vm.api?.surfaces() ?: emptyList() }.onSuccess { surfaces = it }
     }
 
     LaunchedEffect(Unit) {
@@ -890,6 +896,40 @@ private fun SystemScreen(
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        if (memory.isNotEmpty()) {
+            SectionHeading("Machine") {
+                Meta("${memory.last().totalMb / 1024}GB total", Faint)
+            }
+            MemoryChart(memory)
+        }
+
+        if (spend.isNotEmpty()) {
+            SectionHeading("Spend") {
+                Meta("$" + "%.2f".format(spend.sumOf { it.cost }) + " over 14 days", Faint)
+            }
+            SpendChart(spend)
+        }
+
+        if (surfaces.isNotEmpty()) {
+            SectionHeading("Where requests come from")
+            surfaces.forEach { sf ->
+                ItemRow(
+                    title = sf.name,
+                    // Trust level is the security model made visible, and the
+                    // phone is deliberately a lower-trust surface than the
+                    // desktop — worth being able to see from the phone.
+                    subtitle = "trust ${sf.trustLevel} · caps model tier at ${sf.maxModelTier ?: "any"}",
+                    badge = when {
+                        !sf.enabled -> ItemMeta("disabled", Tone.Neutral)
+                        sf.awaitingConfirmation > 0 -> ItemMeta("${sf.awaitingConfirmation} waiting", Tone.Warn)
+                        sf.activeSessions > 0 -> ItemMeta("${sf.activeSessions} live", Tone.Good)
+                        else -> null
+                    },
+                    meta = listOf(ItemMeta("${sf.totalSessions} sessions")),
+                )
+            }
+        }
+
         // Agents and Knowledge stopped being tabs because neither is a task —
         // one is a directory that changes monthly, the other is occasional
         // curation. They are still one tap away, and stating what is inside
@@ -1272,5 +1312,93 @@ private fun SystemScreen(
             },
             dismissButton = { TextButton(onClick = { confirmPanic = false }) { Text("Cancel", color = Dim) } },
         )
+    }
+}
+
+
+/**
+ * Twenty-four hours of machine memory, by process.
+ *
+ * Stacked rather than a single free-memory line because the useful question is
+ * not "how much is left" but "what took it". A night where Claude Desktop grew
+ * from 1.5GB to 6GB looks identical to one where twenty small processes did,
+ * unless the bands are separated.
+ */
+@Composable
+private fun MemoryChart(samples: List<MemorySample>) {
+    val latest = samples.last()
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(radius.medium))
+            .background(Panel)
+            .padding(space.roomy),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("${latest.freeMb / 1024}GB free", style = type.heading, color = Fg)
+            Text("${latest.processCount} processes", style = type.caption, color = Faint)
+        }
+        PressureBar(latest.pressure, Modifier.padding(top = space.snug))
+
+        StackedArea(
+            bands = listOf(
+                Band("claude", samples.map { it.claudeDesktopMb + it.claudeCodeMb.toFloat() }, Accent),
+                Band("simba", samples.map { it.simbaMb.toFloat() }, Info),
+                Band("ollama", samples.map { it.ollamaMb.toFloat() }, Ok),
+                Band("postgres", samples.map { it.postgresMb.toFloat() }, Warn),
+            ),
+            modifier = Modifier.padding(top = space.base),
+            total = latest.totalMb.toFloat(),
+        )
+        Row(
+            Modifier.padding(top = space.snug),
+            horizontalArrangement = Arrangement.spacedBy(space.base),
+        ) {
+            listOf("claude" to Accent, "simba" to Info, "ollama" to Ok, "postgres" to Warn)
+                .forEach { (label, c) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(6.dp).clip(RoundedCornerShape(radius.pill)).background(c))
+                        Text(label, style = type.micro, color = Faint, modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+        }
+    }
+}
+
+/**
+ * Fourteen days of spend.
+ *
+ * Bars rather than a line: spend is a discrete daily quantity, and a line
+ * between two days implies values in between that do not exist. Today is
+ * highlighted because "am I spending more than usual" is the only question this
+ * chart is ever asked.
+ */
+@Composable
+private fun SpendChart(days: List<UsageDay>) {
+    // The API returns one row per brain per day; the chart is about the total.
+    val byDay = days.groupBy { it.day }.toSortedMap()
+    val totals = byDay.values.map { rows -> rows.sumOf { it.cost }.toFloat() }
+    val free = days.filter { it.cost == 0.0 }.sumOf { it.tokens }
+
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(radius.medium))
+            .background(Panel)
+            .padding(space.roomy),
+    ) {
+        BarSeries(totals, highlight = totals.lastIndex)
+        Row(
+            Modifier.fillMaxWidth().padding(top = space.snug),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(byDay.keys.firstOrNull().orEmpty(), style = type.micro, color = Faint)
+            // Free volume beside paid spend is the point of the failover ladder:
+            // a large number here is work that cost nothing.
+            if (free > 0) {
+                Text("${tokens(free)} tokens at no cost", style = type.micro, color = Ok)
+            }
+            Text(byDay.keys.lastOrNull().orEmpty(), style = type.micro, color = Faint)
+        }
     }
 }

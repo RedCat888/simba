@@ -136,7 +136,7 @@ private fun FluidNav(
 ) {
     val radius by animateDpAsState(
         if (open) 26.dp else 30.dp,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "radius",
     )
     val scrimAlpha by animateFloatAsState(if (open) 0.55f else 0f, tween(220), label = "scrim")
@@ -207,7 +207,7 @@ private fun FluidNav(
                 val pressed = remember { mutableStateOf(false) }
                 val scale by animateFloatAsState(
                     if (pressed.value) 0.94f else 1f,
-                    spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
                     label = "press",
                 )
                 Row(

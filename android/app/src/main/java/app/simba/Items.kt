@@ -124,9 +124,13 @@ private fun FluidItem(
     open: Boolean,
     expanded: (@Composable () -> Unit)?,
 ) {
+    // 0.985 rather than 0.995: the old value moved a 368dp card by 1.8dp, which
+    // is under two device pixels and cannot be seen. No bounce — a row settling
+    // into place is an acknowledgement, and an acknowledgement that wobbles
+    // reads as an animation rather than as a response.
     val scale by animateFloatAsState(
-        if (open) 1f else 0.995f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        if (open) 1f else 0.985f,
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "item-scale",
     )
     Column(
@@ -654,7 +658,7 @@ fun BackButton(onBack: () -> Unit) {
             var pressed by remember { mutableStateOf(false) }
             val scale by animateFloatAsState(
                 if (pressed) 0.88f else 1f,
-                spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
                 label = "back-press",
             )
             Box(

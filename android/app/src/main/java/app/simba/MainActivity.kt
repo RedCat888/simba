@@ -287,36 +287,45 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
     ) {
         item { ErrorBanner(vm.error) }
 
+        // The brief, when there is one worth showing. Sentence case and the
+        // type scale rather than three bespoke font sizes; the decision it
+        // wants is the only part that gets colour.
         vm.briefs.firstOrNull()?.let { b ->
             item {
-                Card(Modifier.screenPad()) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top,
-                    ) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .screenPad()
+                        .padding(top = space.snug)
+                        .clip(RoundedCornerShape(radius.medium))
+                        .background(Panel)
+                        .padding(space.roomy),
+                ) {
+                    Text(b.headline, style = type.heading, color = Fg)
+                    if (b.body.isNotBlank()) {
                         Text(
-                            b.headline,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.5.sp,
-                            color = Fg,
-                            modifier = Modifier.weight(1f),
+                            b.body,
+                            style = type.bodySmall,
+                            color = Dim,
+                            modifier = Modifier.padding(top = space.snug),
                         )
                     }
-                    if (b.body.isNotBlank()) {
-                        Text(b.body, fontSize = 12.5.sp, color = Dim, modifier = Modifier.padding(top = 6.dp))
-                    }
                     b.needsDecision?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Accent.copy(alpha = 0.12f))
-                                .padding(9.dp),
-                        ) { Text("Needs you: $it", fontSize = 12.sp, color = Accent) }
+                        Text(
+                            "NEEDS YOU",
+                            style = type.micro,
+                            color = Accent,
+                            modifier = Modifier.padding(top = space.base),
+                        )
+                        Text(it, style = type.bodySmall, color = Fg)
                     }
                     b.stuck?.takeIf { it.isNotBlank() }?.let {
-                        Text("Stuck: $it", fontSize = 12.sp, color = Warn, modifier = Modifier.padding(top = 6.dp))
+                        Text(
+                            "STUCK",
+                            style = type.micro,
+                            color = Warn,
+                            modifier = Modifier.padding(top = space.base),
+                        )
+                        Text(it, style = type.bodySmall, color = Dim)
                     }
                 }
             }
@@ -327,7 +336,7 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
                 SectionHeading("Missions") {
                     Text(
                         "+ new",
-                        fontSize = 12.sp,
+                        style = type.label,
                         color = Accent,
                         modifier = Modifier.clickable { creating = true },
                     )
@@ -344,7 +353,42 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
             }
         }
 
-        items(vm.missions, key = { it.id }) { m -> MissionCard(m) { open(m.id) } }
+        // Grouped by what you would do about it, not by created_at.
+        //
+        // A flat list sorted by recency puts a mission that has been blocked
+        // since 2am below three that finished cleanly, which is exactly backwards:
+        // the finished ones need nothing and the blocked one is the reason you
+        // opened the app. Sections that are empty do not appear at all, so the
+        // common case — everything running — is three rows and no chrome.
+        val groups = listOf(
+            Triage("Needs you", Tone.Warn) { it.status == "blocked" || it.blockedReason != null },
+            Triage("Running", Tone.Good) { it.status == "running" },
+            Triage("Scheduled", Tone.Neutral) { it.cron != null && it.status !in RUNNING_STATES },
+            Triage("Planning", Tone.Neutral) { it.status == "planning" },
+            Triage("Finished", Tone.Neutral) { it.status in setOf("completed", "cancelled", "failed") },
+        )
+
+        val seen = mutableSetOf<String>()
+        groups.forEach { g ->
+            val rows = vm.missions.filter { it.id !in seen && g.match(it) }
+            if (rows.isEmpty()) return@forEach
+            rows.forEach { seen += it.id }
+            item {
+                SectionHeading(g.label) {
+                    Text("${rows.size}", style = type.caption, color = g.tone.color())
+                }
+            }
+            items(rows, key = { it.id }) { m -> MissionCard(m) { open(m.id) } }
+        }
+
+        // Anything the groups did not claim. Without this a status nobody
+        // anticipated would silently vanish from the screen, which is the worst
+        // possible failure mode for a list of things that run unattended.
+        val rest = vm.missions.filter { it.id !in seen }
+        if (rest.isNotEmpty()) {
+            item { SectionHeading("Other") }
+            items(rest, key = { it.id }) { m -> MissionCard(m) { open(m.id) } }
+        }
     }
 
     if (creating) {
@@ -451,6 +495,15 @@ private fun NewMissionDialog(onDismiss: () -> Unit, onCreate: (String, String, S
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Dim) } },
     )
 }
+
+/** One triage bucket: a heading, a tone, and what belongs in it. */
+private class Triage(
+    val label: String,
+    val tone: Tone,
+    val match: (Mission) -> Boolean,
+)
+
+private val RUNNING_STATES = setOf("running", "planning", "blocked")
 
 @Composable
 private fun MissionCard(m: Mission, onClick: () -> Unit) {
@@ -568,6 +621,12 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
 private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
     var prompting by remember { mutableStateOf<Agent?>(null) }
 
+    // Tier 0 is the brain and tier 1 are the workers, which is the single most
+    // important thing about an agent and was previously a chip reading "tier 0"
+    // among four other chips. Splitting the list says it without a label.
+    val brain = vm.agents.filter { it.tier == 0 }
+    val workers = vm.agents.filter { it.tier != 0 }.sortedBy { it.tier }
+
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -576,22 +635,28 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
         if (vm.agents.isEmpty() && vm.error == null) {
             item { EmptyState("No agents yet", "Agents are created from the desktop or by Simba itself.") }
         }
-        items(vm.agents, key = { it.id }) { a ->
-            ItemRow(
-                title = a.name,
-                subtitle = a.description,
-                meta = buildList {
-                    add(ItemMeta("tier ${a.tier}", if (a.tier == 0) Tone.Accented else Tone.Neutral))
-                    add(ItemMeta(a.modelTier))
-                    if (a.activeSessions > 0) add(ItemMeta("${a.activeSessions} live", Tone.Accented))
-                    if (a.totalCost > 0) add(ItemMeta("$" + "%.2f".format(a.totalCost)))
-                },
-                badge = ItemMeta(a.status, toneFor(a.status)),
-                // Tapping the row starts it. A separate button inside a row is
-                // a third tap target competing with the row and the design's own
-                // expansion, and every design would have to place it differently.
-                onClick = { prompting = a },
-            )
+
+        if (brain.isNotEmpty()) {
+            item {
+                SectionHeading("The brain") {
+                    Text("tier 0", style = type.micro, color = Accent)
+                }
+            }
+            items(brain, key = { it.id }) { AgentRow(it) { prompting = it } }
+        }
+
+        if (workers.isNotEmpty()) {
+            item {
+                SectionHeading("Workers") {
+                    val live = workers.sumOf { it.activeSessions }
+                    Text(
+                        if (live > 0) "$live running" else "${workers.size} idle",
+                        style = type.caption,
+                        color = if (live > 0) Ok else Faint,
+                    )
+                }
+            }
+            items(workers, key = { it.id }) { AgentRow(it) { prompting = it } }
         }
     }
 
@@ -713,6 +778,33 @@ private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
         },
         badge = ItemMeta(s.status, toneFor(s.status)),
         onClick = onClick,
+    )
+}
+
+/**
+ * One agent.
+ *
+ * The model tier is the only configuration on an agent that changes what it
+ * costs and how well it works, so it is stated plainly rather than as a chip
+ * among chips. Total spend is deliberately absent from the row: it is a
+ * lifetime number, it never goes down, and a large one says nothing about
+ * whether the agent is behaving now.
+ */
+@Composable
+private fun AgentRow(a: Agent, onStart: () -> Unit) {
+    ItemRow(
+        title = a.name,
+        subtitle = a.description,
+        meta = buildList {
+            add(ItemMeta(a.modelTier))
+            a.domain?.takeIf { it.isNotBlank() }?.let { add(ItemMeta(it)) }
+            if (a.activeSessions > 0) add(ItemMeta("${a.activeSessions} live", Tone.Accented))
+        },
+        badge = ItemMeta(a.status, toneFor(a.status)),
+        // Tapping the row starts it. A separate button inside a row is a third
+        // tap target competing with the row and the design's own expansion, and
+        // every design would have to place it differently.
+        onClick = onStart,
     )
 }
 

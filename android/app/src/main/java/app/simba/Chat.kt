@@ -654,6 +654,10 @@ private fun Composer(
             }
             AnimatedVisibility(
                 visible = enabled,
+                // Kept bouncy on purpose, and the only one in the app that is:
+                // this marks a threshold being crossed — the message became
+                // sendable — rather than a surface moving. A threshold is what a
+                // spring is actually for.
                 enter = fadeIn(spring()) + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
                 exit = fadeOut() + scaleOut(),
             ) {

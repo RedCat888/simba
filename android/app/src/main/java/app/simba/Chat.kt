@@ -104,6 +104,7 @@ fun ChatScreen(
     var finding by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
+    var confirmingStop by remember { mutableStateOf(false) }
 
     if (showDiff) {
         DiffScreen(vm, sessionId) { showDiff = false }
@@ -265,6 +266,30 @@ fun ChatScreen(
         }
     }
 
+    if (confirmingStop) {
+        ConfirmDialog(
+            title = "Stop this session?",
+            consequence = "The agent is killed where it is. Anything it had written " +
+                "to disk stays, and its worktree is kept for review.",
+            confirmLabel = "Stop it",
+            onConfirm = {
+                scope.launch {
+                    runCatching { vm.api?.killSession(sessionId) }
+                        .onFailure {
+                            state.items.add(
+                                ChatItem.Failure(
+                                    "Could not stop this session: ${it.message}",
+                                    System.currentTimeMillis(),
+                                ),
+                            )
+                        }
+                    vm.refresh()
+                }
+            },
+            onDismiss = { confirmingStop = false },
+        )
+    }
+
     SimbaShell(
         header = {
             Row(
@@ -321,21 +346,7 @@ fun ChatScreen(
                         )
                         DropdownMenuItem(
                             text = { Text("Stop this session", color = Err) },
-                            onClick = {
-                                menu = false
-                                scope.launch {
-                                    runCatching { vm.api?.killSession(sessionId) }
-                                        .onFailure {
-                                            state.items.add(
-                                                ChatItem.Failure(
-                                                    "Could not stop this session: ${it.message}",
-                                                    System.currentTimeMillis(),
-                                                ),
-                                            )
-                                        }
-                                    vm.refresh()
-                                }
-                            },
+                            onClick = { menu = false; confirmingStop = true },
                         )
                     }
                 }

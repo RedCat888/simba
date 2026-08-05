@@ -17,6 +17,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -327,6 +331,19 @@ private fun Meter(label: String, value: String, fraction: Float) {
  */
 @Composable
 private fun Controls(m: MissionFull, busy: Boolean, onAction: (String) -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+
+    if (confirming) {
+        ConfirmDialog(
+            title = "Stop this mission?",
+            consequence = "Any step running right now is killed and the mission " +
+                "will not resume on its own. Its work so far is kept.",
+            confirmLabel = "Stop it",
+            onConfirm = { onAction("cancel") },
+            onDismiss = { confirming = false },
+        )
+    }
+
     val available = buildList {
         if (m.status == "running") add("pause" to "Pause")
         if (m.status in setOf("paused", "blocked")) add("resume" to "Resume")
@@ -344,7 +361,12 @@ private fun Controls(m: MissionFull, busy: Boolean, onAction: (String) -> Unit) 
                 Modifier.weight(1f)
                     .clip(RoundedCornerShape(radius.small))
                     .background(Raised)
-                    .clickable(enabled = !busy) { onAction(action) }
+                    // Stop is the only one here that ends work in flight, and
+                    // it sits beside Resume and Retry where a stray thumb finds
+                    // it. The others are all recoverable by tapping again.
+                    .clickable(enabled = !busy) {
+                        if (action == "cancel") confirming = true else onAction(action)
+                    }
                     .padding(vertical = space.base),
                 contentAlignment = Alignment.Center,
             ) {

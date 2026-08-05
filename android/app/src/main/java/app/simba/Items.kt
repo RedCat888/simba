@@ -812,3 +812,46 @@ fun shortPath(path: String, maxChars: Int = 40): String {
  * than the first time a brain logs itself out at 3am.
  */
 fun statusLabel(status: String): String = status.replace('_', ' ')
+
+
+/**
+ * Ask before destroying something.
+ *
+ * Deliberately not applied to everything irreversible — a confirmation on every
+ * action is a dialog people learn to dismiss without reading, which is worse
+ * than none because it launders the dangerous ones through the same reflex.
+ *
+ * The test used here is: does this end work that is currently running, or throw
+ * away something that cannot be recreated? Stopping a mission that has been
+ * going for hours qualifies. Benching a brain does not — there is a Restore
+ * button right next to it. Declining an approval does not — the agent asks
+ * again.
+ *
+ * The body states the consequence rather than restating the question. "Are you
+ * sure?" tells you nothing you did not know when you tapped.
+ */
+@Composable
+fun ConfirmDialog(
+    title: String,
+    consequence: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Raised,
+        title = { Text(title, style = type.heading, color = Fg) },
+        text = { Text(consequence, style = type.bodySmall, color = Dim) },
+        confirmButton = {
+            TextButton(onClick = { onDismiss(); onConfirm() }) {
+                Text(confirmLabel, style = type.label, color = Err)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", style = type.label, color = Dim)
+            }
+        },
+    )
+}

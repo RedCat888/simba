@@ -89,7 +89,7 @@ class ShareActivity : ComponentActivity() {
                     .background(Panel)
                     .padding(18.dp),
             ) {
-                Text("Capture to Simba", color = Accent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("Capture to Simba", color = Accent, fontWeight = FontWeight.Bold, style = type.heading)
 
                 Spacer(Modifier.height(10.dp))
                 Box(
@@ -98,14 +98,14 @@ class ShareActivity : ComponentActivity() {
                         .background(Panel2)
                         .padding(11.dp),
                 ) {
-                    Text(shared.take(320), color = Dim, fontSize = 12.5.sp, maxLines = 6)
+                    Text(shared.take(320), color = Dim, style = type.label, maxLines = 6)
                 }
 
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("What should Simba do with this? (optional)", fontSize = 11.5.sp) },
+                    label = { Text("What should Simba do with this? (optional)", style = type.caption) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -117,7 +117,7 @@ class ShareActivity : ComponentActivity() {
                 )
 
                 failure?.let {
-                    Text(it.take(140), color = Err, fontSize = 11.5.sp, modifier = Modifier.padding(top = 8.dp))
+                    Text(it.take(140), color = Err, style = type.caption, modifier = Modifier.padding(top = 8.dp))
                 }
 
                 Spacer(Modifier.height(14.dp))

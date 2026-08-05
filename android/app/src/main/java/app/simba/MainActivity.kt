@@ -247,17 +247,17 @@ fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> U
 private fun ErrorBanner(error: String?) {
     AnimatedVisibility(error != null) {
         Card(Modifier.screenPad().padding(vertical = 6.dp)) {
-            Text("Cannot reach Simba", color = Err, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text("Cannot reach Simba", color = Err, fontWeight = FontWeight.SemiBold, style = type.bodySmall)
             Text(
                 error.orEmpty().take(160),
                 color = Dim,
-                fontSize = 12.sp,
+                style = type.label,
                 modifier = Modifier.padding(top = 3.dp),
             )
             Text(
                 "The PC may be asleep, or the tunnel is down.",
                 color = Faint,
-                fontSize = 11.5.sp,
+                style = type.caption,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -436,14 +436,14 @@ private fun NewMissionDialog(onDismiss: () -> Unit, onCreate: (String, String, S
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title", fontSize = 12.sp) },
+                    label = { Text("Title", style = type.label) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = objective,
                     onValueChange = { objective = it },
-                    label = { Text("What should it achieve?", fontSize = 12.sp) },
+                    label = { Text("What should it achieve?", style = type.label) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
                     maxLines = 6,
@@ -451,13 +451,13 @@ private fun NewMissionDialog(onDismiss: () -> Unit, onCreate: (String, String, S
                 OutlinedTextField(
                     value = criteria,
                     onValueChange = { criteria = it },
-                    label = { Text("Done when… (optional)", fontSize = 12.sp) },
+                    label = { Text("Done when… (optional)", style = type.label) },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = repeats, onCheckedChange = { repeats = it })
-                    Text("Run on a schedule", color = Dim, fontSize = 12.5.sp)
+                    Text("Run on a schedule", color = Dim, style = type.label)
                 }
                 // Plain English, because nobody states a recurring objective in
                 // cron and requiring it is what stops the feature being used.
@@ -467,11 +467,11 @@ private fun NewMissionDialog(onDismiss: () -> Unit, onCreate: (String, String, S
                     OutlinedTextField(
                         value = schedule,
                         onValueChange = { schedule = it },
-                        label = { Text("When?", fontSize = 12.sp) },
-                        placeholder = { Text("every morning", fontSize = 12.sp, color = Faint) },
+                        label = { Text("When?", style = type.label) },
+                        placeholder = { Text("every morning", style = type.label, color = Faint) },
                         singleLine = true,
                         supportingText = {
-                            Text("“every morning”, “weekdays at 9”, “every 30 minutes”", fontSize = 10.5.sp)
+                            Text("“every morning”, “weekdays at 9”, “every 30 minutes”", style = type.micro)
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -554,7 +554,7 @@ fun tokens(n: Long): String = when {
 
 @Composable
 fun Meta(text: String, color: Color = Faint) {
-    Text(text, fontSize = 11.sp, color = color)
+    Text(text, style = type.caption, color = color)
 }
 
 /**
@@ -819,12 +819,12 @@ fun PromptDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Panel,
-        title = { Text(title, color = Fg, fontSize = 16.sp) },
+        title = { Text(title, color = Fg, style = type.heading) },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text(label, fontSize = 12.sp) },
+                label = { Text(label, style = type.label) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -870,7 +870,7 @@ fun MemoryScreen(vm: SimbaVm) {
             OutlinedTextField(
                 value = q,
                 onValueChange = { q = it },
-                placeholder = { Text("Ask your own history…", fontSize = 13.sp, color = Faint) },
+                placeholder = { Text("Ask your own history…", style = type.bodySmall, color = Faint) },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
                 // Without declaring the action, the IME shows a newline key and
@@ -892,7 +892,7 @@ fun MemoryScreen(vm: SimbaVm) {
         vm.stats?.let {
             Text(
                 "${it.embeddings} chunks indexed",
-                fontSize = 11.sp,
+                style = type.caption,
                 color = Faint,
                 modifier = Modifier.screenPad().padding(top = 5.dp),
             )
@@ -924,7 +924,7 @@ fun MemoryScreen(vm: SimbaVm) {
                             "${(h.relevance * 100).toInt()}%",
                             if (h.relevance > 0.6f) Tone.Good else Tone.Neutral,
                         ),
-                        expanded = { Text(h.content, fontSize = 12.sp, color = Dim, lineHeight = 17.sp) },
+                        expanded = { Text(h.content, style = type.label, color = Dim, lineHeight = 17.sp) },
                     )
                 }
             }
@@ -1062,10 +1062,10 @@ private fun SystemScreen(
         // the point, not the set. Each row can be asked whether it really works
         // and benched without touching the machine.
         SectionHeading("Brains") {
-            if (verifyingAll) Text("checking…", fontSize = 11.sp, color = Accent)
+            if (verifyingAll) Text("checking…", style = type.caption, color = Accent)
             else Text(
                 "verify all",
-                fontSize = 11.sp,
+                style = type.caption,
                 color = Accent,
                 modifier = Modifier.clickable {
                     scope.launch {
@@ -1120,7 +1120,7 @@ private fun SystemScreen(
                             Text(
                                 "5h · ${tokens(b.input5h)} in / ${tokens(b.output5h)} out" +
                                     if (b.provider == "opencode" || b.cli == "ollama") " · at no cost" else "",
-                                fontSize = 11.5.sp,
+                                style = type.caption,
                                 color = if (b.provider == "opencode" || b.cli == "ollama") Ok else Faint,
                             )
                             Spacer(Modifier.height(8.dp))
@@ -1130,7 +1130,7 @@ private fun SystemScreen(
                         verdict?.let { v ->
                             Text(
                                 v.detail,
-                                fontSize = 11.5.sp,
+                                style = type.caption,
                                 color = if (v.ok) Ok else Err,
                             )
                             Spacer(Modifier.height(8.dp))
@@ -1139,7 +1139,7 @@ private fun SystemScreen(
                             val busy = verifying == b.slug
                             Text(
                                 if (busy) "asking…" else "verify",
-                                fontSize = 12.sp,
+                                style = type.label,
                                 color = if (busy) Faint else Accent,
                                 modifier = Modifier.clickable(enabled = !busy) {
                                     scope.launch {
@@ -1159,7 +1159,7 @@ private fun SystemScreen(
                             )
                             Text(
                                 if (b.enabled) "bench" else "restore",
-                                fontSize = 12.sp,
+                                style = type.label,
                                 color = if (b.enabled) Warn else Ok,
                                 modifier = Modifier.clickable {
                                     scope.launch {
@@ -1182,7 +1182,7 @@ private fun SystemScreen(
         // reads "completed" while a directory somewhere holds the only copy.
         if (worktrees.isNotEmpty()) {
             SectionHeading("Uncollected work") {
-                Text("${worktrees.size} held", fontSize = 11.sp, color = Warn)
+                Text("${worktrees.size} held", style = type.caption, color = Warn)
             }
             worktrees.forEach { w ->
                 ItemRow(
@@ -1197,7 +1197,7 @@ private fun SystemScreen(
                         },
                         if (w.state.originMissing) Tone.Neutral else Tone.Warn,
                     ),
-                    expanded = { Text(w.state.path, color = Faint, fontSize = 11.sp) },
+                    expanded = { Text(w.state.path, color = Faint, style = type.caption) },
                 )
             }
         }
@@ -1220,7 +1220,7 @@ private fun SystemScreen(
                     ) {
                         Text(
                             "${sl.pct}%",
-                            fontSize = 11.sp,
+                            style = type.caption,
                             color = if (sl.pct >= 30) Warn else Faint,
                             modifier = Modifier.width(34.dp),
                         )
@@ -1230,10 +1230,10 @@ private fun SystemScreen(
                                 .background(if (sl.pct >= 30) Warn else Accent),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(sl.category, color = Fg, fontSize = 11.5.sp)
+                        Text(sl.category, color = Fg, style = type.caption)
                     }
                     sl.note?.let {
-                        Text(it, color = Faint, fontSize = 10.sp, modifier = Modifier.padding(start = 34.dp, bottom = 3.dp))
+                        Text(it, color = Faint, style = type.micro, modifier = Modifier.padding(start = 34.dp, bottom = 3.dp))
                     }
                 }
             }
@@ -1244,7 +1244,7 @@ private fun SystemScreen(
             SectionHeading("Stores") {
                 Text(
                     if (curating) "tidying…" else "curate now",
-                    fontSize = 11.sp,
+                    style = type.caption,
                     color = Accent,
                     modifier = Modifier.clickable(enabled = !curating) {
                         scope.launch {
@@ -1258,7 +1258,7 @@ private fun SystemScreen(
             }
             Card(Modifier.padding(horizontal = 16.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("memory", color = Fg, fontSize = 12.sp)
+                    Text("memory", color = Fg, style = type.label)
                     Meta(
                         "${st.memory.used}/${st.memory.cap}",
                         if (st.memory.pct > 75) Warn else Faint,
@@ -1268,7 +1268,7 @@ private fun SystemScreen(
                     Modifier.fillMaxWidth().padding(top = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("skills", color = Fg, fontSize = 12.sp)
+                    Text("skills", color = Fg, style = type.label)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Meta("${st.skills.enabled} live")
                         // Never-opened skills cost tokens every turn and have
@@ -1288,7 +1288,7 @@ private fun SystemScreen(
             SectionHeading("Activity") {
                 Text(
                     if (allEvents) "notable only" else "show all",
-                    fontSize = 11.sp,
+                    style = type.caption,
                     color = Accent,
                     modifier = Modifier.clickable { allEvents = !allEvents },
                 )
@@ -1320,7 +1320,7 @@ private fun SystemScreen(
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("Gateway URL", fontSize = 12.sp) },
+                label = { Text("Gateway URL", style = type.label) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -1332,7 +1332,7 @@ private fun SystemScreen(
             OutlinedTextField(
                 value = token,
                 onValueChange = { token = it },
-                label = { Text("Token (optional)", fontSize = 12.sp) },
+                label = { Text("Token (optional)", style = type.label) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -1343,14 +1343,14 @@ private fun SystemScreen(
             Spacer(Modifier.height(8.dp))
             Text(
                 "Cloudflare Access service token — required when reaching Simba over the tunnel.",
-                fontSize = 11.sp,
+                style = type.caption,
                 color = Faint,
             )
             Spacer(Modifier.height(6.dp))
             OutlinedTextField(
                 value = clientId,
                 onValueChange = { clientId = it },
-                label = { Text("CF-Access-Client-Id", fontSize = 12.sp) },
+                label = { Text("CF-Access-Client-Id", style = type.label) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -1362,7 +1362,7 @@ private fun SystemScreen(
             OutlinedTextField(
                 value = clientSecret,
                 onValueChange = { clientSecret = it },
-                label = { Text("CF-Access-Client-Secret", fontSize = 12.sp) },
+                label = { Text("CF-Access-Client-Secret", style = type.label) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
@@ -1395,7 +1395,7 @@ private fun SystemScreen(
             onDismissRequest = { confirmPanic = false },
             containerColor = Panel,
             title = { Text("Stop everything?", color = Fg) },
-            text = { Text("Kills every running agent session immediately.", color = Dim, fontSize = 13.sp) },
+            text = { Text("Kills every running agent session immediately.", color = Dim, style = type.bodySmall) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmPanic = false

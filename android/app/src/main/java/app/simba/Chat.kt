@@ -253,7 +253,7 @@ fun ChatScreen(
             ) {
                 BackButton(onBack)
                 Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                    Text(title, color = Fg, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, maxLines = 1)
+                    Text(title, color = Fg, fontWeight = FontWeight.SemiBold, style = type.body, maxLines = 1)
                     // Clipped by layout, not by take(N): the full reason is still
                     // in state.error and reaches the thread as a Failure row.
                     Text(
@@ -263,7 +263,7 @@ fun ChatScreen(
                             state.connected -> "live"
                             else -> "connecting…"
                         },
-                        fontSize = 10.5.sp,
+                        style = type.micro,
                         color = if (state.error != null) Err else if (state.connected) Ok else Faint,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -331,12 +331,12 @@ fun ChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f)) {
-                        if (findQuery.isEmpty()) Text("Find in conversation", color = Faint, fontSize = 13.sp)
+                        if (findQuery.isEmpty()) Text("Find in conversation", color = Faint, style = type.bodySmall)
                         BasicTextField(
                             value = findQuery,
                             onValueChange = { findQuery = it },
                             singleLine = true,
-                            textStyle = TextStyle(color = Fg, fontSize = 13.sp),
+                            textStyle = type.bodySmall.copy(color = Fg),
                             cursorBrush = SolidColor(Accent),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -344,7 +344,7 @@ fun ChatScreen(
                     Text(
                         "close",
                         color = Accent,
-                        fontSize = 12.sp,
+                        style = type.label,
                         modifier = Modifier.clickable { finding = false; findQuery = "" }.padding(start = 10.dp),
                     )
                 }
@@ -376,7 +376,7 @@ fun ChatScreen(
                     Text(
                         if (shown.isEmpty()) "No matches" else "${shown.size} matching",
                         color = Faint,
-                        fontSize = 11.sp,
+                        style = type.caption,
                     )
                 }
             }
@@ -389,7 +389,7 @@ fun ChatScreen(
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp, color = Accent)
-                        Text("  thinking", color = Faint, fontSize = 12.sp)
+                        Text("  thinking", color = Faint, style = type.label)
                     }
                 }
             }
@@ -471,7 +471,7 @@ private fun FluidChatRow(item: ChatItem) {
             Text(
                 item.text,
                 color = tone,
-                fontSize = 12.sp,
+                style = type.label,
                 modifier = Modifier
                     .clip(RoundedCornerShape(99.dp))
                     .background(tone.copy(alpha = 0.12f))
@@ -536,7 +536,7 @@ private fun MaterialChatRow(item: ChatItem) {
         is ChatItem.Notice -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             AssistChip(
                 onClick = {},
-                label = { Text(item.text, fontSize = 12.sp) },
+                label = { Text(item.text, style = type.label) },
                 colors = AssistChipDefaults.assistChipColors(labelColor = noticeColor(item.tone)),
             )
         }
@@ -560,7 +560,7 @@ private fun ConsoleChatRow(item: ChatItem) {
                 Text(
                     if (isUser) "you>" else "simba>",
                     color = if (isUser) Accent else Ok,
-                    fontSize = 11.5.sp,
+                    style = type.caption,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(end = 7.dp),
@@ -573,7 +573,7 @@ private fun ConsoleChatRow(item: ChatItem) {
             Text(
                 if (item.isError) "!" else ">",
                 color = if (item.isError) Err else Faint,
-                fontSize = 11.5.sp,
+                style = type.caption,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(end = 7.dp),
@@ -590,18 +590,18 @@ private fun ConsoleChatRow(item: ChatItem) {
             Text(
                 "!",
                 color = Err,
-                fontSize = 11.5.sp,
+                style = type.caption,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(end = 7.dp),
             )
-            Text(item.text, color = Err, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+            Text(item.text, color = Err, style = type.caption, fontFamily = FontFamily.Monospace)
         }
 
         is ChatItem.Notice -> Text(
             "* " + item.text,
             color = noticeColor(item.tone),
-            fontSize = 11.sp,
+            style = type.caption,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
         )
@@ -641,12 +641,12 @@ private fun Composer(
         ) {
             Box(Modifier.weight(1f).padding(bottom = 12.dp, top = 10.dp)) {
                 if (draft.isEmpty()) {
-                    Text("Message Simba", color = Faint, fontSize = 14.sp)
+                    Text("Message Simba", color = Faint, style = type.body)
                 }
                 BasicTextField(
                     value = draft,
                     onValueChange = onDraft,
-                    textStyle = TextStyle(color = Fg, fontSize = 14.sp, lineHeight = 20.sp),
+                    textStyle = type.body.copy(color = Fg),
                     cursorBrush = SolidColor(Accent),
                     maxLines = 6,
                     modifier = Modifier.fillMaxWidth(),
@@ -710,14 +710,14 @@ private fun Composer(
             Text(
                 "you>",
                 color = Accent,
-                fontSize = 12.sp,
+                style = type.label,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
             )
             BasicTextField(
                 value = draft,
                 onValueChange = onDraft,
-                textStyle = TextStyle(color = Fg, fontSize = 12.5.sp, fontFamily = FontFamily.Monospace),
+                textStyle = type.label.copy(color = Fg, fontFamily = FontFamily.Monospace),
                 cursorBrush = SolidColor(Accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (enabled) onSend() }),
@@ -753,11 +753,11 @@ private fun QueuedRow(text: String) {
             Text(
                 "...>",
                 color = Faint,
-                fontSize = 11.5.sp,
+                style = type.caption,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.padding(end = 7.dp),
             )
-            Text(text, color = Faint, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+            Text(text, color = Faint, style = type.caption, fontFamily = FontFamily.Monospace)
         }
 
         else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -769,8 +769,8 @@ private fun QueuedRow(text: String) {
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.End,
             ) {
-                Text(text, color = Dim, fontSize = 13.5.sp, lineHeight = 19.sp)
-                Text("queued", color = Faint, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+                Text(text, color = Dim, style = type.bodySmall, lineHeight = 19.sp)
+                Text("queued", color = Faint, style = type.micro, modifier = Modifier.padding(top = 3.dp))
             }
         }
     }

@@ -75,7 +75,7 @@ fun ConsoleShell(
                 Text(
                     "! ${it.take(72)}",
                     color = Err,
-                    fontSize = 10.5.sp,
+                    style = type.micro,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.fillMaxWidth().background(Panel2).padding(horizontal = 10.dp, vertical = 3.dp),
                 )
@@ -94,7 +94,7 @@ fun ConsoleShell(
                         val on = d == current
                         Text(
                             d.glyph + d.command,
-                            fontSize = 11.sp,
+                            style = type.caption,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                             color = if (on) Bg else Dim,
@@ -114,14 +114,14 @@ fun ConsoleShell(
                     Text(
                         "simba",
                         color = Accent,
-                        fontSize = 12.sp,
+                        style = type.label,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
                         ">",
                         color = Accent,
-                        fontSize = 12.sp,
+                        style = type.label,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(start = 2.dp),
@@ -130,12 +130,9 @@ fun ConsoleShell(
                         value = command,
                         onValueChange = { command = it },
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.merge(
-                            TextStyle(
-                                color = Fg,
-                                fontSize = 12.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                            ),
+                        textStyle = type.label.copy(
+                            color = Fg,
+                            fontFamily = FontFamily.Monospace,
                         ),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(Accent),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
@@ -153,7 +150,7 @@ fun ConsoleShell(
                         Text(
                             it.command,
                             color = Faint,
-                            fontSize = 12.sp,
+                            style = type.label,
                             fontFamily = FontFamily.Monospace,
                         )
                     }
@@ -169,11 +166,11 @@ fun ConsoleShell(
 @Composable
 private fun Field(label: String, value: String, tint: androidx.compose.ui.graphics.Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Faint, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        Text(label, color = Faint, style = type.micro, fontFamily = FontFamily.Monospace)
         Text(
             value,
             color = tint,
-            fontSize = 11.sp,
+            style = type.caption,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 3.dp),

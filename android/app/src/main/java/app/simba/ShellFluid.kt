@@ -76,7 +76,7 @@ fun FluidShell(
                 Column(Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 6.dp)) {
                     Text(
                         dest.label,
-                        fontSize = 32.sp,
+                        style = type.display,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = (-0.8).sp,
                         color = Fg,
@@ -87,10 +87,10 @@ fun FluidShell(
                     ) {
                         StatusDot(status.connected)
                         if (status.activeSessions > 0) {
-                            Text("${status.activeSessions} live", fontSize = 12.sp, color = Accent)
+                            Text("${status.activeSessions} live", style = type.label, color = Accent)
                         }
                         if (status.runningMissions > 0) {
-                            Text("${status.runningMissions} running", fontSize = 12.sp, color = Faint)
+                            Text("${status.runningMissions} running", style = type.label, color = Faint)
                         }
                     }
                 }
@@ -184,7 +184,7 @@ private fun FluidNav(
                         Text(
                             d.label,
                             color = tint,
-                            fontSize = 15.sp,
+                            style = type.body,
                             fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                         )
                     }
@@ -224,7 +224,7 @@ private fun FluidNav(
                         tint = Accent,
                         modifier = Modifier.size(19.dp),
                     )
-                    Text(current.label, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(current.label, color = Fg, style = type.body, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -236,7 +236,7 @@ private fun StatusDot(connected: Boolean) {
     val c by animateColorAsState(if (connected) Ok else Err, label = "dot")
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Box(Modifier.size(6.dp).clip(RoundedCornerShape(99.dp)).background(c))
-        Text(if (connected) "connected" else "offline", fontSize = 12.sp, color = Faint)
+        Text(if (connected) "connected" else "offline", style = type.label, color = Faint)
     }
 }
 

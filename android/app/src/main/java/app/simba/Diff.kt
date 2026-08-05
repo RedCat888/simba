@@ -68,16 +68,16 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
                 Text(
                     "‹ back",
                     color = Accent,
-                    fontSize = 13.sp,
+                    style = type.bodySmall,
                     modifier = Modifier.clickable { onBack() },
                 )
                 Spacer(Modifier.width(12.dp))
                 diff?.let { d ->
-                    Text("+${d.totalAdditions}", color = AddFg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("+${d.totalAdditions}", color = AddFg, style = type.label, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(6.dp))
-                    Text("−${d.totalDeletions}", color = DelFg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("−${d.totalDeletions}", color = DelFg, style = type.label, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(10.dp))
-                    Text(d.branch ?: "", color = Faint, fontSize = 11.sp)
+                    Text(d.branch ?: "", color = Faint, style = type.caption)
                 }
             }
         },
@@ -105,7 +105,7 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
                     if (d.files.isNotEmpty()) {
                         item {
                             SectionHeading("Uncommitted") {
-                                Text("${d.files.size} files", fontSize = 11.sp, color = Faint)
+                                Text("${d.files.size} files", style = type.caption, color = Faint)
                             }
                         }
                         items(d.files, key = { it.path }) { f ->
@@ -122,12 +122,12 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
                                             "Patch withheld — too large to send to the phone. " +
                                                 "Review it on the machine.",
                                             color = Warn,
-                                            fontSize = 11.sp,
+                                            style = type.caption,
                                         )
                                         f.patch.isNullOrBlank() -> Text(
                                             "No patch available.",
                                             color = Faint,
-                                            fontSize = 11.sp,
+                                            style = type.caption,
                                         )
                                         else -> PatchView(f.patch)
                                     }
@@ -163,7 +163,7 @@ private fun PatchView(patch: String) {
             Text(
                 line.ifEmpty { " " },
                 color = fg,
-                fontSize = 10.sp,
+                style = type.micro,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
                 modifier = Modifier.background(bg).padding(horizontal = 4.dp, vertical = 1.dp),
@@ -173,7 +173,7 @@ private fun PatchView(patch: String) {
             Text(
                 "… truncated at 400 lines",
                 color = Faint,
-                fontSize = 10.sp,
+                style = type.micro,
                 modifier = Modifier.padding(4.dp),
             )
         }

@@ -94,7 +94,7 @@ private fun SkillsList(vm: SimbaVm, open: (String) -> Unit) {
                 item {
                     val learned = skills.count { it.source == "learned" }
                     SectionHeading("${skills.size} skills") {
-                        Text("$learned self-taught", fontSize = 11.sp, color = Faint)
+                        Text("$learned self-taught", style = type.caption, color = Faint)
                     }
                 }
                 items(skills, key = { it.name }) { s ->
@@ -140,7 +140,7 @@ private fun SkillDetailScreen(vm: SimbaVm, name: String, back: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(Modifier.screenPad().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(back)
-            Text("All skills", color = Dim, fontSize = 12.5.sp, modifier = Modifier.padding(start = 4.dp))
+            Text("All skills", color = Dim, style = type.label, modifier = Modifier.padding(start = 4.dp))
         }
 
         error?.let { FailureState(it) }
@@ -151,14 +151,14 @@ private fun SkillDetailScreen(vm: SimbaVm, name: String, back: () -> Unit) {
                 Text(
                     s.name,
                     color = Fg,
-                    fontSize = 18.sp,
+                    style = type.heading,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                 )
                 Text(
                     s.description,
                     color = Dim,
-                    fontSize = 13.sp,
+                    style = type.bodySmall,
                     lineHeight = 19.sp,
                     modifier = Modifier.padding(top = 6.dp),
                 )
@@ -183,7 +183,7 @@ private fun SkillDetailScreen(vm: SimbaVm, name: String, back: () -> Unit) {
 
             if (s.history.size > 1) {
                 SectionHeading("History") {
-                    Text("${s.history.size} revisions", fontSize = 11.sp, color = Faint)
+                    Text("${s.history.size} revisions", style = type.caption, color = Faint)
                 }
                 s.history.forEach { h ->
                     ItemRow(
@@ -243,7 +243,7 @@ private fun DecisionsList(vm: SimbaVm) {
                     // decision was made matters more than the decision, but not
                     // enough to make the list unscrollable.
                     expanded = d.rationale?.takeIf { it.isNotBlank() }?.let {
-                        { Text(it, color = Faint, fontSize = 11.5.sp, lineHeight = 17.sp) }
+                        { Text(it, color = Faint, style = type.caption, lineHeight = 17.sp) }
                     },
                 )
             }
@@ -291,10 +291,10 @@ private fun MemoryList(vm: SimbaVm) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("$used / $cap remembered", fontSize = 11.sp, color = if (pct > 0.75f) Warn else Faint)
+                Text("$used / $cap remembered", style = type.caption, color = if (pct > 0.75f) Warn else Faint)
                 Text(
                     if (adding) "cancel" else "+ remember",
-                    fontSize = 11.sp,
+                    style = type.caption,
                     color = Accent,
                     modifier = Modifier.clickable { adding = !adding },
                 )
@@ -312,7 +312,7 @@ private fun MemoryList(vm: SimbaVm) {
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
-                        label = { Text("One fact, under 400 characters", fontSize = 11.sp) },
+                        label = { Text("One fact, under 400 characters", style = type.caption) },
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 4,
                     )
@@ -323,7 +323,7 @@ private fun MemoryList(vm: SimbaVm) {
                         listOf("environment", "convention", "person", "preference").forEach { k ->
                             Text(
                                 k,
-                                fontSize = 11.sp,
+                                style = type.caption,
                                 color = if (kind == k) Accent else Faint,
                                 modifier = Modifier.clickable { kind = k },
                             )
@@ -331,7 +331,7 @@ private fun MemoryList(vm: SimbaVm) {
                     }
                     Text(
                         "save",
-                        fontSize = 12.sp,
+                        style = type.label,
                         color = Ok,
                         modifier = Modifier.padding(top = 8.dp).clickable {
                             scope.launch {
@@ -374,7 +374,7 @@ private fun MemoryList(vm: SimbaVm) {
                     expanded = {
                         Text(
                             "Forget this",
-                            fontSize = 12.sp,
+                            style = type.label,
                             color = Err,
                             modifier = Modifier.clickable {
                                 scope.launch {

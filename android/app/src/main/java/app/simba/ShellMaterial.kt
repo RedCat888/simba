@@ -61,7 +61,6 @@ fun MaterialShell(
                                 if (status.activeSessions > 0) append(" · ${status.activeSessions} live")
                                 if (status.brainsAvailable > 0) append(" · ${status.brainsAvailable} brains")
                             },
-                            fontSize = 12.sp,
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
@@ -116,7 +115,7 @@ fun MaterialShell(
                             selected = on,
                             onClick = { onNavigate(d) },
                             icon = { Icon(if (on) d.rounded else d.outlined, d.label) },
-                            label = { Text(d.label, fontSize = 11.sp) },
+                            label = { Text(d.label, style = type.caption) },
                         )
                     }
                 }

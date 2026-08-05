@@ -520,3 +520,20 @@ fun DecisionsFixture() {
         ),
     )
 }
+
+/**
+ * A fresh install, before any credentials exist.
+ *
+ * The state a new phone is in for the first thirty seconds, and previously the
+ * one that told you to go check a PC that was fine. Rendered because it is
+ * literally the first impression the app makes.
+ */
+@Composable
+fun NotSetUpFixture() {
+    NowBody(
+        needsYou = 0, runningMissions = 0, liveSessions = 0, connected = false,
+        pending = emptyList(), blocked = emptyList(), running = emptyList(), live = emptyList(),
+        memory = emptyList(), brains = emptyList(), events = emptyList(),
+        notSetUp = true,
+    )
+}

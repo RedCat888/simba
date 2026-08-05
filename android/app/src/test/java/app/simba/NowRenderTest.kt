@@ -65,6 +65,7 @@ class NowRenderTest(
             listOf(
                 arrayOf<Any>(d, "busy", @Composable { NowBusyFixture() }),
                 arrayOf<Any>(d, "quiet", @Composable { NowQuietFixture() }),
+                arrayOf<Any>(d, "notsetup", @Composable { NotSetUpFixture() }),
             )
         }
     }

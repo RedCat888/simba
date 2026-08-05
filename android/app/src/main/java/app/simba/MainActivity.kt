@@ -66,6 +66,15 @@ class SimbaVm : ViewModel() {
     var error by mutableStateOf<String?>(null)
     var loading by mutableStateOf(false)
 
+    /**
+     * False until the Access credentials have been entered at least once.
+     *
+     * Kept on the view model rather than read at each call site so that "never
+     * set up" and "cannot connect" are one decision made in one place. They look
+     * identical from the outside and need completely different words.
+     */
+    var configured by mutableStateOf(true)
+
     fun refresh() {
         val a = api ?: return
         viewModelScope.launch {
@@ -123,6 +132,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
 
     LaunchedEffect(Unit) {
         vm.api = ctx.api()
+        vm.configured = Secrets.configured(ctx)
         ready = true
         vm.refresh()
     }
@@ -217,6 +227,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                         scope.launch {
                             ctx.saveGateway(url, token, clientId, clientSecret)
                             vm.api = ctx.api()
+                            vm.configured = Secrets.configured(ctx)
                             vm.refresh()
                         }
                     }
@@ -244,7 +255,7 @@ fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> U
 }
 
 @Composable
-private fun ErrorBanner(error: String?) {
+private fun ErrorBanner(error: String?, configured: Boolean = true) {
     AnimatedVisibility(error != null) {
         Card(Modifier.screenPad().padding(vertical = space.tight)) {
             Text("Cannot reach Simba", color = Err, fontWeight = FontWeight.SemiBold, style = type.bodySmall)
@@ -255,7 +266,13 @@ private fun ErrorBanner(error: String?) {
                 modifier = Modifier.padding(top = space.hair),
             )
             Text(
-                "The PC may be asleep, or the tunnel is down.",
+                // Only offered when the app has credentials to fail with. On a
+                // fresh install this is advice about a PC that is fine.
+                if (configured) {
+                    "The PC may be asleep, or the tunnel is down."
+                } else {
+                    "No Access credentials yet — add them in System."
+                },
                 color = Faint,
                 style = type.caption,
                 modifier = Modifier.padding(top = space.tight),
@@ -285,7 +302,7 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item { ErrorBanner(vm.error) }
+        item { ErrorBanner(vm.error, vm.configured) }
 
         // The brief, when there is one worth showing. Sentence case and the
         // type scale rather than three bespoke font sizes; the decision it
@@ -631,7 +648,7 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item { ErrorBanner(vm.error) }
+        item { ErrorBanner(vm.error, vm.configured) }
         if (vm.agents.isEmpty() && vm.error == null) {
             item { EmptyState("No agents yet", "Agents are created from the desktop or by Simba itself.") }
         }
@@ -749,7 +766,7 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
             }
         }
 
-        item { ErrorBanner(vm.error) }
+        item { ErrorBanner(vm.error, vm.configured) }
 
         if (live.isNotEmpty()) {
             item {

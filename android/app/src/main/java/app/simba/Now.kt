@@ -94,6 +94,7 @@ fun NowScreen(
         brains = vm.brains,
         events = events,
         captures = captures,
+        notSetUp = !vm.configured,
         busyAction = busy,
         onOpenMission = onOpenMission,
         onOpenSession = onOpenSession,
@@ -141,6 +142,8 @@ fun NowBody(
     events: List<SystemEvent>,
     /** Shared into Simba from another app and not yet triaged. */
     captures: List<Capture> = emptyList(),
+    /** No Access credentials have ever been entered on this install. */
+    notSetUp: Boolean = false,
     busyAction: String? = null,
     onOpenMission: (String) -> Unit = {},
     onOpenSession: (String, String) -> Unit = { _, _ -> },
@@ -148,6 +151,11 @@ fun NowBody(
     onDecide: (PendingAction, Boolean) -> Unit = { _, _ -> },
     onResolveCapture: (Capture, String) -> Unit = { _, _ -> },
 ) {
+    if (notSetUp) {
+        NotSetUp(onOpenSystem)
+        return
+    }
+
     LazyColumn(
         Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(bottom = space.page),
@@ -291,6 +299,43 @@ fun NowBody(
                     "No missions in flight and nothing waiting on you. Start something from Chat or Missions.",
                 )
             }
+        }
+    }
+}
+
+/**
+ * The first screen of a fresh install.
+ *
+ * Not an error, because nothing has gone wrong — the app has simply never been
+ * told where its machine is. It previously showed "Can't reach the machine" over
+ * "The PC may be asleep, or the tunnel is down", which sends someone to check a
+ * PC that is fine and a tunnel that is up.
+ */
+@Composable
+private fun NotSetUp(onOpenSystem: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = space.gutter)
+            .padding(top = space.page),
+    ) {
+        Text("Not set up yet", style = type.display, color = Fg)
+        Text(
+            "Simba reaches your PC through Cloudflare Access. Add the service " +
+                "token from the tunnel and this screen fills in.",
+            style = type.bodySmall,
+            color = Dim,
+            modifier = Modifier.padding(top = space.base),
+        )
+        Box(
+            Modifier.fillMaxWidth()
+                .padding(top = space.roomy)
+                .clip(RoundedCornerShape(radius.small))
+                .background(Accent)
+                .clickable { onOpenSystem() }
+                .padding(vertical = space.base),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Add credentials", style = type.label, color = OnAccent)
         }
     }
 }

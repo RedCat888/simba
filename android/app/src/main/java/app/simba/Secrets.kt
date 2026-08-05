@@ -56,6 +56,21 @@ object Secrets {
             .apply()
     }
 
+    /**
+     * Has this install ever been set up?
+     *
+     * A fresh install and a sleeping PC produce the same symptom — nothing
+     * loads — and the app was telling both of them the same thing: "the PC may
+     * be asleep, or the tunnel is down". That is useless advice to someone who
+     * has simply never entered their credentials, and it is the very first
+     * screen they see.
+     *
+     * The two are trivially distinguishable, which is why the guess was
+     * inexcusable rather than merely unhelpful.
+     */
+    fun configured(ctx: Context): Boolean =
+        accessClientId(ctx).isNotBlank() && accessClientSecret(ctx).isNotBlank()
+
     /** Used by the "lost phone" path and after a revocation. */
     fun clear(ctx: Context) {
         prefs(ctx).edit().clear().apply()

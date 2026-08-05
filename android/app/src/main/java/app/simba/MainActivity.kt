@@ -237,7 +237,7 @@ fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> U
         modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.small)
-            .background(Panel)
+            .background(Raised)
             .padding((14 * scale).dp),
         content = content,
     )
@@ -297,7 +297,7 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
                         .screenPad()
                         .padding(top = space.snug)
                         .clip(RoundedCornerShape(radius.medium))
-                        .background(Panel)
+                        .background(Raised)
                         .padding(space.roomy),
                 ) {
                     Text(b.headline, style = type.heading, color = Fg)
@@ -693,7 +693,13 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
     val simba = vm.agents.firstOrNull { it.tier == 0 } ?: vm.agents.firstOrNull()
 
     val live = vm.sessions.filter { it.status in listOf("running", "idle") }
-    val past = vm.sessions.filter { it.status !in listOf("running", "idle") }.take(30)
+    // Grouped by day rather than one flat run of thirty. A conversation from
+    // this morning and one from last week were rendering identically, so the
+    // only way to tell them apart was to open them.
+    val past = vm.sessions
+        .filter { it.status !in listOf("running", "idle") }
+        .take(40)
+        .groupBy { dayLabel(it.lastActivityAt ?: it.createdAt) }
 
     fun start() {
         if (starting || simba == null) return
@@ -733,7 +739,7 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
                 ) {
                     Text(
                         if (starting) "Starting…" else "Talk to ${simba?.name ?: "Simba"}",
-                        fontWeight = FontWeight.SemiBold,
+                        style = type.label,
                     )
                 }
             }
@@ -742,13 +748,17 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
         item { ErrorBanner(vm.error) }
 
         if (live.isNotEmpty()) {
-            item { SectionHeading("Live") }
+            item {
+                SectionHeading("Live") {
+                    Text("${live.size}", style = type.caption, color = Ok)
+                }
+            }
             items(live, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
         }
 
-        if (past.isNotEmpty()) {
-            item { SectionHeading("Earlier") }
-            items(past, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
+        past.forEach { (day, rows) ->
+            item { SectionHeading(day) }
+            items(rows, key = { it.id }) { s -> SessionRowCard(s) { open(s.id, s.title ?: s.agent) } }
         }
 
         if (vm.sessions.isEmpty() && vm.error == null) {
@@ -764,6 +774,11 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
 
 @Composable
 private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
+    val quiet = if (s.status in setOf("running", "idle")) {
+        s.lastActivityAt?.let { minutesSince(it) } ?: 0
+    } else {
+        0
+    }
     ItemRow(
         title = s.title ?: s.agent,
         // The failure reason, when there is one, is the most useful thing the
@@ -774,11 +789,39 @@ private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
             add(ItemMeta(s.agent))
             s.brain?.let { add(ItemMeta(it)) }
             if (s.swapCount > 0) add(ItemMeta("swapped ${s.swapCount}x", Tone.Accented))
-            if (s.cost > 0) add(ItemMeta("$" + "%.3f".format(s.cost)))
+            if (s.outputTokens > 0) add(ItemMeta("${tokens(s.outputTokens)} out"))
+            if (s.cost > 0) add(ItemMeta("$" + "%.2f".format(s.cost)))
         },
-        badge = ItemMeta(s.status, toneFor(s.status)),
+        // Silence on a live session is the finding, and it is said here the same
+        // way Now says it — a badge that reads differently in two places for the
+        // same fact is how an interface stops being trusted.
+        badge = when {
+            quiet >= 30 -> ItemMeta("quiet ${quiet}m", Tone.Warn)
+            else -> ItemMeta(s.status, toneFor(s.status))
+        },
         onClick = onClick,
     )
+}
+
+/**
+ * Which day something happened, as a person would name it.
+ *
+ * Today and Yesterday by name because those are the two that matter, and a date
+ * for everything else — "3 days ago" makes you do arithmetic to work out which
+ * day, and nobody wants to do arithmetic while looking for a conversation.
+ */
+private fun dayLabel(iso: String?): String {
+    if (iso.isNullOrBlank()) return "Earlier"
+    return runCatching {
+        val zone = java.time.ZoneId.systemDefault()
+        val day = java.time.Instant.parse(iso).atZone(zone).toLocalDate()
+        val today = java.time.LocalDate.now(zone)
+        when (day) {
+            today -> "Today"
+            today.minusDays(1) -> "Yesterday"
+            else -> day.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
+        }
+    }.getOrDefault("Earlier")
 }
 
 /**
@@ -1423,7 +1466,7 @@ private fun MemoryChart(samples: List<MemorySample>) {
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.roomy),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1476,7 +1519,7 @@ private fun SpendChart(days: List<UsageDay>) {
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.roomy),
     ) {
         BarSeries(totals, highlight = totals.lastIndex)

@@ -320,7 +320,7 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
     Column(
         modifier
             .clip(RoundedCornerShape(radius.small))
-            .background(Panel)
+            .background(Raised)
             .padding(horizontal = space.base, vertical = space.base),
     ) {
         Text(value, style = type.title, color = tone, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -350,7 +350,7 @@ private fun CheckpointBlock(cp: Checkpoint) {
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.roomy),
         verticalArrangement = Arrangement.spacedBy(space.base),
     ) {
@@ -406,7 +406,7 @@ private fun GitBlock(cp: Checkpoint) {
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.base),
         verticalArrangement = Arrangement.spacedBy(space.snug),
     ) {
@@ -510,7 +510,7 @@ private fun QuietAction(label: String, modifier: Modifier = Modifier, onClick: (
     Box(
         modifier
             .clip(RoundedCornerShape(radius.small))
-            .background(Panel)
+            .background(Raised)
             .clickable { onClick() }
             .padding(vertical = space.snug),
         contentAlignment = Alignment.Center,

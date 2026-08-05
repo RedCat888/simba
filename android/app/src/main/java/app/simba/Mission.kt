@@ -290,7 +290,7 @@ private fun Budget(m: MissionFull) {
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.roomy),
         verticalArrangement = Arrangement.spacedBy(space.base),
     ) {
@@ -343,7 +343,7 @@ private fun Controls(m: MissionFull, busy: Boolean, onAction: (String) -> Unit) 
             Box(
                 Modifier.weight(1f)
                     .clip(RoundedCornerShape(radius.small))
-                    .background(Panel)
+                    .background(Raised)
                     .clickable(enabled = !busy) { onAction(action) }
                     .padding(vertical = space.base),
                 contentAlignment = Alignment.Center,
@@ -446,7 +446,7 @@ private fun StatePanel(label: String, accent: Color, content: @Composable Column
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.roomy),
         content = content,
     )

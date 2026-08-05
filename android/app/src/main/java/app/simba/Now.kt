@@ -290,7 +290,7 @@ private fun ApprovalCard(action: PendingAction, busy: Boolean, onDecide: (Boolea
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter, vertical = space.tight)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .padding(space.roomy),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -345,7 +345,7 @@ private fun ApprovalCard(action: PendingAction, busy: Boolean, onDecide: (Boolea
             Box(
                 Modifier
                     .clip(RoundedCornerShape(radius.small))
-                    .background(Panel2)
+                    .background(Inset)
                     .clickable(enabled = !busy) { onDecide(false) }
                     .padding(horizontal = space.roomy, vertical = space.base),
                 contentAlignment = Alignment.Center,
@@ -382,7 +382,7 @@ private fun MachineStrip(samples: List<MemorySample>, brains: List<Brain>, onOpe
         Modifier.fillMaxWidth()
             .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
-            .background(Panel)
+            .background(Raised)
             .clickable { onOpen() }
             .padding(space.roomy),
     ) {

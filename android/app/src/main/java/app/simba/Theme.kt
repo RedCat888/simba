@@ -185,6 +185,29 @@ private val LocalStatusColors = staticCompositionLocalOf { DarkStatus }
 val Bg: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.background
 val Panel: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surface
 val Panel2: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surfaceContainerHigh
+
+/**
+ * A surface that must be visible as a container on any scheme.
+ *
+ * `Panel` maps to `surface`, and in Material 3 `surface` and `background` are
+ * the same role — so a hand-built card painted with `Panel` on a `Bg` canvas is
+ * invisible under dynamic colour. It only ever looked right because Fluid and
+ * Console use hand-written schemes where the two differ. Anything that draws its
+ * own card rather than going through ItemRow uses this instead, which is a real
+ * step above the canvas in all three.
+ */
+val Raised: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surfaceContainerHigh
+
+/**
+ * A control sitting *on* a raised surface.
+ *
+ * The third step, and it is needed for exactly the reason the second was: a
+ * secondary button painted the same colour as the card under it has no
+ * container at all. Moving the cards to [Raised] created that collision for
+ * every control that had been using the same role, which is the sort of thing
+ * only visible by rendering it.
+ */
+val Inset: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surfaceContainerHighest
 val Line: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.outlineVariant
 val Fg: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.onBackground
 val Dim: Color @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.onSurfaceVariant

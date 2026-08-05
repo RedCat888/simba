@@ -173,7 +173,12 @@ private fun Field(label: String, value: String, tint: androidx.compose.ui.graphi
             style = type.caption,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = space.hair),
+            // space.tight, not space.hair. The spacing migration rounded this
+            // 3dp gap to the nearest step, and in Console's 3dp grid the nearest
+            // step is 1dp — which rendered "netup run1 msn2 brn3". A gap between
+            // a label and its value is not rhythm, it is the space character
+            // that makes two words two words.
+            modifier = Modifier.padding(start = space.tight),
         )
     }
 }

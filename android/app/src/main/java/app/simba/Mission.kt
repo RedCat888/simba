@@ -111,7 +111,7 @@ private fun MissionHeader(m: MissionFull, steps: List<MissionStep>, onBack: () -
                     .clip(RoundedCornerShape(radius.pill))
                     .background(toneFor(m.status).color()),
             )
-            Text(m.status, style = type.caption, color = toneFor(m.status).color())
+            Text(statusLabel(m.status), style = type.caption, color = toneFor(m.status).color())
             m.agent?.let { Text("· $it", style = type.caption, color = Faint) }
             m.scheduleNote?.let { Text("· $it", style = type.caption, color = Faint) }
         }
@@ -376,7 +376,7 @@ private fun StepRow(s: MissionStep) {
         },
         badge = when (s.status) {
             "pending" -> null
-            else -> ItemMeta(s.status, toneFor(s.status))
+            else -> ItemMeta(statusLabel(s.status), toneFor(s.status))
         },
         expanded = {
             Column(verticalArrangement = Arrangement.spacedBy(space.snug)) {

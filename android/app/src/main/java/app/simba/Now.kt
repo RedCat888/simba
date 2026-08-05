@@ -194,7 +194,7 @@ fun NowBody(
                     subtitle = s.lastActivityAt?.let { "last activity ${ago(it)}" },
                     badge = when {
                         quiet >= 30 -> ItemMeta(quietLabel(quiet), Tone.Warn)
-                        else -> ItemMeta(s.status, Tone.Good)
+                        else -> ItemMeta(statusLabel(s.status), Tone.Good)
                     },
                     meta = buildList {
                         s.brain?.let { add(ItemMeta(it)) }

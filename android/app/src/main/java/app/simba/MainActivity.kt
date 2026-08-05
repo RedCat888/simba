@@ -531,7 +531,7 @@ private fun MissionCard(m: Mission, onClick: () -> Unit) {
         title = m.title,
         subtitle = m.currentStep ?: m.blockedReason ?: m.lastOutput?.take(120),
         meta = meta,
-        badge = ItemMeta(if (m.isScript) "script" else m.status, toneFor(m.status)),
+        badge = ItemMeta(if (m.isScript) "script" else statusLabel(m.status), toneFor(m.status)),
         onClick = onClick,
     )
 }
@@ -797,7 +797,7 @@ private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
         // same fact is how an interface stops being trusted.
         badge = when {
             quiet >= 30 -> ItemMeta(quietLabel(quiet), Tone.Warn)
-            else -> ItemMeta(s.status, toneFor(s.status))
+            else -> ItemMeta(statusLabel(s.status), toneFor(s.status))
         },
         onClick = onClick,
     )
@@ -843,7 +843,7 @@ private fun AgentRow(a: Agent, onStart: () -> Unit) {
             a.domain?.takeIf { it.isNotBlank() }?.let { add(ItemMeta(it)) }
             if (a.activeSessions > 0) add(ItemMeta("${a.activeSessions} live", Tone.Accented))
         },
-        badge = ItemMeta(a.status, toneFor(a.status)),
+        badge = ItemMeta(statusLabel(a.status), toneFor(a.status)),
         // Tapping the row starts it. A separate button inside a row is a third
         // tap target competing with the row and the design's own expansion, and
         // every design would have to place it differently.

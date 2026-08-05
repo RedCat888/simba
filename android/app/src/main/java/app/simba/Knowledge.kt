@@ -84,10 +84,28 @@ private fun SkillsList(vm: SimbaVm, open: (String) -> Unit) {
         loading = false
     }
 
+    SkillsPane(skills, loading, error, open)
+}
+
+/**
+ * What Simba has worked out and written down for itself.
+ *
+ * Sorted by whether the skill is earning its place rather than alphabetically.
+ * Every skill costs prompt space on every turn of every session, so one that has
+ * never been opened is a standing tax — and the list that surfaces those first
+ * is the one that gets them removed.
+ */
+@Composable
+fun SkillsPane(
+    skills: List<Skill>,
+    loading: Boolean = false,
+    error: String? = null,
+    open: (String) -> Unit = {},
+) {
     LazyColumn(Modifier.fillMaxSize()) {
         when {
             loading -> item { LoadingState() }
-            error != null -> item { FailureState(error!!) }
+            error != null -> item { FailureState(error) }
             skills.isEmpty() -> item {
                 EmptyState(
                     "No skills yet",
@@ -95,40 +113,58 @@ private fun SkillsList(vm: SimbaVm, open: (String) -> Unit) {
                 )
             }
             else -> {
-                item {
-                    val learned = skills.count { it.source == "learned" }
-                    SectionHeading("${skills.size} skills") {
-                        Text("$learned self-taught", style = type.caption, color = Faint)
-                    }
-                }
-                items(skills, key = { it.name }) { s ->
-                    ItemRow(
-                        title = s.name,
-                        mono = true,
-                        subtitle = s.description,
-                        // 'learned' means an agent wrote it mid-work rather than
-                        // it being authored deliberately — worth being able to
-                        // see at a glance which of these Simba taught itself.
-                        badge = if (s.source == "learned") ItemMeta("learned", Tone.Accented) else null,
-                        meta = buildList {
-                            // Usage is the honest measure of whether a skill is
-                            // earning the prompt space it costs on every turn.
-                            add(
-                                if (s.useCount == 0) {
-                                    ItemMeta("never used", Tone.Warn)
-                                } else {
-                                    ItemMeta("used ${s.useCount}×", Tone.Good)
-                                },
+                val unused = skills.filter { it.useCount == 0 }
+                val earning = skills.filter { it.useCount > 0 }.sortedByDescending { it.useCount }
+
+                if (unused.isNotEmpty()) {
+                    item {
+                        SectionHeading("Never used") {
+                            Text(
+                                "${unused.size} costing prompt space",
+                                style = type.caption,
+                                color = Warn,
                             )
-                            if (s.version > 1) add(ItemMeta("v${s.version}"))
-                            add(ItemMeta("${s.bodyChars} chars"))
-                        },
-                        onClick = { open(s.name) },
-                    )
+                        }
+                    }
+                    items(unused, key = { it.name }) { SkillRow(it, open, statedByHeading = true) }
+                }
+
+                if (earning.isNotEmpty()) {
+                    item {
+                        SectionHeading("Earning their place") {
+                            val learned = skills.count { it.source == "learned" }
+                            Text("$learned self-taught", style = type.caption, color = Faint)
+                        }
+                    }
+                    items(earning, key = { it.name }) { SkillRow(it, open) }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SkillRow(s: Skill, open: (String) -> Unit, statedByHeading: Boolean = false) {
+    ItemRow(
+        title = s.name,
+        mono = true,
+        subtitle = s.description,
+        // 'learned' means an agent wrote it mid-work rather than it being
+        // authored deliberately — worth seeing at a glance which of these Simba
+        // taught itself.
+        badge = if (s.source == "learned") ItemMeta("learned", Tone.Accented) else null,
+        meta = buildList {
+            // Usage is the honest measure of whether a skill is earning the
+            // prompt space it costs on every turn.
+            // The heading above already says these have never been used;
+            // repeating it on every row spends a column to say nothing.
+            if (s.useCount > 0) add(ItemMeta("used ${s.useCount}×", Tone.Good))
+            else if (!statedByHeading) add(ItemMeta("never used", Tone.Warn))
+            if (s.version > 1) add(ItemMeta("v${s.version}"))
+            add(ItemMeta("${s.bodyChars} chars"))
+        },
+        onClick = { open(s.name) },
+    )
 }
 
 @Composable
@@ -212,7 +248,6 @@ private fun DecisionsList(vm: SimbaVm) {
     var decisions by remember { mutableStateOf<List<Decision>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var expanded by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         runCatching { vm.api?.decisions() ?: emptyList() }
@@ -221,39 +256,87 @@ private fun DecisionsList(vm: SimbaVm) {
         loading = false
     }
 
+    DecisionsPane(decisions, loading, error)
+}
+
+/**
+ * What has been settled, and why.
+ *
+ * Grouped by whether a decision is still standing. A superseded decision is not
+ * noise — it is how you find out that something you remember being true stopped
+ * being true — but it must not sit among the current ones pretending to still
+ * hold, which a flat list sorted by date does.
+ */
+@Composable
+fun DecisionsPane(
+    decisions: List<Decision>,
+    loading: Boolean = false,
+    error: String? = null,
+) {
     LazyColumn(Modifier.fillMaxSize()) {
         when {
             loading -> item { LoadingState() }
-            error != null -> item { FailureState(error!!) }
+            error != null -> item { FailureState(error) }
             decisions.isEmpty() -> item {
                 EmptyState(
                     "No decisions recorded",
                     "Simba records a decision when it commits to an approach, so the reasoning survives the session.",
                 )
             }
-            else -> items(decisions, key = { it.id }) { d ->
-                ItemRow(
-                    title = d.statement,
-                    badge = if (d.status == "superseded") ItemMeta("superseded", Tone.Warn) else null,
-                    meta = buildList {
-                        d.topic?.let { add(ItemMeta(it)) }
-                        add(
-                            ItemMeta(
-                                d.confidence,
-                                if (d.confidence == "acted_on") Tone.Good else Tone.Neutral,
-                            ),
-                        )
-                    },
-                    // Rationale is often several paragraphs — the reason a
-                    // decision was made matters more than the decision, but not
-                    // enough to make the list unscrollable.
-                    expanded = d.rationale?.takeIf { it.isNotBlank() }?.let {
-                        { Text(it, color = Faint, style = type.caption, lineHeight = 17.sp) }
-                    },
-                )
+            else -> {
+                val current = decisions.filter { it.status != "superseded" }
+                val past = decisions.filter { it.status == "superseded" }
+
+                if (current.isNotEmpty()) {
+                    item {
+                        SectionHeading("Standing") {
+                            val acted = current.count { it.confidence == "acted_on" }
+                            Text("$acted acted on", style = type.caption, color = Ok)
+                        }
+                    }
+                    items(current, key = { it.id }) { DecisionRow(it) }
+                }
+
+                if (past.isNotEmpty()) {
+                    item { SectionHeading("Superseded") }
+                    items(past, key = { it.id }) { DecisionRow(it, statedByHeading = true) }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun DecisionRow(d: Decision, statedByHeading: Boolean = false) {
+    ItemRow(
+        title = d.statement,
+        // Same rule as skills, and here it also fixes a real overflow:
+        // "superseded" is longer than Console's status column and was butting
+        // against the title of every row in a section already headed Superseded.
+        badge = if (d.status == "superseded" && !statedByHeading) {
+            ItemMeta("superseded", Tone.Warn)
+        } else {
+            null
+        },
+        meta = buildList {
+            d.topic?.let { add(ItemMeta(it)) }
+            add(
+                ItemMeta(
+                    // The column value is acted_on; a person reads "acted on".
+                    // Underscores are how a database spells a phrase, and
+                    // showing them is showing your schema to the user.
+                    d.confidence.replace('_', ' '),
+                    if (d.confidence == "acted_on") Tone.Good else Tone.Neutral,
+                ),
+            )
+        },
+        // Rationale is often several paragraphs — the reason a decision was made
+        // matters more than the decision, but not enough to make the list
+        // unscrollable.
+        expanded = d.rationale?.takeIf { it.isNotBlank() }?.let {
+            { Text(it, color = Faint, style = type.bodySmall) }
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------

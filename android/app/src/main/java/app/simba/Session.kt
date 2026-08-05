@@ -237,7 +237,7 @@ private fun SessionHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             StatusDot(status)
-            Text(status, style = type.caption, color = toneFor(status).color())
+            Text(statusLabel(status), style = type.caption, color = toneFor(status).color())
             agent?.let { Text("· $it", style = type.caption, color = Faint) }
             brain?.let { Text("· $it", style = type.caption, color = Faint) }
         }
@@ -456,7 +456,7 @@ private fun TurnRow(t: Turn) {
         badge = when {
             t.error != null -> ItemMeta("error", Tone.Bad)
             t.status == "completed" -> null
-            else -> ItemMeta(t.status, Tone.Warn)
+            else -> ItemMeta(statusLabel(t.status), Tone.Warn)
         },
         meta = buildList {
             t.durationMs?.let { add(ItemMeta(duration(it / 1000.0))) }
@@ -495,7 +495,7 @@ private fun LineageRow(step: LineageStep) {
     ItemRow(
         title = step.title ?: "session ${step.id.take(8)}",
         subtitle = step.error,
-        badge = ItemMeta(step.status, toneFor(step.status)),
+        badge = ItemMeta(statusLabel(step.status), toneFor(step.status)),
         meta = buildList {
             add(ItemMeta("${step.depth} back"))
             if (step.swapCount > 0) add(ItemMeta("${step.swapCount} swaps", Tone.Accented))

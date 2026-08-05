@@ -127,7 +127,7 @@ fun DiffView(
                             meta = buildList {
                                 if (f.additions > 0) add(ItemMeta("+${f.additions}", Tone.Good))
                                 if (f.deletions > 0) add(ItemMeta("−${f.deletions}", Tone.Bad))
-                                add(ItemMeta(f.status, if (f.status == "untracked") Tone.Warn else Tone.Neutral))
+                                add(ItemMeta(statusLabel(f.status), if (f.status == "untracked") Tone.Warn else Tone.Neutral))
                             },
                             expanded = {
                                 when {

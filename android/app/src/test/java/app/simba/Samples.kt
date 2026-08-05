@@ -413,3 +413,91 @@ fun MemoryFixture() {
         startAdding = true,
     )
 }
+
+/**
+ * Skills, with a mix that makes the grouping do work.
+ *
+ * Three that have never been opened and four that have. The never-used group
+ * leads because every skill costs prompt space on every turn of every session,
+ * so an unopened one is a standing tax — and the list that surfaces those first
+ * is the one that gets them removed.
+ */
+@Composable
+fun SkillsFixture() {
+    SkillsPane(
+        skills = listOf(
+            Skill(
+                name = "raw-postgres-wire-protocol-in-node", source = "learned",
+                description = "Speak the v3 protocol directly when no driver is installed.",
+                useCount = 0, bodyChars = 1420,
+            ),
+            Skill(
+                name = "opencode-runner-stdin", source = "learned",
+                description = "OpenCode blocks forever on stdin without a TTY; spawn and close it.",
+                useCount = 0, version = 2, bodyChars = 640,
+            ),
+            Skill(
+                name = "windows-taskkill-tree",
+                description = "Kill a process and its children on Windows from a POSIX shell.",
+                useCount = 0, bodyChars = 310,
+            ),
+            Skill(
+                name = "verify-brain-before-trusting-it", source = "learned",
+                description = "Ask a brain to say OK and check which model answered.",
+                useCount = 34, version = 3, bodyChars = 980,
+            ),
+            Skill(
+                name = "compose-render-tests-without-a-device", source = "learned",
+                description = "Robolectric draws the real tree to a bitmap; PixelCopy does not.",
+                useCount = 12, bodyChars = 2210,
+            ),
+            Skill(
+                name = "migration-notice-aborts-powershell",
+                description = "PowerShell 5.1 turns psql NOTICE lines into terminating errors.",
+                useCount = 5, bodyChars = 470,
+            ),
+            Skill(
+                name = "cloudflare-access-service-token",
+                description = "Header pair the gateway verifies at the edge before the origin sees it.",
+                useCount = 2, bodyChars = 520,
+            ),
+        ),
+    )
+}
+
+/** Decisions, including one that has been superseded. */
+@Composable
+fun DecisionsFixture() {
+    DecisionsPane(
+        decisions = listOf(
+            Decision(
+                id = "d1",
+                statement = "Keep Jetpack Compose for the Android rebuild; replace the UI layer, not the toolkit.",
+                topic = "android", confidence = "acted_on", status = "current",
+                rationale = "The fault was never the toolkit — a LazyColumn on every screen " +
+                    "reproduces identically in React Native or Flutter. Switching would have " +
+                    "discarded the websocket stream, keystore-sealed credentials, WorkManager " +
+                    "polling and the share-target Activity to fix a problem none of them cause.",
+            ),
+            Decision(
+                id = "d2",
+                statement = "Postgres is the only source of truth; never write state or plans to markdown.",
+                topic = "architecture", confidence = "acted_on", status = "current",
+                rationale = "Research notes are the sole exception.",
+            ),
+            Decision(
+                id = "d3",
+                statement = "Store the schedule phrase rather than re-deriving it from cron.",
+                topic = "missions", confidence = "decided", status = "current",
+            ),
+            Decision(
+                id = "d4",
+                statement = "Amber is the brand accent.",
+                topic = "design", confidence = "stated", status = "superseded",
+                rationale = "Superseded once the contrast was computed: amber on near-black is " +
+                    "semantically pre-committed to warning, and spending it on the selected tab " +
+                    "and the primary button destroyed its operational meaning.",
+            ),
+        ),
+    )
+}

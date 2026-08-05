@@ -787,3 +787,15 @@ fun shortPath(path: String, maxChars: Int = 40): String {
     }
     return out.toString()
 }
+
+
+/**
+ * A status as a person reads it.
+ *
+ * The column values are `logged_out`, `waiting_limit`, `no_brain_available`.
+ * An underscore is how a database spells a phrase, and putting one on screen is
+ * showing the schema to whoever is holding the phone. None of the current rows
+ * happen to contain one, which is exactly why this is worth doing now rather
+ * than the first time a brain logs itself out at 3am.
+ */
+fun statusLabel(status: String): String = status.replace('_', ' ')

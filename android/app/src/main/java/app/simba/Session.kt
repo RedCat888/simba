@@ -163,6 +163,16 @@ fun SessionDetail(
 
         if (turns.isNotEmpty()) {
             item { StatGrid(turns) }
+        } else if (!loading && failure == null) {
+            // A session that exists but has not taken a turn — started seconds
+            // ago, or spawned and never prompted. Everything below is absent for
+            // it, so without this the screen is a title and two buttons.
+            item {
+                EmptyState(
+                    "No turns yet",
+                    "This session has not produced a turn, so there is nothing to measure.",
+                )
+            }
         }
 
         // Two things a person wants to do from here, and they are actions on the

@@ -402,6 +402,27 @@ fun ChatScreen(
             }
             items(shown) { item -> ChatRow(item) }
 
+            // The one list in the app that never got an empty state, on the
+            // screen where it matters most. A session started thirty seconds ago
+            // has no messages yet, and a blank thread is indistinguishable from
+            // history that failed to load — which on the surface you use to
+            // steer an agent is the worst place to leave that ambiguity.
+            //
+            // Not shown while thinking: the working indicator below is already
+            // saying the same thing, better.
+            if (shown.isEmpty() && q.isEmpty() && !state.thinking && state.error == null) {
+                item {
+                    EmptyState(
+                        if (state.connected) "Nothing said yet" else "Connecting…",
+                        if (state.connected) {
+                            "The agent is running and has not produced output. Send it something."
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
+
             // Queued messages, shown as themselves rather than as sent ones —
             // a message that has not left yet must not look like it has.
             if (q.isEmpty()) items(queued) { text -> QueuedRow(text) }

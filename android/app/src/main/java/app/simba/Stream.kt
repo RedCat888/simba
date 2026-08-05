@@ -1,6 +1,8 @@
 package com.operator.simba
 
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
@@ -52,7 +54,45 @@ class SimbaStream(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
-    fun connect(): Flow<StreamEvent> = callbackFlow {
+    /**
+     * Connect, and keep connecting.
+     *
+     * [connectOnce] gives up the moment the socket closes. That was survivable
+     * when the chat was something you opened for a minute, and is not survivable
+     * for what this app actually is: a phone talking to a home PC behind a
+     * tunnel, watching an agent that runs for hours. The PC sleeps, the tunnel
+     * blips, the phone changes network — and the thread would go quiet and stay
+     * quiet with a "closed" notice, looking exactly like an agent that had
+     * stopped producing output.
+     *
+     * Backs off 1s, 2s, 4s, 8s, capped at 15, and resets the moment a connection
+     * opens. Capped low on purpose: the failure being retried is usually a few
+     * seconds of network, and a minute-long backoff to recover from a two-second
+     * blip is worse than the blip.
+     *
+     * An authentication failure is not retried. A revoked service token does not
+     * become valid by asking again, and hammering an Access endpoint that is
+     * refusing you is how a credential problem turns into a rate-limit problem.
+     */
+    fun connect(): Flow<StreamEvent> = flow {
+        var attempt = 0
+        while (true) {
+            var fatal = false
+            connectOnce().collect { ev ->
+                if (ev is StreamEvent.Connected) attempt = 0
+                if (ev is StreamEvent.Disconnected && ev.reason?.looksUnauthorised() == true) {
+                    fatal = true
+                }
+                emit(ev)
+            }
+            if (fatal) return@flow
+
+            delay(backoffMs(attempt))
+            attempt++
+        }
+    }
+
+    private fun connectOnce(): Flow<StreamEvent> = callbackFlow {
         val wsUrl = baseUrl.trimEnd('/')
             .replace("https://", "wss://")
             .replace("http://", "ws://") + "/ws"
@@ -93,6 +133,16 @@ class SimbaStream(
         val socket = client.newWebSocket(req, listener)
         awaitClose { socket.close(1000, "done") }
     }
+
+    /**
+     * Does this disconnect reason mean the credentials were refused?
+     *
+     * Matched on the code the listener already formats rather than on prose, so
+     * a reworded message cannot silently turn a fatal error back into an
+     * infinite retry loop.
+     */
+    private fun String.looksUnauthorised(): Boolean =
+        this == "HTTP 401" || this == "HTTP 403"
 
     private fun parse(raw: String): StreamEvent? {
         val root = runCatching { json.parseToJsonElement(raw) as JsonObject }.getOrNull() ?: return null
@@ -135,3 +185,14 @@ class SimbaStream(
         }
     }
 }
+
+/**
+ * How long to wait before the next reconnect attempt.
+ *
+ * Top level and pure so it can be checked rather than reasoned about. The shift
+ * is the part worth testing: `1000L shl attempt` overflows into nonsense
+ * somewhere past attempt 53, and without the cap a long outage would eventually
+ * schedule a negative delay — which throws rather than waiting.
+ */
+fun backoffMs(attempt: Int): Long =
+    minOf(1000L shl attempt.coerceIn(0, 4), 15_000L)

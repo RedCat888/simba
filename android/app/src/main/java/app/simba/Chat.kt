@@ -64,17 +64,6 @@ sealed interface ChatItem {
 class ChatState {
     val items = mutableStateListOf<ChatItem>()
 
-    /**
-     * Messages typed while the agent was still working.
-     *
-     * An agent turn here can take minutes, and the composer used to simply
-     * refuse input for all of it — so the thought you had while watching it work
-     * was either lost or had to be held in your head until it finished. They
-     * queue and go in order, which is also the only safe way to do it: two
-     * concurrent sends against one session interleave into a single confused
-     * turn.
-     */
-    val queued = mutableStateListOf<String>()
     var sending by mutableStateOf(false)
     var connected by mutableStateOf(false)
     var thinking by mutableStateOf(false)
@@ -93,6 +82,22 @@ fun ChatScreen(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val state = remember(sessionId) { ChatState() }
+
+    /**
+     * Messages typed while the agent was still working.
+     *
+     * An agent turn here can take minutes, and the composer used to refuse input
+     * for all of it, so a thought you had while watching it work was either lost
+     * or held in your head until it finished.
+     *
+     * Deliberately NOT keyed on sessionId, unlike everything else here. A brain
+     * running out of quota moves the work to a new session, which re-keys the
+     * state — and a queue inside that state went with it, silently. Two messages
+     * typed during a long turn would vanish at exactly the moment the system is
+     * built to handle transparently. A message you queued is one you still want
+     * sent, so it follows the work.
+     */
+    val queued = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
     var draft by remember { mutableStateOf("") }
     var showDiff by remember { mutableStateOf(false) }
@@ -228,9 +233,24 @@ fun ChatScreen(
                     state.thinking = false
                 }
             state.sending = false
-            // Drain in order. Recursing rather than looping keeps one send in
-            // flight at a time, which is the whole point of the queue.
-            state.queued.removeFirstOrNull()?.let { deliver(it) }
+        }
+    }
+
+    /**
+     * Drain, against whichever session is current.
+     *
+     * This was a recursive call at the end of deliver(), which was wrong twice
+     * over: it closed over the sessionId deliver() had been created with, so
+     * after a brain swap it posted to a session that would never answer, and it
+     * kept the drain alive across a composition that no longer existed. An
+     * effect re-reads sessionId every time it restarts, so the next queued
+     * message always goes where the work actually is.
+     *
+     * deliver() sets sending before it suspends, so this cannot double-fire.
+     */
+    LaunchedEffect(sessionId, state.sending, queued.size) {
+        if (!state.sending && queued.isNotEmpty()) {
+            deliver(queued.removeAt(0))
         }
     }
 
@@ -239,7 +259,7 @@ fun ChatScreen(
         if (text.isEmpty()) return
         draft = ""
         if (state.sending) {
-            state.queued.add(text)
+            queued.add(text)
         } else {
             deliver(text)
         }
@@ -384,7 +404,7 @@ fun ChatScreen(
 
             // Queued messages, shown as themselves rather than as sent ones —
             // a message that has not left yet must not look like it has.
-            if (q.isEmpty()) items(state.queued) { text -> QueuedRow(text) }
+            if (q.isEmpty()) items(queued) { text -> QueuedRow(text) }
             if (state.thinking && q.isEmpty()) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {

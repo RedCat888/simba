@@ -437,7 +437,7 @@ private fun GitBlock(cp: Checkpoint) {
                 // Paths matter at the end, not the start: a phone-width row that
                 // truncates on the right shows only directories.
                 cp.recentFiles.take(6).forEach {
-                    Text(shortPath(it), style = type.mono, color = Faint, maxLines = 1)
+                    Text(shortPath(it, pathBudget(40)), style = type.mono, color = Faint, maxLines = 1)
                 }
                 if (cp.recentFiles.size > 6) {
                     Text(

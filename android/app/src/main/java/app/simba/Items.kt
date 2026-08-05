@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -880,3 +882,27 @@ fun ConfirmDialog(
 fun Modifier.tapTarget(): Modifier = this
     .heightIn(min = 44.dp)
     .wrapContentHeight(Alignment.CenterVertically)
+
+
+/**
+ * How many characters of path will actually fit.
+ *
+ * The fourth time truncation has eaten a filename, and the first time the cause
+ * was not a bug in shortPath. A character budget is correct in characters and
+ * says nothing about width — and at 2x font scale, which Android offers and
+ * people who need it leave on permanently, 36 characters occupy twice the room
+ * they were measured in. So the path rendered as ".../Obsidian Vault/Daily..."
+ * with the filename gone.
+ *
+ * Dividing by the font scale is not a fudge for a broken function; the number of
+ * characters that fit genuinely depends on it. shortPath already degrades the
+ * right way when the budget shrinks — it drops parent segments and keeps the
+ * name — so a smaller budget at a larger scale gives exactly the behaviour
+ * wanted, which is "less context, still tells you which file".
+ */
+@Composable
+@ReadOnlyComposable
+fun pathBudget(atNormalScale: Int): Int {
+    val scale = LocalDensity.current.fontScale
+    return (atNormalScale / scale).toInt().coerceAtLeast(12)
+}

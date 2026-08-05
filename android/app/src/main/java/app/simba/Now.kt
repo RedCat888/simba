@@ -413,7 +413,7 @@ private fun ApprovalCard(action: PendingAction, busy: Boolean, onDecide: (Boolea
                 // overflows the card, so the path ended in two ellipses with
                 // the file extension gone. The budget has to fit the width the
                 // text is actually given, not the width of the screen.
-                shortPath(it, 36),
+                shortPath(it, pathBudget(36)),
                 style = type.mono,
                 color = Faint,
                 maxLines = 1,

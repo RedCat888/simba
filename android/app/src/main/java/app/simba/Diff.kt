@@ -122,7 +122,7 @@ fun DiffView(
                             // mono about 45 characters, so 46 was one over and the
                             // ellipsis ate the file extension — the one part of a
                             // path that has to survive truncation.
-                            title = shortPath(f.path, 42),
+                            title = shortPath(f.path, pathBudget(42)),
                             mono = true,
                             meta = buildList {
                                 if (f.additions > 0) add(ItemMeta("+${f.additions}", Tone.Good))

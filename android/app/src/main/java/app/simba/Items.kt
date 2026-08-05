@@ -151,17 +151,14 @@ private fun FluidItem(
             Text(
                 title,
                 color = Fg,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                lineHeight = 21.sp,
+                style = type.heading,
                 modifier = Modifier.weight(1f),
             )
             badge?.let {
                 Text(
                     it.text,
                     color = it.tone.color(),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
+                    style = type.label,
                     modifier = Modifier
                         .clip(RoundedCornerShape(99.dp))
                         .background(it.tone.color().copy(alpha = 0.14f))
@@ -170,11 +167,11 @@ private fun FluidItem(
             }
         }
         subtitle?.takeIf { it.isNotBlank() }?.let {
-            Text(it, color = Dim, fontSize = 13.5.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 6.dp))
+            Text(it, color = Dim, style = type.bodySmall, modifier = Modifier.padding(top = space.snug))
         }
         if (meta.isNotEmpty()) {
             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                meta.forEach { Text(it.text, color = it.tone.color(), fontSize = 12.sp) }
+                meta.forEach { Text(it.text, color = it.tone.color(), style = type.caption) }
             }
         }
         AnimatedVisibility(
@@ -231,7 +228,7 @@ private fun MaterialItem(
                 meta.take(4).forEach {
                     AssistChip(
                         onClick = {},
-                        label = { Text(it.text, fontSize = 11.sp) },
+                        label = { Text(it.text, style = type.caption) },
                         colors = AssistChipDefaults.assistChipColors(labelColor = it.tone.color()),
                     )
                 }
@@ -279,8 +276,7 @@ private fun ConsoleItem(
                 Text(
                     it.text.lowercase(),
                     color = it.tone.color(),
-                    fontSize = 10.5.sp,
-                    fontFamily = FontFamily.Monospace,
+                    style = type.micro,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -290,8 +286,7 @@ private fun ConsoleItem(
             Text(
                 title,
                 color = Fg,
-                fontSize = 12.5.sp,
-                fontFamily = FontFamily.Monospace,
+                style = type.body,
                 maxLines = 1,
                 // Without this a long title is chopped mid-word with nothing to
                 // mark it, so a truncated name reads as the whole name.
@@ -307,11 +302,10 @@ private fun ConsoleItem(
                 Text(
                     it.text,
                     color = it.tone.color(),
-                    fontSize = 10.5.sp,
-                    fontFamily = FontFamily.Monospace,
+                    style = type.micro,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 10.dp).widthIn(max = 96.dp),
+                    modifier = Modifier.padding(start = space.snug).widthIn(max = 96.dp),
                 )
             }
         }
@@ -319,8 +313,7 @@ private fun ConsoleItem(
             Text(
                 it,
                 color = Dim,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
+                style = type.caption.copy(fontFamily = FontFamily.Monospace),
                 maxLines = if (open) 6 else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = if (badge != null) STATUS_COLUMN else 0.dp),
@@ -337,8 +330,7 @@ private fun ConsoleItem(
                     Text(
                         it.text,
                         color = it.tone.color(),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
+                        style = type.micro,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -365,7 +357,7 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text, color = Dim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(text, color = Dim, style = type.label)
             trailing?.invoke()
         }
 
@@ -390,8 +382,7 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
             Text(
                 "-- ${text.lowercase()} " + "-".repeat((26 - text.length).coerceAtLeast(2)),
                 color = Faint,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
+                style = type.micro,
             )
             trailing?.invoke()
         }
@@ -412,26 +403,19 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
 fun EmptyState(title: String, detail: String? = null) {
     when (LocalDesign.current) {
         Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp)) {
-            Text(
-                "-- empty --",
-                color = Faint,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-            )
+            Text("-- empty --", color = Faint, style = type.caption.copy(fontFamily = FontFamily.Monospace))
             Text(
                 title.lowercase(),
                 color = Dim,
-                fontSize = 11.5.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(top = 3.dp),
+                style = type.body,
+                modifier = Modifier.padding(top = space.tight),
             )
             detail?.let {
                 Text(
                     it,
                     color = Faint,
-                    fontSize = 10.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(top = 2.dp),
+                    style = type.caption.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.padding(top = space.hair),
                 )
             }
         }
@@ -443,7 +427,7 @@ fun EmptyState(title: String, detail: String? = null) {
             Text(
                 title,
                 color = Dim,
-                fontSize = 15.sp,
+                style = type.body,
                 fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center,
             )
@@ -451,8 +435,7 @@ fun EmptyState(title: String, detail: String? = null) {
                 Text(
                     it,
                     color = Faint,
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp,
+                    style = type.bodySmall,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 6.dp),
                 )
@@ -506,7 +489,7 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
                     Text(
                         label,
                         color = fg,
-                        fontSize = 12.5.sp,
+                        style = type.label,
                         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
@@ -534,8 +517,7 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
                 Text(
                     if (on) "[${label.lowercase()}]" else " ${label.lowercase()} ",
                     color = if (on) Accent else Faint,
-                    fontSize = 11.5.sp,
-                    fontFamily = FontFamily.Monospace,
+                    style = type.label.copy(fontFamily = FontFamily.Monospace),
                     fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                     modifier = Modifier.clickable { onSelect(i) },
                 )
@@ -604,9 +586,8 @@ fun LoadingState(rows: Int = 4) {
         Design.Console -> Text(
             "... loading",
             color = Faint,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
+            style = type.caption.copy(fontFamily = FontFamily.Monospace),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = space.gutter, vertical = space.base),
         )
     }
 }
@@ -616,14 +597,13 @@ fun LoadingState(rows: Int = 4) {
 fun FailureState(message: String, onRetry: (() -> Unit)? = null) {
     when (LocalDesign.current) {
         Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)) {
-            Text("! $message", color = Err, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+            Text("! $message", color = Err, style = type.bodySmall.copy(fontFamily = FontFamily.Monospace))
             onRetry?.let {
                 Text(
                     "  [retry]",
                     color = Accent,
-                    fontSize = 11.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.clickable { it() }.padding(top = 3.dp),
+                    style = type.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.clickable { it() }.padding(top = space.tight),
                 )
             }
         }
@@ -632,7 +612,7 @@ fun FailureState(message: String, onRetry: (() -> Unit)? = null) {
             Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(message, color = Err, fontSize = 13.sp, textAlign = TextAlign.Center)
+            Text(message, color = Err, style = type.bodySmall, textAlign = TextAlign.Center)
             onRetry?.let {
                 TextButton(onClick = it, modifier = Modifier.padding(top = 4.dp)) { Text("Retry") }
             }
@@ -684,8 +664,7 @@ fun BackButton(onBack: () -> Unit) {
         Design.Console -> Text(
             "<",
             color = Accent,
-            fontSize = 13.sp,
-            fontFamily = FontFamily.Monospace,
+            style = type.body,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable { onBack() }.padding(horizontal = 8.dp, vertical = 4.dp),
         )
@@ -730,9 +709,8 @@ fun ActionIcon(
         Text(
             glyph,
             color = tint,
-            fontSize = 11.5.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.clickable { onClick() }.padding(horizontal = 6.dp, vertical = 4.dp),
+            style = type.label.copy(fontFamily = FontFamily.Monospace),
+            modifier = Modifier.clickable { onClick() }.padding(horizontal = space.snug, vertical = space.tight),
         )
     } else {
         IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
@@ -748,8 +726,7 @@ fun Chevron(expanded: Boolean, tint: Color = Dim) {
         Text(
             if (expanded) "[-]" else "[+]",
             color = tint,
-            fontSize = 10.5.sp,
-            fontFamily = FontFamily.Monospace,
+            style = type.micro,
         )
     } else {
         Icon(

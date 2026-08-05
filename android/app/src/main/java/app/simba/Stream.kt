@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -144,10 +145,29 @@ class SimbaStream(
     private fun String.looksUnauthorised(): Boolean =
         this == "HTTP 401" || this == "HTTP 403"
 
-    private fun parse(raw: String): StreamEvent? {
+    /**
+     * Internal rather than private so it can be tested.
+     *
+     * This is the only code in the app that reads input from outside it, and it
+     * is doing something non-obvious: comparing `jsonPrimitive.content` against
+     * the string "true" to read a JSON boolean. That works because kotlinx
+     * renders a boolean primitive as its literal text — which is a fact about
+     * the library, not about the wire format, and exactly the kind of thing that
+     * should be pinned by a test rather than rediscovered.
+     */
+    internal fun parse(raw: String): StreamEvent? {
         val root = runCatching { json.parseToJsonElement(raw) as JsonObject }.getOrNull() ?: return null
+
+        // contentOrNull, not content.
+        //
+        // JsonNull *is* a JsonPrimitive, so `.content` on a JSON null returns
+        // the four-letter string "null" rather than absent. Every field here
+        // goes through this function, so one null anywhere in a frame put the
+        // word "null" on screen as a message body, a role or a tool name — and
+        // a null sessionId produced events attributed to a session called
+        // "null", which no filter would ever match, so they vanished.
         fun str(o: JsonObject?, k: String): String? =
-            runCatching { o?.get(k)?.jsonPrimitive?.content }.getOrNull()
+            runCatching { o?.get(k)?.jsonPrimitive?.contentOrNull }.getOrNull()
 
         return when (str(root, "type")) {
             "hello" -> StreamEvent.Connected(str(root, "at") ?: "")

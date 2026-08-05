@@ -131,6 +131,9 @@ fun CopyAction(text: String, modifier: Modifier = Modifier) {
                 clipboard.setText(AnnotatedString(text))
                 copied = true
             }
+            // Copy sits at the end of a long body, often beside other controls,
+            // and was a ~20dp target. The label stays exactly as it was.
+            .tapTarget()
             .padding(horizontal = space.tight, vertical = space.hair),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -426,7 +426,7 @@ fun MemoryPane(
                     if (adding) "cancel" else "+ add",
                     style = type.label,
                     color = Accent,
-                    modifier = Modifier.clickable { adding = !adding },
+                    modifier = Modifier.clickable { adding = !adding }.tapTarget(),
                 )
             }
 
@@ -483,6 +483,7 @@ fun MemoryPane(
                                     .clip(RoundedCornerShape(radius.pill))
                                     .background(if (on) Accent else Inset)
                                     .clickable { kind = k }
+                                    .tapTarget()
                                     .padding(horizontal = space.base, vertical = space.tight),
                             )
                         }
@@ -542,7 +543,7 @@ fun MemoryPane(
                             "Forget this",
                             style = type.label,
                             color = Err,
-                            modifier = Modifier.clickable { onForget(m) },
+                            modifier = Modifier.clickable { onForget(m) }.tapTarget(),
                         )
                     },
                 )

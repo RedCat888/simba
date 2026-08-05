@@ -384,7 +384,7 @@ fun ChatScreen(
                         "close",
                         color = Accent,
                         style = type.label,
-                        modifier = Modifier.clickable { finding = false; findQuery = "" }.padding(start = space.snug),
+                        modifier = Modifier.clickable { finding = false; findQuery = "" }.tapTarget().padding(start = space.snug),
                     )
                 }
             }

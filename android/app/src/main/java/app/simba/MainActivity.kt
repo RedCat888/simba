@@ -355,7 +355,7 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
                         "+ new",
                         style = type.label,
                         color = Accent,
-                        modifier = Modifier.clickable { creating = true },
+                        modifier = Modifier.clickable { creating = true }.tapTarget(),
                     )
                 }
             }
@@ -889,6 +889,7 @@ private fun AgentRow(a: Agent, onStart: () -> Unit, onRetier: (String) -> Unit) 
                                 .clip(RoundedCornerShape(radius.pill))
                                 .background(if (on) Accent else Inset)
                                 .clickable(enabled = !on) { onRetier(tier) }
+                                .tapTarget()
                                 .padding(horizontal = space.base, vertical = space.tight),
                         )
                     }
@@ -897,7 +898,7 @@ private fun AgentRow(a: Agent, onStart: () -> Unit, onRetier: (String) -> Unit) 
                     "Start it",
                     style = type.label,
                     color = Accent,
-                    modifier = Modifier.padding(top = space.snug).clickable { onStart() },
+                    modifier = Modifier.padding(top = space.snug).clickable { onStart() }.tapTarget(),
                 )
             }
         },
@@ -1195,7 +1196,7 @@ private fun SystemScreen(
                         verifyingAll = false
                         vm.refresh()
                     }
-                },
+                }.tapTarget(),
             )
         }
         if (vm.brains.isEmpty()) {
@@ -1269,7 +1270,7 @@ private fun SystemScreen(
                                         verifying = null
                                         vm.refresh()
                                     }
-                                },
+                                }.tapTarget(),
                             )
                             Text(
                                 if (b.enabled) "bench" else "restore",
@@ -1281,7 +1282,7 @@ private fun SystemScreen(
                                             .onFailure { vm.error = it.message }
                                         vm.refresh()
                                     }
-                                },
+                                }.tapTarget(),
                             )
                         }
                     }
@@ -1369,7 +1370,7 @@ private fun SystemScreen(
                             runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
                             curating = false
                         }
-                    },
+                    }.tapTarget(),
                 )
             }
             Card(Modifier.padding(horizontal = space.gutter)) {

@@ -18,6 +18,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -282,6 +284,10 @@ private fun ConsoleItem(
         modifier
             .fillMaxWidth()
             .let { if (onClick != null) it.clickable { onClick() } else it }
+            // Density comes from type size and gutters, not from rows too short
+            // to hit. A single-line Console row was ~21dp — under half the
+            // minimum, and it is the thing you tap to open anything.
+            .let { if (onClick != null) it.tapTarget() else it }
             .background(if (open) Panel2 else Color.Transparent)
             .padding(horizontal = space.snug, vertical = space.tight),
     ) {
@@ -505,6 +511,7 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
                         .clip(RoundedCornerShape(99.dp))
                         .background(bg)
                         .clickable { onSelect(i) }
+                        .tapTarget()
                         .padding(vertical = space.snug),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -855,3 +862,21 @@ fun ConfirmDialog(
         },
     )
 }
+
+
+/**
+ * The minimum a finger can reliably hit.
+ *
+ * Android asks for 48dp, WCAG for 44. Compose enforces neither on a bare
+ * `Modifier.clickable` — that is a Button's job, and almost every action in this
+ * app is a Text instead, which is exactly as tall as its own line. That left
+ * "bench", "+ add", "Forget this" and a dozen others as 15-24dp targets.
+ *
+ * Reserves the height rather than growing the text, so the density Console
+ * argues for is untouched while the touch area is not. 44 rather than 48
+ * because these sit inline in rows where 48 visibly loosens the rhythm, and 44
+ * is the floor rather than the target.
+ */
+fun Modifier.tapTarget(): Modifier = this
+    .heightIn(min = 44.dp)
+    .wrapContentHeight(Alignment.CenterVertically)

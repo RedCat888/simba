@@ -102,6 +102,7 @@ fun ConsoleShell(
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(if (on) Accent else Panel2)
                                 .clickable { onNavigate(d) }
+                                .tapTarget()
                                 .padding(horizontal = space.snug, vertical = space.tight),
                         )
                     }

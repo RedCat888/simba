@@ -202,13 +202,13 @@ fun NowBody(
                                     "Mark done",
                                     style = type.label,
                                     color = Ok,
-                                    modifier = Modifier.clickable { onResolveCapture(c, "done") },
+                                    modifier = Modifier.clickable { onResolveCapture(c, "done") }.tapTarget(),
                                 )
                                 Text(
                                     "Discard",
                                     style = type.label,
                                     color = Err,
-                                    modifier = Modifier.clickable { onResolveCapture(c, "reject") },
+                                    modifier = Modifier.clickable { onResolveCapture(c, "reject") }.tapTarget(),
                                 )
                             }
                         }

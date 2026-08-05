@@ -314,3 +314,58 @@ private fun step(seq: Int, title: String, status: String, failures: String? = nu
     attempts = if (status == "failed") 3 else 1,
     failures = failures,
 )
+
+/**
+ * A session diff, with a patch that has all four line kinds in it.
+ *
+ * The patch matters: the diff colours were five hardcoded hex values until
+ * recently and are now theme-derived, and the only way to know added and removed
+ * are still legible against each design's background is to draw them.
+ */
+@Composable
+fun DiffFixture() {
+    DiffView(
+        diff = SessionDiff(
+            branch = "master",
+            head = "5ae0e80",
+            totalAdditions = 412,
+            totalDeletions = 96,
+            commits = listOf(
+                DiffCommit("5ae0e80", "Lists grouped by what you would do about them", ""),
+                DiffCommit("2cd6cf0", "Rebuild the palette on arithmetic, not taste", ""),
+            ),
+            files = listOf(
+                FileDiff(
+                    path = "android/app/src/main/java/com/operator/simba/Session.kt",
+                    status = "modified", additions = 298, deletions = 12,
+                    patch = """diff --git a/Session.kt b/Session.kt
+index 8f2a1c4..b91de07 100644
+--- a/Session.kt
++++ b/Session.kt
+@@ -118,9 +118,14 @@ private fun StatGrid(turns: List<Turn>) {
+-        StatTile("Elapsed", duration(totalSeconds), Modifier.weight(1f))
+-        StatTile("Cost", cost, Modifier.weight(1f))
++    Column(verticalArrangement = Arrangement.spacedBy(space.snug)) {
++        Row(horizontalArrangement = Arrangement.spacedBy(space.snug)) {
++            StatTile("Elapsed", duration(totalSeconds), Modifier.weight(1f))
++            StatTile("Cost", cost, Modifier.weight(1f))
++        }
+     }
+""",
+                ),
+                FileDiff(
+                    path = "android/app/src/main/java/com/operator/simba/Now.kt",
+                    status = "untracked", additions = 114, deletions = 0,
+                ),
+                FileDiff(
+                    path = "migrations/040_schedule_note.sql",
+                    status = "modified", additions = 0, deletions = 84,
+                    truncated = true,
+                ),
+            ),
+        ),
+        loading = false,
+        error = null,
+        onBack = {},
+    )
+}

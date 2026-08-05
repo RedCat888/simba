@@ -1,13 +1,11 @@
 package com.operator.simba
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.ReadOnlyComposable
@@ -15,9 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * What a session actually changed.
@@ -48,9 +43,9 @@ private val DelBg: Color @Composable @ReadOnlyComposable get() = Err.copy(alpha 
 
 @Composable
 fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
-    var diff by remember { mutableStateOf<SessionDiff?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(true) }
+    var diff by remember(sessionId) { mutableStateOf<SessionDiff?>(null) }
+    var error by remember(sessionId) { mutableStateOf<String?>(null) }
+    var loading by remember(sessionId) { mutableStateOf(true) }
 
     LaunchedEffect(sessionId) {
         runCatching { vm.api?.sessionDiff(sessionId) }
@@ -59,81 +54,98 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
         loading = false
     }
 
-    SimbaShell(
-        header = {
+    DiffView(diff, loading, error, onBack)
+}
+
+/**
+ * What a session changed.
+ *
+ * No longer wrapped in [SimbaShell]. It used to bring its own shell because it
+ * was launched as a full screen from inside chat; now it is pushed inside the
+ * design's shell like every other detail view, and a shell inside a shell means
+ * the status-bar and keyboard insets are applied twice and there are two pieces
+ * of chrome stacked. Detail screens carry a back control and nothing else.
+ */
+@Composable
+fun DiffView(
+    diff: SessionDiff?,
+    loading: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
             Row(
-                Modifier.fillMaxWidth().background(Panel).padding(horizontal = space.base, vertical = space.snug),
+                Modifier.fillMaxWidth().padding(horizontal = space.gutter).padding(top = space.snug),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(space.snug),
             ) {
-                Text(
-                    "‹ back",
-                    color = Accent,
-                    style = type.bodySmall,
-                    modifier = Modifier.clickable { onBack() },
-                )
-                Spacer(Modifier.width(12.dp))
+                BackButton(onBack)
                 diff?.let { d ->
-                    Text("+${d.totalAdditions}", color = AddFg, style = type.label, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(6.dp))
-                    Text("−${d.totalDeletions}", color = DelFg, style = type.label, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(10.dp))
-                    Text(d.branch ?: "", color = Faint, style = type.caption)
+                    // Added and removed keep the convention, but they are this
+                    // design's green and red rather than fixed hex.
+                    Text("+${d.totalAdditions}", color = AddFg, style = type.label)
+                    Text("−${d.totalDeletions}", color = DelFg, style = type.label)
+                    d.branch?.let { Text(it, color = Faint, style = type.mono) }
                 }
             }
-        },
-    ) {
-        LazyColumn(Modifier.fillMaxSize()) {
-            val d = diff
-            when {
-                loading -> item { LoadingState(3) }
-                error != null -> item { FailureState(error!!) }
-                d == null || (d.files.isEmpty() && d.commits.isEmpty()) -> item {
-                    EmptyState(
-                        "Nothing changed",
-                        "This session's working tree is clean — it read, reasoned or ran things, but wrote no files.",
-                    )
+        }
+
+        val d = diff
+        when {
+            loading -> item { LoadingState(3) }
+            error != null -> item { FailureState(error) }
+            d == null || (d.files.isEmpty() && d.commits.isEmpty()) -> item {
+                EmptyState(
+                    "Nothing changed",
+                    "This session's working tree is clean — it read, reasoned or ran things, but wrote no files.",
+                )
+            }
+
+            else -> {
+                if (d.commits.isNotEmpty()) {
+                    item { SectionHeading("Commits") }
+                    items(d.commits, key = { it.sha }) { c ->
+                        ItemRow(title = c.subject, meta = listOf(ItemMeta(c.sha, Tone.Accented)))
+                    }
                 }
 
-                else -> {
-                    if (d.commits.isNotEmpty()) {
-                        item { SectionHeading("Commits") }
-                        items(d.commits, key = { it.sha }) { c ->
-                            ItemRow(title = c.subject, meta = listOf(ItemMeta(c.sha, Tone.Accented)))
+                if (d.files.isNotEmpty()) {
+                    item {
+                        SectionHeading("Uncommitted") {
+                            Text("${d.files.size} files", style = type.caption, color = Faint)
                         }
                     }
-
-                    if (d.files.isNotEmpty()) {
-                        item {
-                            SectionHeading("Uncommitted") {
-                                Text("${d.files.size} files", style = type.caption, color = Faint)
-                            }
-                        }
-                        items(d.files, key = { it.path }) { f ->
-                            ItemRow(
-                                title = shortPath(f.path, 46),
-                                meta = buildList {
-                                    if (f.additions > 0) add(ItemMeta("+${f.additions}", Tone.Good))
-                                    if (f.deletions > 0) add(ItemMeta("−${f.deletions}", Tone.Bad))
-                                    add(ItemMeta(f.status, if (f.status == "untracked") Tone.Warn else Tone.Neutral))
-                                },
-                                expanded = {
-                                    when {
-                                        f.truncated -> Text(
-                                            "Patch withheld — too large to send to the phone. " +
-                                                "Review it on the machine.",
-                                            color = Warn,
-                                            style = type.caption,
-                                        )
-                                        f.patch.isNullOrBlank() -> Text(
-                                            "No patch available.",
-                                            color = Faint,
-                                            style = type.caption,
-                                        )
-                                        else -> PatchView(f.patch)
-                                    }
-                                },
-                            )
-                        }
+                    items(d.files, key = { it.path }) { f ->
+                        ItemRow(
+                            // 42, not 46: at Fluid's gutter and card padding the row gives
+                            // mono about 45 characters, so 46 was one over and the
+                            // ellipsis ate the file extension — the one part of a
+                            // path that has to survive truncation.
+                            title = shortPath(f.path, 42),
+                            mono = true,
+                            meta = buildList {
+                                if (f.additions > 0) add(ItemMeta("+${f.additions}", Tone.Good))
+                                if (f.deletions > 0) add(ItemMeta("−${f.deletions}", Tone.Bad))
+                                add(ItemMeta(f.status, if (f.status == "untracked") Tone.Warn else Tone.Neutral))
+                            },
+                            expanded = {
+                                when {
+                                    f.truncated -> Text(
+                                        "Patch withheld — too large to send to the phone. " +
+                                            "Review it on the machine.",
+                                        color = Warn,
+                                        style = type.caption,
+                                    )
+                                    f.patch.isNullOrBlank() -> Text(
+                                        "No patch available.",
+                                        color = Faint,
+                                        style = type.caption,
+                                    )
+                                    else -> PatchView(f.patch)
+                                }
+                            },
+                        )
                     }
                 }
             }

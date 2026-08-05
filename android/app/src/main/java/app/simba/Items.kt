@@ -87,6 +87,14 @@ fun ItemRow(
     meta: List<ItemMeta> = emptyList(),
     badge: ItemMeta? = null,
     leading: ImageVector? = null,
+    /**
+     * Set when the title is a path, a hash or an identifier rather than prose.
+     *
+     * Those are the cases where a fixed advance width is doing work — a column
+     * of file paths in a proportional face cannot be scanned, and a long one
+     * wraps to two lines where the same string in mono fits on one.
+     */
+    mono: Boolean = false,
     onClick: (() -> Unit)? = null,
     /** Shown when the row is expanded. Null means the row does not expand. */
     expanded: (@Composable () -> Unit)? = null,
@@ -98,8 +106,9 @@ fun ItemRow(
     }
 
     when (LocalDesign.current) {
-        Design.Fluid -> FluidItem(title, modifier, subtitle, meta, badge, leading, toggle, open, expanded)
-        Design.Material -> MaterialItem(title, modifier, subtitle, meta, badge, leading, toggle, open, expanded)
+        Design.Fluid -> FluidItem(title, modifier, subtitle, meta, badge, leading, mono, toggle, open, expanded)
+        Design.Material -> MaterialItem(title, modifier, subtitle, meta, badge, leading, mono, toggle, open, expanded)
+        // Console is monospace throughout, so the flag is already true there.
         Design.Console -> ConsoleItem(title, modifier, subtitle, meta, badge, toggle, open, expanded)
     }
 }
@@ -120,6 +129,7 @@ private fun FluidItem(
     meta: List<ItemMeta>,
     badge: ItemMeta?,
     leading: ImageVector?,
+    mono: Boolean,
     onClick: (() -> Unit)?,
     open: Boolean,
     expanded: (@Composable () -> Unit)?,
@@ -151,7 +161,9 @@ private fun FluidItem(
             Text(
                 title,
                 color = Fg,
-                style = type.heading,
+                style = if (mono) type.mono else type.heading,
+                maxLines = if (mono) 1 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             badge?.let {
@@ -193,6 +205,7 @@ private fun MaterialItem(
     meta: List<ItemMeta>,
     badge: ItemMeta?,
     leading: ImageVector?,
+    mono: Boolean,
     onClick: (() -> Unit)?,
     open: Boolean,
     expanded: (@Composable () -> Unit)?,
@@ -203,7 +216,13 @@ private fun MaterialItem(
         enabled = onClick != null,
     ) {
         ListItem(
-            headlineContent = { Text(title) },
+            headlineContent = {
+                if (mono) {
+                    Text(title, style = type.mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                } else {
+                    Text(title)
+                }
+            },
             supportingContent = subtitle?.takeIf { it.isNotBlank() }?.let { { Text(it) } },
             leadingContent = leading?.let { { Icon(it, contentDescription = null) } },
             trailingContent = badge?.let {

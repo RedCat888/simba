@@ -103,6 +103,7 @@ private fun SkillsList(vm: SimbaVm, open: (String) -> Unit) {
                 items(skills, key = { it.name }) { s ->
                     ItemRow(
                         title = s.name,
+                        mono = true,
                         subtitle = s.description,
                         // 'learned' means an agent wrote it mid-work rather than
                         // it being authored deliberately — worth being able to

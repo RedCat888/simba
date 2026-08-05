@@ -1,5 +1,8 @@
 package com.operator.simba
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -282,33 +285,48 @@ private fun MemoryList(vm: SimbaVm) {
 
     Column(Modifier.fillMaxSize()) {
         view?.let { v ->
-            @Suppress("NAME_SHADOWING") val pad = Modifier.padding(horizontal = space.gutter)
             val used = v.pressure.global.used
             val cap = v.pressure.global.cap
             val pct = if (cap > 0) used.toFloat() / cap else 0f
-            Row(
-                pad.fillMaxWidth().padding(top = space.tight, bottom = space.tight),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("$used / $cap remembered", style = type.caption, color = if (pct > 0.75f) Warn else Faint)
+
+            SectionHeading("Remembered") {
                 Text(
-                    if (adding) "cancel" else "+ remember",
-                    style = type.caption,
+                    if (adding) "cancel" else "+ add",
+                    style = type.label,
                     color = Accent,
                     modifier = Modifier.clickable { adding = !adding },
                 )
             }
-            LinearProgressIndicator(
-                progress = { pct },
-                modifier = pad.fillMaxWidth().height(3.dp),
-                color = if (pct > 0.75f) Warn else Accent,
-                trackColor = Panel2,
-            )
+
+            Column(Modifier.padding(horizontal = space.gutter)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("$used of $cap", style = type.caption, color = Dim)
+                    // The cap is enforced by a database trigger, so a write near
+                    // the ceiling is genuinely refused rather than quietly
+                    // trimmed. Saying so is the difference between a bar that
+                    // decorates and a bar that warns.
+                    Text(
+                        if (pct > 0.85f) "nearly full — new facts will be refused" else "loaded every turn",
+                        style = type.caption,
+                        color = if (pct > 0.85f) Warn else Faint,
+                    )
+                }
+                // The app's own bar rather than Material's: PressureBar already
+                // knows when to turn amber and red, and having two different
+                // progress indicators in one app means two different opinions
+                // about when something is worth worrying about.
+                PressureBar(pct, Modifier.padding(top = space.snug))
+            }
 
             if (adding) {
-                Spacer(Modifier.height(8.dp))
-                Card(pad) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .padding(horizontal = space.gutter)
+                        .padding(top = space.base)
+                        .clip(RoundedCornerShape(radius.medium))
+                        .background(Raised)
+                        .padding(space.roomy),
+                ) {
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
@@ -316,34 +334,56 @@ private fun MemoryList(vm: SimbaVm) {
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 4,
                     )
+
+                    // Selectable rather than four words that happen to respond
+                    // to a tap. Plain coloured text gives no indication it is a
+                    // control, so the kind was effectively unchangeable.
                     Row(
-                        Modifier.padding(top = space.tight),
+                        Modifier.padding(top = space.base),
                         horizontalArrangement = Arrangement.spacedBy(space.snug),
                     ) {
                         listOf("environment", "convention", "person", "preference").forEach { k ->
+                            val on = kind == k
                             Text(
                                 k,
                                 style = type.caption,
-                                color = if (kind == k) Accent else Faint,
-                                modifier = Modifier.clickable { kind = k },
+                                color = if (on) OnAccent else Dim,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(radius.pill))
+                                    .background(if (on) Accent else Inset)
+                                    .clickable { kind = k }
+                                    .padding(horizontal = space.base, vertical = space.tight),
                             )
                         }
                     }
-                    Text(
-                        "save",
-                        style = type.label,
-                        color = Ok,
-                        modifier = Modifier.padding(top = space.snug).clickable {
-                            scope.launch {
-                                runCatching { vm.api?.addMemory(kind, draft.trim()) }
-                                    .onFailure { error = it.message }
-                                draft = ""; adding = false; load()
+
+                    val valid = draft.trim().length in 1..400
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .padding(top = space.base)
+                            .clip(RoundedCornerShape(radius.small))
+                            .background(if (valid) Accent else Inset)
+                            .clickable(enabled = valid) {
+                                scope.launch {
+                                    runCatching { vm.api?.addMemory(kind, draft.trim()) }
+                                        .onFailure { error = it.message }
+                                    draft = ""
+                                    adding = false
+                                    load()
+                                }
                             }
-                        },
-                    )
+                            .padding(vertical = space.base),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Remember this",
+                            style = type.label,
+                            color = if (valid) OnAccent else Faint,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(space.base))
         }
 
         error?.let { FailureState(it) }

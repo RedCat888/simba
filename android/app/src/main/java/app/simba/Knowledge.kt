@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -272,9 +273,6 @@ private fun DecisionsList(vm: SimbaVm) {
 private fun MemoryList(vm: SimbaVm) {
     var view by remember { mutableStateOf<MemoryView?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
-    var kind by remember { mutableStateOf("environment") }
     val scope = rememberCoroutineScope()
 
     suspend fun load() {
@@ -283,6 +281,52 @@ private fun MemoryList(vm: SimbaVm) {
             .onFailure { error = it.message }
     }
     LaunchedEffect(Unit) { load() }
+
+    MemoryPane(
+        view = view,
+        error = error,
+        onAdd = { kind, content ->
+            scope.launch {
+                runCatching { vm.api?.addMemory(kind, content) }
+                    .onFailure { error = it.message }
+                load()
+            }
+        },
+        onForget = { entry ->
+            scope.launch {
+                runCatching { vm.api?.removeMemory(entry.content.take(60)) }
+                load()
+            }
+        },
+    )
+}
+
+/**
+ * What Simba knows without being asked.
+ *
+ * Worth editing from here rather than only from an agent: memory loads on every
+ * turn of every session, so a wrong entry is wrong everywhere until someone
+ * removes it. The pressure bar is shown because the store is deliberately capped
+ * by a database trigger — when it fills, a write is refused rather than quietly
+ * trimmed, and seeing that coming is more useful than discovering it when
+ * something fails to save.
+ *
+ * Split from its loader so both the empty and populated states can be rendered
+ * without a gateway. The add form in particular had two controls that did not
+ * look like controls, which is the sort of thing only visible by looking.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun MemoryPane(
+    view: MemoryView?,
+    error: String?,
+    onAdd: (String, String) -> Unit = { _, _ -> },
+    onForget: (MemoryEntry) -> Unit = {},
+    startAdding: Boolean = false,
+) {
+    var adding by remember { mutableStateOf(startAdding) }
+    var draft by remember { mutableStateOf("") }
+    var kind by remember { mutableStateOf("environment") }
 
     Column(Modifier.fillMaxSize()) {
         view?.let { v ->
@@ -302,20 +346,12 @@ private fun MemoryList(vm: SimbaVm) {
             Column(Modifier.padding(horizontal = space.gutter)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("$used of $cap", style = type.caption, color = Dim)
-                    // The cap is enforced by a database trigger, so a write near
-                    // the ceiling is genuinely refused rather than quietly
-                    // trimmed. Saying so is the difference between a bar that
-                    // decorates and a bar that warns.
                     Text(
                         if (pct > 0.85f) "nearly full — new facts will be refused" else "loaded every turn",
                         style = type.caption,
                         color = if (pct > 0.85f) Warn else Faint,
                     )
                 }
-                // The app's own bar rather than Material's: PressureBar already
-                // knows when to turn amber and red, and having two different
-                // progress indicators in one app means two different opinions
-                // about when something is worth worrying about.
                 PressureBar(pct, Modifier.padding(top = space.snug))
             }
 
@@ -339,9 +375,15 @@ private fun MemoryList(vm: SimbaVm) {
                     // Selectable rather than four words that happen to respond
                     // to a tap. Plain coloured text gives no indication it is a
                     // control, so the kind was effectively unchangeable.
-                    Row(
+                    // FlowRow, not Row: the four kinds at their natural widths
+                    // exceed a phone row, and a Row resolved that by wrapping
+                    // "preference" mid-word into "prefere / nce". Wrapping to a
+                    // second line keeps every option visible, which matters when
+                    // the options are the whole control.
+                    FlowRow(
                         Modifier.padding(top = space.base),
                         horizontalArrangement = Arrangement.spacedBy(space.snug),
+                        verticalArrangement = Arrangement.spacedBy(space.snug),
                     ) {
                         listOf("environment", "convention", "person", "preference").forEach { k ->
                             val on = kind == k
@@ -349,6 +391,7 @@ private fun MemoryList(vm: SimbaVm) {
                                 k,
                                 style = type.caption,
                                 color = if (on) OnAccent else Dim,
+                                maxLines = 1,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(radius.pill))
                                     .background(if (on) Accent else Inset)
@@ -365,13 +408,9 @@ private fun MemoryList(vm: SimbaVm) {
                             .clip(RoundedCornerShape(radius.small))
                             .background(if (valid) Accent else Inset)
                             .clickable(enabled = valid) {
-                                scope.launch {
-                                    runCatching { vm.api?.addMemory(kind, draft.trim()) }
-                                        .onFailure { error = it.message }
-                                    draft = ""
-                                    adding = false
-                                    load()
-                                }
+                                onAdd(kind, draft.trim())
+                                draft = ""
+                                adding = false
                             }
                             .padding(vertical = space.base),
                         contentAlignment = Alignment.Center,
@@ -388,12 +427,11 @@ private fun MemoryList(vm: SimbaVm) {
         }
 
         error?.let { FailureState(it) }
+        if (view == null && error == null) LoadingState(3)
 
         LazyColumn(Modifier.fillMaxSize()) {
             val entries = view?.entries.orEmpty()
-            if (view == null && error == null) {
-                item { LoadingState(3) }
-            } else if (entries.isEmpty()) {
+            if (view != null && entries.isEmpty()) {
                 item {
                     EmptyState(
                         "Nothing remembered yet",
@@ -417,12 +455,7 @@ private fun MemoryList(vm: SimbaVm) {
                             "Forget this",
                             style = type.label,
                             color = Err,
-                            modifier = Modifier.clickable {
-                                scope.launch {
-                                    runCatching { vm.api?.removeMemory(m.content.take(60)) }
-                                    load()
-                                }
-                            },
+                            modifier = Modifier.clickable { onForget(m) },
                         )
                     },
                 )

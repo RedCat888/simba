@@ -369,3 +369,47 @@ index 8f2a1c4..b91de07 100644
         onBack = {},
     )
 }
+
+/**
+ * The memory pane with its add form open — the state that had two controls
+ * which did not look like controls, and had never been rendered.
+ *
+ * Pressure is set at 21 of 24 on purpose: past 85% the copy changes from
+ * "loaded every turn" to saying that new facts will be refused, and that is the
+ * line worth checking, because the cap is enforced by a database trigger rather
+ * than by trimming.
+ */
+@Composable
+fun MemoryFixture() {
+    MemoryPane(
+        view = MemoryView(
+            pressure = MemoryPressure(global = MemoryScope(used = 21, cap = 24)),
+            entries = listOf(
+                MemoryEntry(
+                    id = "1", kind = "environment",
+                    content = "Postgres runs on the scoop install at " +
+                        "C:/workspace/scoop/apps/postgresql/current, not a service.",
+                    source = "session 5b970b4d", confirmations = 3,
+                ),
+                MemoryEntry(
+                    id = "2", kind = "convention",
+                    content = "Never write state, plans or handoffs to markdown — Postgres is " +
+                        "the only source of truth. Research notes are the sole exception.",
+                    source = "stated by the operator", confirmations = 7,
+                ),
+                MemoryEntry(
+                    id = "3", kind = "preference",
+                    content = "Subscriptions only. No API-key spending; free tiers and local " +
+                        "models are fine.",
+                    source = "stated by the operator",
+                ),
+                MemoryEntry(
+                    id = "4", kind = "person",
+                    content = "the operator drives Simba mostly from a Galaxy S24, one-handed.",
+                ),
+            ),
+        ),
+        error = null,
+        startAdding = true,
+    )
+}

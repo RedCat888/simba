@@ -207,6 +207,25 @@ fun NowBusyFixture() {
             Brain(slug = "codex", status = "available", enabled = true),
             Brain(slug = "opencode", status = "available", enabled = true),
         ),
+        // Shared in from other apps and not yet triaged. The share sheet has
+        // worked since the beginning and what it produced had no surface.
+        captures = listOf(
+            Capture(
+                id = "c1", source = "android-share", status = "pending",
+                title = "Compose: SharedTransitionLayout is stable in 1.7",
+                content = "SharedTransitionLayout graduated in Compose 1.7.0. sharedBounds and " +
+                    "sharedElement are usable without an opt-in now.",
+                url = "https://developer.android.com/develop/ui/compose/animation/shared-elements",
+                kind = "link", routedTo = "mobile-app",
+                createdAt = "2026-08-04T23:12:00Z",
+            ),
+            Capture(
+                id = "c2", source = "process-text", status = "pending",
+                content = "remember: the emulator on this box crashes at startup, WHPX is fine, " +
+                    "it is the 2024 build on a 2026 Windows",
+                kind = "note", createdAt = "2026-08-05T00:31:00Z",
+            ),
+        ),
         events = listOf(
             SystemEvent(id = 2841, ts = "2026-08-05T00:02:00Z", type = "skill.learned",
                 message = "wrote raw-postgres-wire-protocol-in-node after solving it twice"),

@@ -62,6 +62,7 @@ fun NowScreen(
     var pending by remember { mutableStateOf<List<PendingAction>>(emptyList()) }
     var memory by remember { mutableStateOf<List<MemorySample>>(emptyList()) }
     var events by remember { mutableStateOf<List<SystemEvent>>(emptyList()) }
+    var captures by remember { mutableStateOf<List<Capture>>(emptyList()) }
     var busy by remember { mutableStateOf<String?>(null) }
 
     suspend fun load() {
@@ -69,6 +70,7 @@ fun NowScreen(
         runCatching { api.pendingActions() }.onSuccess { pending = it }
         runCatching { api.memory(hours = 12) }.onSuccess { memory = it }
         runCatching { api.events() }.onSuccess { events = it }
+        runCatching { api.captures() }.onSuccess { captures = it.filter { c -> c.status == "pending" } }
     }
     LaunchedEffect(vm.api) { load() }
     // Slower than the session poll: these change on the scale of minutes, and a
@@ -91,10 +93,18 @@ fun NowScreen(
         memory = memory,
         brains = vm.brains,
         events = events,
+        captures = captures,
         busyAction = busy,
         onOpenMission = onOpenMission,
         onOpenSession = onOpenSession,
         onOpenSystem = onOpenSystem,
+        onResolveCapture = { capture, action ->
+            vm.viewModelScope.launch {
+                runCatching { vm.api?.resolveCapture(capture.id, action) }
+                    .onFailure { vm.error = it.message }
+                load()
+            }
+        },
         onDecide = { action, approve ->
             busy = action.id
             vm.viewModelScope.launch {
@@ -129,11 +139,14 @@ fun NowBody(
     memory: List<MemorySample>,
     brains: List<Brain>,
     events: List<SystemEvent>,
+    /** Shared into Simba from another app and not yet triaged. */
+    captures: List<Capture> = emptyList(),
     busyAction: String? = null,
     onOpenMission: (String) -> Unit = {},
     onOpenSession: (String, String) -> Unit = { _, _ -> },
     onOpenSystem: () -> Unit = {},
     onDecide: (PendingAction, Boolean) -> Unit = { _, _ -> },
+    onResolveCapture: (Capture, String) -> Unit = { _, _ -> },
 ) {
     LazyColumn(
         Modifier.fillMaxWidth(),
@@ -149,6 +162,49 @@ fun NowBody(
                     action = action,
                     busy = busyAction == action.id,
                     onDecide = { approve -> onDecide(action, approve) },
+                )
+            }
+        }
+
+        // Things shared in from another app. The share sheet has worked since
+        // the beginning and what it produced landed in a queue with no surface,
+        // so capturing something was indistinguishable from losing it.
+        if (captures.isNotEmpty()) {
+            item {
+                SectionHeading("Captured") {
+                    Text("${captures.size} untriaged", style = type.caption, color = Faint)
+                }
+            }
+            items(captures, key = { it.id }) { c ->
+                ItemRow(
+                    title = c.title ?: c.content.lineSequence().first().take(90),
+                    subtitle = c.summary ?: c.note,
+                    badge = c.routedTo?.let { ItemMeta(it, Tone.Accented) },
+                    meta = buildList {
+                        add(ItemMeta(c.source))
+                        c.kind?.let { add(ItemMeta(it)) }
+                        c.createdAt?.let { add(ItemMeta(ago(it))) }
+                    },
+                    expanded = {
+                        Column(verticalArrangement = Arrangement.spacedBy(space.base)) {
+                            Text(c.content, style = type.bodySmall, color = Dim)
+                            c.url?.let { Text(it, style = type.mono, color = Info) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(space.roomy)) {
+                                Text(
+                                    "Mark done",
+                                    style = type.label,
+                                    color = Ok,
+                                    modifier = Modifier.clickable { onResolveCapture(c, "done") },
+                                )
+                                Text(
+                                    "Discard",
+                                    style = type.label,
+                                    color = Err,
+                                    modifier = Modifier.clickable { onResolveCapture(c, "reject") },
+                                )
+                            }
+                        }
+                    },
                 )
             }
         }

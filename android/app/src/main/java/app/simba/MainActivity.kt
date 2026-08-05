@@ -642,7 +642,9 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
                     Text("tier 0", style = type.micro, color = Accent)
                 }
             }
-            items(brain, key = { it.id }) { AgentRow(it) { prompting = it } }
+            items(brain, key = { it.id }) { a ->
+                AgentRow(a, onStart = { prompting = a }, onRetier = { tier -> retier(vm, a, tier) })
+            }
         }
 
         if (workers.isNotEmpty()) {
@@ -656,7 +658,9 @@ private fun AgentsScreen(vm: SimbaVm, openChat: (String, String) -> Unit) {
                     )
                 }
             }
-            items(workers, key = { it.id }) { AgentRow(it) { prompting = it } }
+            items(workers, key = { it.id }) { a ->
+                AgentRow(a, onStart = { prompting = a }, onRetier = { tier -> retier(vm, a, tier) })
+            }
         }
     }
 
@@ -834,7 +838,7 @@ private fun dayLabel(iso: String?): String {
  * whether the agent is behaving now.
  */
 @Composable
-private fun AgentRow(a: Agent, onStart: () -> Unit) {
+private fun AgentRow(a: Agent, onStart: () -> Unit, onRetier: (String) -> Unit) {
     ItemRow(
         title = a.name,
         subtitle = a.description,
@@ -844,11 +848,52 @@ private fun AgentRow(a: Agent, onStart: () -> Unit) {
             if (a.activeSessions > 0) add(ItemMeta("${a.activeSessions} live", Tone.Accented))
         },
         badge = ItemMeta(statusLabel(a.status), toneFor(a.status)),
-        // Tapping the row starts it. A separate button inside a row is a third
-        // tap target competing with the row and the design's own expansion, and
-        // every design would have to place it differently.
-        onClick = onStart,
+        // The expansion carries configuration; the row itself is not the place
+        // for it, and a second tap target inside a row competes with the row.
+        expanded = {
+            Column(verticalArrangement = Arrangement.spacedBy(space.snug)) {
+                Text(
+                    "MODEL TIER",
+                    style = type.micro,
+                    color = Faint,
+                )
+                // The one setting on an agent that changes both what it costs
+                // and how well it works. The route has existed since agents did
+                // and nothing had ever called it, so the tier an agent was
+                // created with was the tier it kept.
+                Row(horizontalArrangement = Arrangement.spacedBy(space.snug)) {
+                    listOf("free", "low", "mid", "high").forEach { tier ->
+                        val on = a.modelTier == tier
+                        Text(
+                            tier,
+                            style = type.caption,
+                            color = if (on) OnAccent else Dim,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(radius.pill))
+                                .background(if (on) Accent else Inset)
+                                .clickable(enabled = !on) { onRetier(tier) }
+                                .padding(horizontal = space.base, vertical = space.tight),
+                        )
+                    }
+                }
+                Text(
+                    "Start it",
+                    style = type.label,
+                    color = Accent,
+                    modifier = Modifier.padding(top = space.snug).clickable { onStart() },
+                )
+            }
+        },
     )
+}
+
+/** Change an agent's tier and reflect it, without waiting for the next poll. */
+private fun retier(vm: SimbaVm, a: Agent, tier: String) {
+    vm.viewModelScope.launch {
+        runCatching { vm.api?.setAgentModel(a.slug, tier) }
+            .onFailure { vm.error = it.message }
+        vm.refresh()
+    }
 }
 
 @Composable

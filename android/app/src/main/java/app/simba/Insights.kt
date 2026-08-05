@@ -195,8 +195,16 @@ data class Capture(
     val url: String? = null,
     val note: String? = null,
     val status: String = "",
+    val kind: String? = null,
+    val title: String? = null,
+    val summary: String? = null,
+    @SerialName("routed_to") val routedTo: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 )
+
+/** reject, done, or requeue. The gateway refuses anything else. */
+suspend fun SimbaApi.resolveCapture(id: String, action: String): String =
+    call(req("/api/captures/$id/$action").post("{}".toRequestBody("application/json".toMediaType())).build())
 
 // ---------------------------------------------------------------------------
 // Calls

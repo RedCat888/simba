@@ -228,3 +228,89 @@ fun NowQuietFixture() {
         events = emptyList(),
     )
 }
+
+/**
+ * A mission stopped on budget — the state the detail screen exists for.
+ *
+ * Blocked is the only state where a person must act, so it is the one where the
+ * payload has to lead with the reason and carry the fix. A failed step sits in
+ * the middle of the plan so the rail has something to locate.
+ */
+@Composable
+fun MissionBlockedFixture() {
+    MissionScreen(
+        detail = MissionDetail(
+            mission = MissionFull(
+                id = "m1",
+                title = "Port the Hermes self-improvement loop so agents write their own skills",
+                objective = "Carry over the behaviours from Hermes that make an agent improve " +
+                    "between sessions: skills it writes for itself, bounded memory, and " +
+                    "curation that removes what stopped earning its place.",
+                acceptanceCriteria = "An agent writes a skill unprompted and a later session uses it.",
+                status = "blocked",
+                blockedReason = "session budget exhausted after 40 sessions",
+                sessionsUsed = 40, maxSessions = 40,
+                costUsed = 18.42, maxCost = 25.0,
+                consecutiveFailures = 2, maxConsecutiveFailures = 3,
+                agent = "simba",
+            ),
+            steps = listOf(
+                step(1, "Read the Hermes skill format", "succeeded"),
+                step(2, "Design the skills table", "succeeded"),
+                step(3, "Write the index that loads into every prompt", "succeeded"),
+                step(4, "Teach the supervisor to harvest skills", "failed",
+                    failures = "the harvest prompt returned prose instead of JSON three times"),
+                step(5, "Bound the memory store with a trigger", "succeeded"),
+                step(6, "Curation pass for unused skills", "running"),
+                step(7, "Verify a skill is written unprompted", "pending"),
+                step(8, "Verify a later session uses it", "pending"),
+                step(9, "Record the outcome", "pending"),
+            ),
+            log = listOf(
+                MissionLogEntry("2026-08-05T00:31:00Z", "warn", "blocked: session budget exhausted after 40 sessions"),
+                MissionLogEntry("2026-08-05T00:12:00Z", "error", "step 4 failed for the third time; circuit opened"),
+                MissionLogEntry("2026-08-04T22:40:00Z", "info", "step 6 started"),
+                MissionLogEntry("2026-08-04T21:05:00Z", "info", "plan recorded: 9 steps"),
+                MissionLogEntry("2026-08-04T21:02:00Z", "info", "mission created from desktop"),
+            ),
+        ),
+        busy = false, onBack = {}, onAction = {}, onRaiseBudget = {},
+    )
+}
+
+/** A finished mission: what it produced, and how it knows that worked. */
+@Composable
+fun MissionDoneFixture() {
+    MissionScreen(
+        detail = MissionDetail(
+            mission = MissionFull(
+                id = "m2",
+                title = "Nightly repo snapshot and vault sync",
+                objective = "Commit anything uncommitted, push, and write the day's digest " +
+                    "into the Obsidian vault.",
+                status = "completed",
+                result = "Committed 6 changes across 4 repositories, pushed all of them, and " +
+                    "appended a 400-word digest to Daily/2026-08-04.md.",
+                verification = "git status clean in every repo; the vault note exists and its " +
+                    "modified time is after the run started.",
+                sessionsUsed = 2, maxSessions = 10,
+                costUsed = 0.0, maxCost = 5.0,
+                scheduleNote = "every day at 07:00",
+                agent = "simba",
+            ),
+            steps = List(4) { step(it + 1, "Step ${it + 1}", "succeeded") },
+            log = listOf(
+                MissionLogEntry("2026-08-04T07:04:00Z", "info", "completed and verified"),
+                MissionLogEntry("2026-08-04T07:00:00Z", "info", "woken by schedule"),
+            ),
+        ),
+        busy = false, onBack = {}, onAction = {}, onRaiseBudget = {},
+    )
+}
+
+private fun step(seq: Int, title: String, status: String, failures: String? = null) = MissionStep(
+    seq = seq, title = title, status = status, kind = "work",
+    instruction = "Do the thing described by the title, and record what happened.",
+    attempts = if (status == "failed") 3 else 1,
+    failures = failures,
+)

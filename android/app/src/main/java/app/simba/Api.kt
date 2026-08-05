@@ -79,6 +79,22 @@ data class MissionStep(
 data class MissionDetail(
     val mission: MissionFull = MissionFull(),
     val steps: List<MissionStep> = emptyList(),
+    /**
+     * The mission's own history.
+     *
+     * Returned by the gateway since this route was written and never modelled,
+     * so a mission's detail screen could say what state it was in but nothing
+     * about how it got there — which is the question anyone opening a blocked
+     * mission at 3am is actually asking.
+     */
+    val log: List<MissionLogEntry> = emptyList(),
+)
+
+@Serializable
+data class MissionLogEntry(
+    val ts: String = "",
+    val level: String = "info",
+    val message: String = "",
 )
 
 @Serializable
@@ -93,6 +109,31 @@ data class MissionFull(
     @SerialName("max_sessions") val maxSessions: Int = 0,
     /** Needed to offer a sensible raised ceiling when a budget block happens. */
     @SerialName("max_cost_usd") val maxCost: Double = 0.0,
+
+    /**
+     * What it produced, and the evidence that it worked.
+     *
+     * The two most valuable fields on a finished mission and neither reached the
+     * phone, so "completed" was a word with nothing behind it. A mission that
+     * claims success without stating what it verified is exactly the thing
+     * unattended work has to be able to answer for.
+     */
+    val result: String? = null,
+    val verification: String? = null,
+
+    @SerialName("cost_used_usd") val costUsed: Double = 0.0,
+    @SerialName("consecutive_failures") val consecutiveFailures: Int = 0,
+    @SerialName("max_consecutive_failures") val maxConsecutiveFailures: Int = 0,
+    @SerialName("working_dir") val workingDir: String? = null,
+    @SerialName("started_at") val startedAt: String? = null,
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("next_run_at") val nextRunAt: String? = null,
+    @SerialName("schedule_note") val scheduleNote: String? = null,
+    val cadence: String? = null,
+    val script: String? = null,
+    @SerialName("last_output") val lastOutput: String? = null,
+    @SerialName("last_exit_code") val lastExitCode: Int? = null,
+    val agent: String? = null,
 )
 
 @Serializable

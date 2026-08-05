@@ -504,149 +504,57 @@ fun Meta(text: String, color: Color = Faint) {
     Text(text, fontSize = 11.sp, color = color)
 }
 
+/**
+ * Loads a mission and hands it to [MissionScreen].
+ *
+ * Only the fetching lives here; everything about how a mission is presented
+ * moved to Mission.kt, where it can be rendered and looked at without a gateway.
+ */
 @Composable
 private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
-    var detail by remember { mutableStateOf<MissionDetail?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    var detail by remember(id) { mutableStateOf<MissionDetail?>(null) }
+    var busy by remember(id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun load() { detail = runCatching { vm.api?.mission(id) }.getOrNull() }
     LaunchedEffect(id) { load() }
-    LaunchedEffect(id) { while (true) { delay(15_000); load() } }
+    // A running mission changes underneath you; a finished one does not, so the
+    // poll stops once there is nothing left to watch.
+    LaunchedEffect(id, detail?.mission?.status) {
+        while (detail?.mission?.status in setOf("running", "planning", null)) {
+            delay(15_000)
+            load()
+        }
+    }
 
     val d = detail
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-    ) {
-        item {
-            Row(Modifier.screenPad().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                BackButton(back)
-                Text("All missions", color = Dim, fontSize = 12.5.sp, modifier = Modifier.padding(start = 4.dp))
-            }
-        }
-
-        if (d == null) { item { LoadingState(3) }; return@LazyColumn }
-
-        item {
-            Card(Modifier.screenPad()) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        d.mission.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Fg,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    val tone = toneFor(d.mission.status)
-                    Text(
-                        d.mission.status,
-                        color = tone.color(),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(99.dp))
-                            .background(tone.color().copy(alpha = 0.14f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                }
-                Text(
-                    d.mission.objective,
-                    fontSize = 12.5.sp,
-                    color = Dim,
-                    modifier = Modifier.padding(top = 7.dp),
-                )
-                d.mission.acceptanceCriteria?.takeIf { it.isNotBlank() }?.let {
-                    Text("Done when: $it", fontSize = 12.sp, color = Faint, modifier = Modifier.padding(top = 6.dp))
-                }
-                d.mission.blockedReason?.takeIf { it.isNotBlank() }?.let { reason ->
-                    Spacer(Modifier.height(8.dp))
-                    Box(
-                        Modifier.clip(RoundedCornerShape(8.dp)).background(Warn.copy(alpha = 0.12f)).padding(9.dp),
-                    ) {
-                        Column {
-                            Text("Blocked: $reason", fontSize = 12.sp, color = Warn)
-                            // A budget block is the one kind of stop the phone
-                            // can actually clear, so offer the fix beside the
-                            // reason rather than making it a generic action.
-                            if (reason.contains("budget", ignoreCase = true) ||
-                                reason.contains("exhausted", ignoreCase = true)
-                            ) {
-                                Text(
-                                    "Raise to ${d.mission.maxSessions + 10} sessions / " +
-                                        "$${"%.0f".format(d.mission.maxCost + 10)} and continue",
-                                    fontSize = 12.sp,
-                                    color = Accent,
-                                    modifier = Modifier.padding(top = 7.dp).clickable(enabled = !busy) {
-                                        scope.launch {
-                                            busy = true
-                                            runCatching {
-                                                vm.api?.missionBudget(
-                                                    id,
-                                                    d.mission.maxSessions + 10,
-                                                    d.mission.maxCost + 10.0,
-                                                )
-                                            }
-                                            load(); busy = false
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("pause" to "Pause", "resume" to "Resume", "retry" to "Retry").forEach { (a, label) ->
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    busy = true
-                                    runCatching { vm.api?.missionAction(id, a) }
-                                    load(); busy = false
-                                }
-                            },
-                            enabled = !busy,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        ) { Text(label, fontSize = 12.sp) }
-                    }
-                }
-            }
-        }
-
-        item {
-            SectionHeading("Plan") {
-                Text("${d.steps.size} steps", fontSize = 11.sp, color = Faint)
-            }
-        }
-
-        items(d.steps) { s -> StepCard(s) }
+    if (d == null) {
+        LoadingState(3)
+        return
     }
-}
 
-@Composable
-private fun StepCard(s: MissionStep) {
-    // A step carries three things worth reading — what it was told to do, what
-    // it produced, and how it failed — which is more than a subtitle can hold
-    // without truncating whichever one mattered. So they go in the expansion,
-    // and the row itself stays scannable: number, title, state.
-    ItemRow(
-        title = "${s.seq}. ${s.title}",
-        meta = listOf(ItemMeta(s.kind)),
-        badge = ItemMeta(s.status, toneFor(s.status)),
-        expanded = {
-            Column {
-                Text(s.instruction, fontSize = 12.sp, color = Dim, lineHeight = 17.sp)
-                s.result?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, fontSize = 12.sp, color = Ok, modifier = Modifier.padding(top = 8.dp))
-                }
-                s.failures?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, fontSize = 12.sp, color = Err, modifier = Modifier.padding(top = 8.dp))
-                }
+    MissionScreen(
+        detail = d,
+        busy = busy,
+        onBack = back,
+        onAction = { action ->
+            scope.launch {
+                busy = true
+                runCatching { vm.api?.missionAction(id, action) }
+                    .onFailure { vm.error = it.message }
+                load()
+                busy = false
+                vm.refresh()
+            }
+        },
+        onRaiseBudget = {
+            scope.launch {
+                busy = true
+                runCatching {
+                    vm.api?.missionBudget(id, d.mission.maxSessions + 10, d.mission.maxCost + 10.0)
+                }.onFailure { vm.error = it.message }
+                load()
+                busy = false
             }
         },
     )

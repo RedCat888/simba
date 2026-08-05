@@ -137,3 +137,94 @@ fun SessionFixture() {
         ),
     )
 }
+
+/**
+ * The Now screen's two states that matter: something needs you, and nothing does.
+ *
+ * Both have to be checked. A landing screen is judged on the quiet case as much
+ * as the busy one — an ops surface that looks empty and broken when everything
+ * is fine is worse than no landing screen, and it is the state it will be in
+ * most of the time.
+ */
+@Composable
+fun NowBusyFixture() {
+    NowBody(
+        needsYou = 3,
+        runningMissions = 2,
+        liveSessions = 1,
+        connected = true,
+        pending = listOf(
+            PendingAction(
+                id = "a1", actionClass = "write_outside_worktree",
+                target = "C:/workspace/OneDrive/Documents/Obsidian Vault/Daily/2026-08-05.md",
+                summary = "Append today's brief to the vault daily note",
+                status = "pending", agent = "simba",
+            ),
+            PendingAction(
+                id = "a2", actionClass = "network_egress",
+                target = "api.github.com",
+                summary = "Create a release and upload the built APK",
+                status = "pending", attempts = 2, agent = "mobile-app",
+                error = "previous attempt refused: token lacked repo scope",
+            ),
+        ),
+        blocked = listOf(
+            Mission(
+                id = "m1", title = "Port the Hermes self-improvement loop",
+                status = "blocked", doneSteps = 3, totalSteps = 9,
+                blockedReason = "session budget exhausted after 40 sessions",
+            ),
+        ),
+        running = listOf(
+            Mission(
+                id = "m2", title = "Nightly repo snapshot and vault sync",
+                status = "running", currentStep = "Writing the digest", doneSteps = 4,
+                totalSteps = 6, costUsed = 0.0,
+            ),
+            Mission(
+                id = "m3", title = "Rebuild the Android app to product quality",
+                status = "running", currentStep = "Rendering screens for review",
+                doneSteps = 11, totalSteps = 18, costUsed = 4.82,
+            ),
+        ),
+        live = listOf(
+            SessionRow(
+                id = "s1", agent = "mobile-app", status = "running",
+                title = "Now screen and four-tab navigation", brain = "claude-b",
+                cost = 1.24, lastActivityAt = "2026-08-05T00:04:00Z",
+            ),
+        ),
+        memory = (0..71).map { i ->
+            // A slow decline overnight, which is exactly the shape worth seeing.
+            MemorySample(
+                at = "08-04 %02d:00".format(i / 3), freeMb = 16800 - i * 120 + (i % 7) * 260,
+                totalMb = 32768, processCount = 412 + i,
+            )
+        },
+        brains = listOf(
+            Brain(slug = "claude-a", status = "limited", enabled = true),
+            Brain(slug = "claude-b", status = "available", enabled = true),
+            Brain(slug = "codex", status = "available", enabled = true),
+            Brain(slug = "opencode", status = "available", enabled = true),
+        ),
+        events = listOf(
+            SystemEvent(id = 2841, ts = "2026-08-05T00:02:00Z", type = "skill.learned",
+                message = "wrote raw-postgres-wire-protocol-in-node after solving it twice"),
+            SystemEvent(id = 2839, ts = "2026-08-04T23:31:00Z", type = "mission.blocked",
+                severity = "warn", message = "Port the Hermes loop: session budget exhausted"),
+            SystemEvent(id = 2833, ts = "2026-08-04T22:58:00Z", type = "brain.limit_reached",
+                severity = "warn", message = "claude-a hit its 5-hour ceiling; failed over to claude-b"),
+        ),
+    )
+}
+
+@Composable
+fun NowQuietFixture() {
+    NowBody(
+        needsYou = 0, runningMissions = 0, liveSessions = 0, connected = true,
+        pending = emptyList(), blocked = emptyList(), running = emptyList(), live = emptyList(),
+        memory = (0..71).map { MemorySample(freeMb = 14200, totalMb = 32768, processCount = 388) },
+        brains = List(4) { Brain(status = "available", enabled = true) },
+        events = emptyList(),
+    )
+}

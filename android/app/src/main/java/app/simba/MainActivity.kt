@@ -94,14 +94,31 @@ class SimbaVm : ViewModel() {
 // Root
 // ---------------------------------------------------------------------------
 
+/**
+ * Screens reached by tapping something, rather than by choosing a destination.
+ *
+ * Kept as a single nullable value rather than a stack: every push in this app is
+ * one level deep except session -> diff, and that one is expressed as a push
+ * that knows how to go back to its parent. A general back stack would be more
+ * machinery than there is navigation to manage, and machinery that is not
+ * exercised is machinery that is wrong.
+ */
+private sealed interface Push {
+    data class MissionDetail(val id: String) : Push
+    data class SessionDetail(val id: String, val title: String) : Push
+    data class SessionDiff(val id: String) : Push
+    data object Agents : Push
+    data object Knowledge : Push
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SimbaRoot(vm: SimbaVm = viewModel()) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var dest by remember { mutableStateOf(Destination.Chat) }
-    var openMission by remember { mutableStateOf<String?>(null) }
+    var dest by remember { mutableStateOf(Destination.Now) }
     var openChat by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var push by remember { mutableStateOf<Push?>(null) }
     var ready by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -116,7 +133,9 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
     LaunchedEffect(ready) {
         while (ready) {
             delay(20_000)
-            if (openMission == null) vm.refresh()
+            // Not while reading a detail screen: a refresh underneath a pushed
+            // view re-sorts the list it came from and can move what is on screen.
+            if (push == null) vm.refresh()
         }
     }
 
@@ -144,7 +163,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
         else -> DesignShell(
             design = LocalDesign.current,
             current = dest,
-            onNavigate = { dest = it; openMission = null; openChat = null },
+            onNavigate = { dest = it; push = null; openChat = null },
             status = ShellStatus(
                 connected = vm.error == null && vm.stats != null,
                 activeSessions = vm.stats?.activeSessions ?: 0,
@@ -154,17 +173,47 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                 error = vm.error,
             ),
         ) { shown ->
+            val here = push
             when {
                 !ready -> LoadingState()
-                openMission != null -> MissionDetailScreen(vm, openMission!!) { openMission = null }
+
+                // Pushed screens win over the tab. They are reached from a row,
+                // they have a back affordance of their own, and the tab bar stays
+                // put underneath — which is what makes tapping a tab a way out.
+                here != null -> when (here) {
+                    is Push.MissionDetail ->
+                        MissionDetailScreen(vm, here.id) { push = null }
+
+                    is Push.SessionDetail -> SessionScreen(
+                        vm, here.id, here.title,
+                        onBack = { push = null },
+                        onOpenChat = { openChat = here.id to here.title },
+                        onOpenDiff = { push = Push.SessionDiff(here.id) },
+                    )
+
+                    is Push.SessionDiff ->
+                        DiffScreen(vm, here.id) { push = Push.SessionDetail(here.id, "") }
+
+                    Push.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
+                    Push.Knowledge -> KnowledgeScreen(vm)
+                }
+
                 // `shown`, not `dest`: during a Fluid transition the outgoing
                 // half is asked to draw the destination being left.
                 else -> when (shown) {
+                    Destination.Now -> NowScreen(
+                        vm,
+                        onOpenMission = { push = Push.MissionDetail(it) },
+                        onOpenSession = { id, title -> push = Push.SessionDetail(id, title) },
+                        onOpenSystem = { dest = Destination.System },
+                    )
                     Destination.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
-                    Destination.Missions -> MissionsScreen(vm) { openMission = it }
-                    Destination.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
-                    Destination.Knowledge -> KnowledgeScreen(vm)
-                    Destination.System -> SystemScreen(vm) { url, token, clientId, clientSecret ->
+                    Destination.Missions -> MissionsScreen(vm) { push = Push.MissionDetail(it) }
+                    Destination.System -> SystemScreen(
+                        vm,
+                        onOpenAgents = { push = Push.Agents },
+                        onOpenKnowledge = { push = Push.Knowledge },
+                    ) { url, token, clientId, clientSecret ->
                         scope.launch {
                             ctx.saveGateway(url, token, clientId, clientSecret)
                             vm.api = ctx.api()
@@ -888,7 +937,12 @@ fun MemoryScreen(vm: SimbaVm) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> Unit) {
+private fun SystemScreen(
+    vm: SimbaVm,
+    onOpenAgents: () -> Unit = {},
+    onOpenKnowledge: () -> Unit = {},
+    save: (String, String, String, String) -> Unit,
+) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var url by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
@@ -928,6 +982,27 @@ private fun SystemScreen(vm: SimbaVm, save: (String, String, String, String) -> 
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // Agents and Knowledge stopped being tabs because neither is a task —
+        // one is a directory that changes monthly, the other is occasional
+        // curation. They are still one tap away, and stating what is inside
+        // them is what stops "System" becoming the drawer everything fell into.
+        SectionHeading("Manage")
+        ItemRow(
+            title = "Agents",
+            subtitle = "Who can run, what tier they think at, and what they have cost",
+            meta = buildList {
+                add(ItemMeta("${vm.agents.size}"))
+                val live = vm.agents.sumOf { it.activeSessions }
+                if (live > 0) add(ItemMeta("$live live", Tone.Good))
+            },
+            onClick = onOpenAgents,
+        )
+        ItemRow(
+            title = "Knowledge",
+            subtitle = "Skills it wrote for itself, what it remembers, and what it has decided",
+            onClick = onOpenKnowledge,
+        )
+
         SectionHeading("Design") { Meta(BuildConfig.BUILD_STAMP, Accent) }
 
         // The picker is the one place the three designs are described rather

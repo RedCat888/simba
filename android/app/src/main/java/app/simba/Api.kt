@@ -374,6 +374,20 @@ data class SessionRow(
     @SerialName("swap_count") val swapCount: Int = 0,
     /** Why it failed. A bare "failed" with no reason looks like a Simba bug. */
     val error: String? = null,
+    /**
+     * When this session last did anything.
+     *
+     * The gateway has always returned it and the app never modelled it, so
+     * "running" was indistinguishable from "running, but silent for forty
+     * minutes" — which is usually the more urgent of the two. Freshness is the
+     * signal that separates working from stuck, and no status string carries it.
+     */
+    @SerialName("last_activity_at") val lastActivityAt: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("total_input_tokens") val inputTokens: Long = 0,
+    @SerialName("total_output_tokens") val outputTokens: Long = 0,
+    val cli: String? = null,
+    val tier: Int? = null,
 )
 
 @Serializable

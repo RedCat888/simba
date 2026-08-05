@@ -35,6 +35,25 @@ import androidx.compose.ui.graphics.vector.ImageVector
  *              everything is reachable by typing, with a dense status strip
  *              above it. Argued for below.
  */
+/**
+ * Four, not five, and named for what you are doing rather than what table it
+ * comes from.
+ *
+ * The old set — Chat, Missions, Agents, Knowledge, System — was the schema with
+ * a bottom bar attached. Two of those were not tasks:
+ *
+ *   **Agents** was a directory of seven rows that changes about once a month.
+ *   An agent is a resource, not something you do; it belongs behind System, and
+ *   as a link from any session that used one.
+ *
+ *   **Knowledge** conflated two different frequencies. Searching the corpus is
+ *   something you do mid-conversation, so it belongs to Chat. Browsing skills,
+ *   memory and decisions is occasional curation, so it belongs behind System.
+ *
+ * And the set was missing the only screen worth opening the app for. [Now]
+ * answers "what needs me" — which previously took three taps and knowing where
+ * to look, so in practice it was answered by not knowing.
+ */
 enum class Destination(
     val label: String,
     /** Console addresses destinations by name typed into the command bar. */
@@ -53,10 +72,9 @@ enum class Destination(
     /** Fluid draws its own, in one stroke weight on one grid. See [SimbaIcons]. */
     val fluid: ImageVector,
 ) {
+    Now("Now", "now", "!", Icons.Rounded.Bolt, Icons.Outlined.Bolt, SimbaIcons.Missions),
     Chat("Chat", "chat", ">", Icons.Rounded.Forum, Icons.Outlined.Forum, SimbaIcons.Chat),
-    Missions("Missions", "missions", "*", Icons.Rounded.Bolt, Icons.Outlined.Bolt, SimbaIcons.Missions),
-    Agents("Agents", "agents", "@", Icons.Rounded.Hub, Icons.Outlined.Hub, SimbaIcons.Agents),
-    Knowledge("Knowledge", "know", "?", Icons.Rounded.Insights, Icons.Outlined.Insights, SimbaIcons.Knowledge),
+    Missions("Missions", "missions", "*", Icons.Rounded.Insights, Icons.Outlined.Insights, SimbaIcons.Knowledge),
     System("System", "sys", "#", Icons.Rounded.Terminal, Icons.Outlined.Terminal, SimbaIcons.System),
     ;
 
@@ -64,6 +82,12 @@ enum class Destination(
         fun match(input: String): Destination? {
             val q = input.trim().lowercase()
             if (q.isEmpty()) return null
+            // The two destinations that stopped being tabs are still typable,
+            // because Console's whole argument is that you get anywhere by
+            // naming it, and removing a tab should not remove a word.
+            if (q in setOf("agents", "agent", "brains", "know", "knowledge", "skills", "memory")) {
+                return System
+            }
             return entries.firstOrNull { it.command == q }
                 ?: entries.firstOrNull { it.command.startsWith(q) }
                 ?: entries.firstOrNull { it.label.lowercase().startsWith(q) }

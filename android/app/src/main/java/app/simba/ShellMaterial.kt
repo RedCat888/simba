@@ -133,9 +133,10 @@ private data class PrimaryAction(val label: String, val onClick: () -> Unit)
 private fun primaryActionFor(dest: Destination): PrimaryAction? = when (dest) {
     Destination.Chat -> PrimaryAction("New chat") { MaterialActions.newChat?.invoke() }
     Destination.Missions -> PrimaryAction("New mission") { MaterialActions.newMission?.invoke() }
-    // Deliberately none: these are places you read, and a FAB with nothing
-    // worth doing is Material cargo-culted rather than applied.
-    Destination.Agents, Destination.Knowledge, Destination.System -> null
+    // Deliberately none. Now is a screen whose actions belong to the things on
+    // it, and a FAB there would be a second answer to "what should I do" beside
+    // the one the screen already gives. System is a place you read.
+    Destination.Now, Destination.System -> null
 }
 
 /**

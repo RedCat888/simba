@@ -138,16 +138,16 @@ private fun SkillDetailScreen(vm: SimbaVm, name: String, back: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(Modifier.screenPad().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.screenPad().padding(top = space.tight), verticalAlignment = Alignment.CenterVertically) {
             BackButton(back)
-            Text("All skills", color = Dim, style = type.label, modifier = Modifier.padding(start = 4.dp))
+            Text("All skills", color = Dim, style = type.label, modifier = Modifier.padding(start = space.tight))
         }
 
         error?.let { FailureState(it) }
         if (skill == null && error == null) LoadingState(2)
 
         skill?.let { s ->
-            Column(Modifier.screenPad().padding(top = 10.dp)) {
+            Column(Modifier.screenPad().padding(top = space.snug)) {
                 Text(
                     s.name,
                     color = Fg,
@@ -160,11 +160,11 @@ private fun SkillDetailScreen(vm: SimbaVm, name: String, back: () -> Unit) {
                     color = Dim,
                     style = type.bodySmall,
                     lineHeight = 19.sp,
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = space.tight),
                 )
                 Row(
-                    Modifier.padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    Modifier.padding(top = space.snug),
+                    horizontalArrangement = Arrangement.spacedBy(space.base),
                 ) {
                     Meta(s.source, if (s.source == "learned") Accent else Faint)
                     Meta("v${s.version}")
@@ -282,12 +282,12 @@ private fun MemoryList(vm: SimbaVm) {
 
     Column(Modifier.fillMaxSize()) {
         view?.let { v ->
-            @Suppress("NAME_SHADOWING") val pad = Modifier.padding(horizontal = 16.dp)
+            @Suppress("NAME_SHADOWING") val pad = Modifier.padding(horizontal = space.gutter)
             val used = v.pressure.global.used
             val cap = v.pressure.global.cap
             val pct = if (cap > 0) used.toFloat() / cap else 0f
             Row(
-                pad.fillMaxWidth().padding(top = 6.dp, bottom = 6.dp),
+                pad.fillMaxWidth().padding(top = space.tight, bottom = space.tight),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -317,8 +317,8 @@ private fun MemoryList(vm: SimbaVm) {
                         maxLines = 4,
                     )
                     Row(
-                        Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        Modifier.padding(top = space.tight),
+                        horizontalArrangement = Arrangement.spacedBy(space.snug),
                     ) {
                         listOf("environment", "convention", "person", "preference").forEach { k ->
                             Text(
@@ -333,7 +333,7 @@ private fun MemoryList(vm: SimbaVm) {
                         "save",
                         style = type.label,
                         color = Ok,
-                        modifier = Modifier.padding(top = 8.dp).clickable {
+                        modifier = Modifier.padding(top = space.snug).clickable {
                             scope.launch {
                                 runCatching { vm.api?.addMemory(kind, draft.trim()) }
                                     .onFailure { error = it.message }

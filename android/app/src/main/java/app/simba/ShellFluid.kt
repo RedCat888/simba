@@ -73,7 +73,7 @@ fun FluidShell(
                 },
                 label = "fluid-header",
             ) { dest ->
-                Column(Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 6.dp)) {
+                Column(Modifier.fillMaxWidth().padding(start = space.roomy, end = space.roomy, top = space.base, bottom = space.tight)) {
                     Text(
                         dest.label,
                         style = type.display,
@@ -82,8 +82,8 @@ fun FluidShell(
                         color = Fg,
                     )
                     Row(
-                        Modifier.padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Modifier.padding(top = space.hair),
+                        horizontalArrangement = Arrangement.spacedBy(space.base),
                     ) {
                         StatusDot(status.connected)
                         if (status.activeSessions > 0) {
@@ -155,7 +155,7 @@ private fun FluidNav(
 
         Column(
             Modifier
-                .padding(bottom = 22.dp)
+                .padding(bottom = space.roomy)
                 .clip(RoundedCornerShape(radius))
                 .background(
                     Brush.verticalGradient(listOf(Panel2, Panel)),
@@ -171,9 +171,9 @@ private fun FluidNav(
                         Modifier
                             .widthIn(min = 226.dp)
                             .clickable { onPick(d) }
-                            .padding(horizontal = 22.dp, vertical = 13.dp),
+                            .padding(horizontal = space.roomy, vertical = space.base),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(space.base),
                     ) {
                         Icon(
                             d.fluid,
@@ -190,7 +190,7 @@ private fun FluidNav(
                     }
                 }
                 Row(
-                    Modifier.clickable { onToggle() }.padding(vertical = 11.dp),
+                    Modifier.clickable { onToggle() }.padding(vertical = space.base),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // A handle rather than a cross: the sheet is being put
@@ -214,9 +214,9 @@ private fun FluidNav(
                     Modifier
                         .scale(scale)
                         .clickable { onToggle() }
-                        .padding(horizontal = 20.dp, vertical = 13.dp),
+                        .padding(horizontal = space.roomy, vertical = space.base),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(space.snug),
                 ) {
                     Icon(
                         current.fluid,
@@ -234,7 +234,7 @@ private fun FluidNav(
 @Composable
 private fun StatusDot(connected: Boolean) {
     val c by animateColorAsState(if (connected) Ok else Err, label = "dot")
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(space.tight)) {
         Box(Modifier.size(6.dp).clip(RoundedCornerShape(99.dp)).background(c))
         Text(if (connected) "connected" else "offline", style = type.label, color = Faint)
     }

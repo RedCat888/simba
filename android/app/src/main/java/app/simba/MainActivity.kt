@@ -246,19 +246,19 @@ fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> U
 @Composable
 private fun ErrorBanner(error: String?) {
     AnimatedVisibility(error != null) {
-        Card(Modifier.screenPad().padding(vertical = 6.dp)) {
+        Card(Modifier.screenPad().padding(vertical = space.tight)) {
             Text("Cannot reach Simba", color = Err, fontWeight = FontWeight.SemiBold, style = type.bodySmall)
             Text(
                 error.orEmpty().take(160),
                 color = Dim,
                 style = type.label,
-                modifier = Modifier.padding(top = 3.dp),
+                modifier = Modifier.padding(top = space.hair),
             )
             Text(
                 "The PC may be asleep, or the tunnel is down.",
                 color = Faint,
                 style = type.caption,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier.padding(top = space.tight),
             )
         }
     }
@@ -431,7 +431,7 @@ private fun NewMissionDialog(onDismiss: () -> Unit, onCreate: (String, String, S
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(space.snug),
             ) {
                 OutlinedTextField(
                     value = title,
@@ -728,7 +728,7 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
                 Button(
                     onClick = { start() },
                     enabled = !starting,
-                    modifier = Modifier.fillMaxWidth().screenPad().padding(top = 6.dp),
+                    modifier = Modifier.fillMaxWidth().screenPad().padding(top = space.tight),
                     colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
                 ) {
                     Text(
@@ -866,7 +866,7 @@ fun MemoryScreen(vm: SimbaVm) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.screenPad().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.screenPad().padding(top = space.snug), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = q,
                 onValueChange = { q = it },
@@ -894,7 +894,7 @@ fun MemoryScreen(vm: SimbaVm) {
                 "${it.embeddings} chunks indexed",
                 style = type.caption,
                 color = Faint,
-                modifier = Modifier.screenPad().padding(top = 5.dp),
+                modifier = Modifier.screenPad().padding(top = space.tight),
             )
         }
 
@@ -1135,7 +1135,7 @@ private fun SystemScreen(
                             )
                             Spacer(Modifier.height(8.dp))
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(space.gutter)) {
                             val busy = verifying == b.slug
                             Text(
                                 if (busy) "asking…" else "verify",
@@ -1212,10 +1212,10 @@ private fun SystemScreen(
             SectionHeading("Context per turn") {
                 Meta("~${tokens(b.estTokens.toLong())} tokens")
             }
-            Card(Modifier.padding(horizontal = 16.dp)) {
+            Card(Modifier.padding(horizontal = space.gutter)) {
                 b.slices.forEach { sl ->
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        Modifier.fillMaxWidth().padding(vertical = space.hair),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -1233,7 +1233,7 @@ private fun SystemScreen(
                         Text(sl.category, color = Fg, style = type.caption)
                     }
                     sl.note?.let {
-                        Text(it, color = Faint, style = type.micro, modifier = Modifier.padding(start = 34.dp, bottom = 3.dp))
+                        Text(it, color = Faint, style = type.micro, modifier = Modifier.padding(start = space.section, bottom = space.hair))
                     }
                 }
             }
@@ -1256,7 +1256,7 @@ private fun SystemScreen(
                     },
                 )
             }
-            Card(Modifier.padding(horizontal = 16.dp)) {
+            Card(Modifier.padding(horizontal = space.gutter)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("memory", color = Fg, style = type.label)
                     Meta(
@@ -1265,11 +1265,11 @@ private fun SystemScreen(
                     )
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    Modifier.fillMaxWidth().padding(top = space.tight),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text("skills", color = Fg, style = type.label)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(space.snug)) {
                         Meta("${st.skills.enabled} live")
                         // Never-opened skills cost tokens every turn and have
                         // returned nothing, which is the whole argument for
@@ -1316,7 +1316,7 @@ private fun SystemScreen(
         }
 
         SectionHeading("Connection")
-        Card(Modifier.padding(horizontal = 16.dp)) {
+        Card(Modifier.padding(horizontal = space.gutter)) {
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -1382,7 +1382,7 @@ private fun SystemScreen(
         Button(
             onClick = { confirmPanic = true },
             colors = ButtonDefaults.buttonColors(containerColor = Err.copy(alpha = 0.15f), contentColor = Err),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = space.gutter),
         ) {
             Icon(Icons.Filled.Warning, null, modifier = Modifier.size(17.dp))
             Text("  Panic — stop every agent", fontWeight = FontWeight.SemiBold)
@@ -1421,7 +1421,7 @@ private fun MemoryChart(samples: List<MemorySample>) {
     val latest = samples.last()
     Column(
         Modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
             .background(Panel)
             .padding(space.roomy),
@@ -1450,7 +1450,7 @@ private fun MemoryChart(samples: List<MemorySample>) {
                 .forEach { (label, c) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(6.dp).clip(RoundedCornerShape(radius.pill)).background(c))
-                        Text(label, style = type.micro, color = Faint, modifier = Modifier.padding(start = 4.dp))
+                        Text(label, style = type.micro, color = Faint, modifier = Modifier.padding(start = space.tight))
                     }
                 }
         }
@@ -1474,7 +1474,7 @@ private fun SpendChart(days: List<UsageDay>) {
 
     Column(
         Modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = space.gutter)
             .clip(RoundedCornerShape(radius.medium))
             .background(Panel)
             .padding(space.roomy),

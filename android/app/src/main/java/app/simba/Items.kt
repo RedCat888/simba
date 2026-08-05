@@ -136,16 +136,16 @@ private fun FluidItem(
     Column(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .padding(horizontal = space.gutter, vertical = space.tight)
             .scale(scale)
             .clip(RoundedCornerShape(20.dp))
             .background(if (open) Panel2 else Panel)
             .let { if (onClick != null) it.clickable { onClick() } else it }
-            .padding(18.dp),
+            .padding(space.gutter),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (leading != null) {
-                Icon(leading, null, tint = Accent, modifier = Modifier.size(20.dp).padding(end = 0.dp))
+                Icon(leading, null, tint = Accent, modifier = Modifier.size(20.dp).padding(end = space.hair))
                 Spacer(Modifier.width(12.dp))
             }
             Text(
@@ -162,7 +162,7 @@ private fun FluidItem(
                     modifier = Modifier
                         .clip(RoundedCornerShape(99.dp))
                         .background(it.tone.color().copy(alpha = 0.14f))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = space.snug, vertical = space.tight),
                 )
             }
         }
@@ -170,7 +170,7 @@ private fun FluidItem(
             Text(it, color = Dim, style = type.bodySmall, modifier = Modifier.padding(top = space.snug))
         }
         if (meta.isNotEmpty()) {
-            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.padding(top = space.snug), horizontalArrangement = Arrangement.spacedBy(space.base)) {
                 meta.forEach { Text(it.text, color = it.tone.color(), style = type.caption) }
             }
         }
@@ -179,7 +179,7 @@ private fun FluidItem(
             enter = fadeIn(spring()) + expandVertically(spring(stiffness = Spring.StiffnessMediumLow)),
             exit = fadeOut() + shrinkVertically(),
         ) {
-            Column(Modifier.padding(top = 14.dp)) { expanded?.invoke() }
+            Column(Modifier.padding(top = space.base)) { expanded?.invoke() }
         }
     }
 }
@@ -198,7 +198,7 @@ private fun MaterialItem(
     expanded: (@Composable () -> Unit)?,
 ) {
     ElevatedCard(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = space.base, vertical = space.tight),
         onClick = onClick ?: {},
         enabled = onClick != null,
     ) {
@@ -222,8 +222,8 @@ private fun MaterialItem(
         )
         if (meta.isNotEmpty()) {
             Row(
-                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.padding(start = space.gutter, end = space.gutter, bottom = space.base),
+                horizontalArrangement = Arrangement.spacedBy(space.tight),
             ) {
                 meta.take(4).forEach {
                     AssistChip(
@@ -235,7 +235,7 @@ private fun MaterialItem(
             }
         }
         AnimatedVisibility(visible = open && expanded != null) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) { expanded?.invoke() }
+            Column(Modifier.padding(start = space.gutter, end = space.gutter, bottom = space.base)) { expanded?.invoke() }
         }
     }
 }
@@ -264,7 +264,7 @@ private fun ConsoleItem(
             .fillMaxWidth()
             .let { if (onClick != null) it.clickable { onClick() } else it }
             .background(if (open) Panel2 else Color.Transparent)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = space.snug, vertical = space.tight),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             badge?.let {
@@ -324,7 +324,7 @@ private fun ConsoleItem(
         if (meta.size > 1) {
             Row(
                 Modifier.padding(start = if (badge != null) STATUS_COLUMN else 0.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(space.snug),
             ) {
                 meta.drop(1).forEach {
                     Text(
@@ -338,7 +338,7 @@ private fun ConsoleItem(
             }
         }
         AnimatedVisibility(visible = open && expanded != null) {
-            Column(Modifier.padding(top = 6.dp, start = if (badge != null) STATUS_COLUMN else 0.dp)) {
+            Column(Modifier.padding(top = space.snug, start = if (badge != null) STATUS_COLUMN else 0.dp)) {
                 expanded?.invoke()
             }
         }
@@ -353,7 +353,7 @@ private fun ConsoleItem(
 fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
     when (LocalDesign.current) {
         Design.Fluid -> Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp),
+            Modifier.fillMaxWidth().padding(start = space.roomy, end = space.roomy, top = space.gutter, bottom = space.tight),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -362,7 +362,7 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
         }
 
         Design.Material -> Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth().padding(start = space.gutter, end = space.gutter, top = space.gutter, bottom = space.tight),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -375,7 +375,7 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
         }
 
         Design.Console -> Row(
-            Modifier.fillMaxWidth().background(Panel2).padding(horizontal = 10.dp, vertical = 3.dp),
+            Modifier.fillMaxWidth().background(Panel2).padding(horizontal = space.snug, vertical = space.hair),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -402,7 +402,7 @@ fun SectionHeading(text: String, trailing: (@Composable () -> Unit)? = null) {
 @Composable
 fun EmptyState(title: String, detail: String? = null) {
     when (LocalDesign.current) {
-        Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp)) {
+        Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = space.snug, vertical = space.base)) {
             Text("-- empty --", color = Faint, style = type.caption.copy(fontFamily = FontFamily.Monospace))
             Text(
                 title.lowercase(),
@@ -421,7 +421,7 @@ fun EmptyState(title: String, detail: String? = null) {
         }
 
         else -> Column(
-            Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 44.dp),
+            Modifier.fillMaxWidth().padding(horizontal = space.section, vertical = space.page),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -437,7 +437,7 @@ fun EmptyState(title: String, detail: String? = null) {
                     color = Faint,
                     style = type.bodySmall,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = space.tight),
                 )
             }
         }
@@ -464,11 +464,11 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
         Design.Fluid -> Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = space.gutter, vertical = space.snug)
                 .clip(RoundedCornerShape(99.dp))
                 .background(Panel)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(space.tight),
+            horizontalArrangement = Arrangement.spacedBy(space.tight),
         ) {
             labels.forEachIndexed { i, label ->
                 val on = i == selected
@@ -483,7 +483,7 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
                         .clip(RoundedCornerShape(99.dp))
                         .background(bg)
                         .clickable { onSelect(i) }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = space.snug),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -497,7 +497,7 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
         }
 
         Design.Material -> SingleChoiceSegmentedButtonRow(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = space.gutter, vertical = space.snug),
         ) {
             labels.forEachIndexed { i, label ->
                 SegmentedButton(
@@ -509,8 +509,8 @@ fun FacetRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
         }
 
         Design.Console -> Row(
-            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().background(Panel).padding(horizontal = space.snug, vertical = space.tight),
+            horizontalArrangement = Arrangement.spacedBy(space.base),
         ) {
             labels.forEachIndexed { i, label ->
                 val on = i == selected
@@ -554,10 +554,10 @@ fun LoadingState(rows: Int = 4) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 5.dp)
+                            .padding(horizontal = space.gutter, vertical = space.tight)
                             .clip(RoundedCornerShape(20.dp))
                             .background(Panel.copy(alpha = alpha))
-                            .padding(18.dp),
+                            .padding(space.gutter),
                     ) {
                         Box(
                             Modifier
@@ -579,7 +579,7 @@ fun LoadingState(rows: Int = 4) {
             }
         }
 
-        Design.Material -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), Alignment.Center) {
+        Design.Material -> Box(Modifier.fillMaxWidth().padding(vertical = space.page), Alignment.Center) {
             CircularProgressIndicator()
         }
 
@@ -596,7 +596,7 @@ fun LoadingState(rows: Int = 4) {
 @Composable
 fun FailureState(message: String, onRetry: (() -> Unit)? = null) {
     when (LocalDesign.current) {
-        Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)) {
+        Design.Console -> Column(Modifier.fillMaxWidth().padding(horizontal = space.snug, vertical = space.snug)) {
             Text("! $message", color = Err, style = type.bodySmall.copy(fontFamily = FontFamily.Monospace))
             onRetry?.let {
                 Text(
@@ -609,12 +609,12 @@ fun FailureState(message: String, onRetry: (() -> Unit)? = null) {
         }
 
         else -> Column(
-            Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp),
+            Modifier.fillMaxWidth().padding(horizontal = space.section, vertical = space.page),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(message, color = Err, style = type.bodySmall, textAlign = TextAlign.Center)
             onRetry?.let {
-                TextButton(onClick = it, modifier = Modifier.padding(top = 4.dp)) { Text("Retry") }
+                TextButton(onClick = it, modifier = Modifier.padding(top = space.tight)) { Text("Retry") }
             }
         }
     }
@@ -666,7 +666,7 @@ fun BackButton(onBack: () -> Unit) {
             color = Accent,
             style = type.body,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.clickable { onBack() }.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.clickable { onBack() }.padding(horizontal = space.snug, vertical = space.tight),
         )
     }
 }

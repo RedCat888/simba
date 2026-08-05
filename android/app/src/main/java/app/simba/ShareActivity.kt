@@ -84,10 +84,10 @@ class ShareActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 Modifier
-                    .padding(18.dp)
+                    .padding(space.gutter)
                     .clip(RoundedCornerShape(18.dp))
                     .background(Panel)
-                    .padding(18.dp),
+                    .padding(space.gutter),
             ) {
                 Text("Capture to Simba", color = Accent, fontWeight = FontWeight.Bold, style = type.heading)
 
@@ -96,7 +96,7 @@ class ShareActivity : ComponentActivity() {
                     Modifier
                         .clip(RoundedCornerShape(9.dp))
                         .background(Panel2)
-                        .padding(11.dp),
+                        .padding(space.base),
                 ) {
                     Text(shared.take(320), color = Dim, style = type.label, maxLines = 6)
                 }
@@ -117,7 +117,7 @@ class ShareActivity : ComponentActivity() {
                 )
 
                 failure?.let {
-                    Text(it.take(140), color = Err, style = type.caption, modifier = Modifier.padding(top = 8.dp))
+                    Text(it.take(140), color = Err, style = type.caption, modifier = Modifier.padding(top = space.snug))
                 }
 
                 Spacer(Modifier.height(14.dp))

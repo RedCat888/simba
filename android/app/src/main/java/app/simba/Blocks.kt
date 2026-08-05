@@ -131,7 +131,7 @@ fun CopyAction(text: String, modifier: Modifier = Modifier) {
                 clipboard.setText(AnnotatedString(text))
                 copied = true
             }
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .padding(horizontal = space.tight, vertical = space.hair),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Console says it in words; the other two use the icon plus the word,
@@ -216,7 +216,7 @@ fun CodeBlock(lang: String, code: String, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(8.dp),
+            .padding(space.snug),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -308,7 +308,7 @@ fun MessageBody(
     color: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     val segments = remember(text) { parseBody(text) }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(space.tight)) {
         segments.forEach { seg ->
             when (seg) {
                 is BodySegment.Prose -> ExpandableBody(seg.text, color = color)
@@ -341,7 +341,7 @@ fun ErrorBlock(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(tone.copy(alpha = 0.10f))
-            .padding(horizontal = 9.dp, vertical = 7.dp),
+            .padding(horizontal = space.snug, vertical = space.snug),
     ) {
         Row(
             Modifier.fillMaxWidth().let { if (hasMore) it.clickable { expanded = !expanded } else it },

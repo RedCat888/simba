@@ -60,9 +60,9 @@ fun ConsoleShell(
                 Modifier
                     .fillMaxWidth()
                     .background(Panel)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = space.snug, vertical = space.tight),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(space.snug),
             ) {
                 Field("net", if (status.connected) "up" else "down", if (status.connected) Ok else Err)
                 Field("run", status.activeSessions.toString(), if (status.activeSessions > 0) Accent else Dim)
@@ -77,7 +77,7 @@ fun ConsoleShell(
                     color = Err,
                     style = type.micro,
                     fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.fillMaxWidth().background(Panel2).padding(horizontal = 10.dp, vertical = 3.dp),
+                    modifier = Modifier.fillMaxWidth().background(Panel2).padding(horizontal = space.snug, vertical = space.hair),
                 )
             }
         },
@@ -87,8 +87,8 @@ fun ConsoleShell(
                 // words, and these are how you learn them. They are not tabs —
                 // they scroll away with the command, and the command wins.
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = space.snug, vertical = space.tight),
+                    horizontalArrangement = Arrangement.spacedBy(space.tight),
                 ) {
                     Destination.entries.forEach { d ->
                         val on = d == current
@@ -102,13 +102,13 @@ fun ConsoleShell(
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(if (on) Accent else Panel2)
                                 .clickable { onNavigate(d) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .padding(horizontal = space.snug, vertical = space.tight),
                         )
                     }
                 }
 
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = space.snug, vertical = space.snug),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -124,7 +124,7 @@ fun ConsoleShell(
                         style = type.label,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 2.dp),
+                        modifier = Modifier.padding(start = space.hair),
                     )
                     BasicTextField(
                         value = command,
@@ -142,7 +142,7 @@ fun ConsoleShell(
                                 command = ""
                             },
                         ),
-                        modifier = Modifier.weight(1f).padding(start = 4.dp),
+                        modifier = Modifier.weight(1f).padding(start = space.tight),
                     )
                     // Inline completion, so the command language is learnable
                     // by using it rather than by reading documentation.
@@ -173,7 +173,7 @@ private fun Field(label: String, value: String, tint: androidx.compose.ui.graphi
             style = type.caption,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 3.dp),
+            modifier = Modifier.padding(start = space.hair),
         )
     }
 }

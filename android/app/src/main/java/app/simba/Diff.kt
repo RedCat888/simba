@@ -62,7 +62,7 @@ fun DiffScreen(vm: SimbaVm, sessionId: String, onBack: () -> Unit) {
     SimbaShell(
         header = {
             Row(
-                Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().background(Panel).padding(horizontal = space.base, vertical = space.snug),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -166,7 +166,7 @@ private fun PatchView(patch: String) {
                 style = type.micro,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
-                modifier = Modifier.background(bg).padding(horizontal = 4.dp, vertical = 1.dp),
+                modifier = Modifier.background(bg).padding(horizontal = space.tight, vertical = space.hair),
             )
         }
         if (patch.split('\n').size > 400) {
@@ -174,7 +174,7 @@ private fun PatchView(patch: String) {
                 "… truncated at 400 lines",
                 color = Faint,
                 style = type.micro,
-                modifier = Modifier.padding(4.dp),
+                modifier = Modifier.padding(space.tight),
             )
         }
     }

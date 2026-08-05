@@ -248,11 +248,11 @@ fun ChatScreen(
     SimbaShell(
         header = {
             Row(
-                Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().background(Panel).padding(horizontal = space.snug, vertical = space.snug),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BackButton(onBack)
-                Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                Column(Modifier.weight(1f).padding(start = space.tight)) {
                     Text(title, color = Fg, fontWeight = FontWeight.SemiBold, style = type.body, maxLines = 1)
                     // Clipped by layout, not by take(N): the full reason is still
                     // in state.error and reaches the thread as a Failure row.
@@ -327,7 +327,7 @@ fun ChatScreen(
              */
             AnimatedVisibility(finding) {
                 Row(
-                    Modifier.fillMaxWidth().background(Panel2).padding(horizontal = 12.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().background(Panel2).padding(horizontal = space.base, vertical = space.snug),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f)) {
@@ -345,7 +345,7 @@ fun ChatScreen(
                         "close",
                         color = Accent,
                         style = type.label,
-                        modifier = Modifier.clickable { finding = false; findQuery = "" }.padding(start = 10.dp),
+                        modifier = Modifier.clickable { finding = false; findQuery = "" }.padding(start = space.snug),
                     )
                 }
             }
@@ -366,7 +366,7 @@ fun ChatScreen(
             // padding is breathing room under the newest message rather than
             // clearance for the keyboard, which the shell already handles.
             contentPadding = PaddingValues(start = 11.dp, end = 11.dp, top = 11.dp, bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(space.snug),
         ) {
             val q = findQuery.trim()
             val shown = if (q.isEmpty()) state.items else state.items.filter { it.matches(q) }
@@ -437,11 +437,11 @@ private fun FluidChatRow(item: ChatItem) {
                                 ),
                             )
                             .background(Accent.copy(alpha = 0.16f))
-                            .padding(horizontal = 15.dp, vertical = 11.dp),
+                            .padding(horizontal = space.gutter, vertical = space.base),
                     ) { MessageBody(item.text, color = Fg) }
                 }
             } else {
-                Box(Modifier.fillMaxWidth().padding(end = 24.dp, top = 2.dp, bottom = 2.dp)) {
+                Box(Modifier.fillMaxWidth().padding(end = space.roomy, top = space.hair, bottom = space.hair)) {
                     MessageBody(item.text, color = Fg)
                 }
             }
@@ -458,7 +458,7 @@ private fun FluidChatRow(item: ChatItem) {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(Panel.copy(alpha = 0.6f))
-                    .padding(horizontal = 13.dp, vertical = 9.dp),
+                    .padding(horizontal = space.base, vertical = space.snug),
             ) {
                 ExpandableBody(item.detail, monospace = true, color = Dim, summaryPrefix = item.name)
             }
@@ -475,7 +475,7 @@ private fun FluidChatRow(item: ChatItem) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(99.dp))
                     .background(tone.copy(alpha = 0.12f))
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = space.base, vertical = space.tight),
             )
         }
     }
@@ -510,7 +510,7 @@ private fun MaterialChatRow(item: ChatItem) {
                     ),
                     modifier = Modifier.widthIn(max = 320.dp),
                 ) {
-                    Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Box(Modifier.padding(horizontal = space.base, vertical = space.snug)) {
                         MessageBody(item.text, color = LocalContentColor.current)
                     }
                 }
@@ -525,7 +525,7 @@ private fun MaterialChatRow(item: ChatItem) {
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Box(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                Box(Modifier.padding(horizontal = space.base, vertical = space.snug)) {
                     ExpandableBody(item.detail, monospace = true, color = Dim, summaryPrefix = item.name)
                 }
             }
@@ -556,27 +556,27 @@ private fun ConsoleChatRow(item: ChatItem) {
     when (item) {
         is ChatItem.Msg -> {
             val isUser = item.role == "user"
-            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+            Row(Modifier.fillMaxWidth().padding(vertical = space.hair)) {
                 Text(
                     if (isUser) "you>" else "simba>",
                     color = if (isUser) Accent else Ok,
                     style = type.caption,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(end = 7.dp),
+                    modifier = Modifier.padding(end = space.snug),
                 )
                 MessageBody(item.text, color = Fg)
             }
         }
 
-        is ChatItem.Tool -> Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+        is ChatItem.Tool -> Row(Modifier.fillMaxWidth().padding(vertical = space.hair)) {
             Text(
                 if (item.isError) "!" else ">",
                 color = if (item.isError) Err else Faint,
                 style = type.caption,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(end = 7.dp),
+                modifier = Modifier.padding(end = space.snug),
             )
             ExpandableBody(
                 item.detail,
@@ -593,7 +593,7 @@ private fun ConsoleChatRow(item: ChatItem) {
                 style = type.caption,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(end = 7.dp),
+                modifier = Modifier.padding(end = space.snug),
             )
             Text(item.text, color = Err, style = type.caption, fontFamily = FontFamily.Monospace)
         }
@@ -603,7 +603,7 @@ private fun ConsoleChatRow(item: ChatItem) {
             color = noticeColor(item.tone),
             style = type.caption,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = space.hair),
         )
     }
 }
@@ -633,13 +633,13 @@ private fun Composer(
         Design.Fluid -> Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .padding(horizontal = space.base, vertical = space.snug)
                 .clip(RoundedCornerShape(26.dp))
                 .background(Panel)
-                .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = space.gutter, end = space.tight, top = space.tight, bottom = space.tight),
             verticalAlignment = Alignment.Bottom,
         ) {
-            Box(Modifier.weight(1f).padding(bottom = 12.dp, top = 10.dp)) {
+            Box(Modifier.weight(1f).padding(bottom = space.base, top = space.snug)) {
                 if (draft.isEmpty()) {
                     Text("Message Simba", color = Faint, style = type.body)
                 }
@@ -677,7 +677,7 @@ private fun Composer(
         // Material: the specified components, unmodified.
         Design.Material -> Surface(tonalElevation = 3.dp) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = space.base, vertical = space.snug),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 OutlinedTextField(
@@ -704,7 +704,7 @@ private fun Composer(
             Modifier
                 .fillMaxWidth()
                 .background(Panel)
-                .padding(horizontal = 10.dp, vertical = 9.dp),
+                .padding(horizontal = space.snug, vertical = space.snug),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -721,7 +721,7 @@ private fun Composer(
                 cursorBrush = SolidColor(Accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (enabled) onSend() }),
-                modifier = Modifier.weight(1f).padding(start = 6.dp),
+                modifier = Modifier.weight(1f).padding(start = space.tight),
             )
         }
     }
@@ -749,13 +749,13 @@ private fun ChatItem.matches(q: String): Boolean = when (this) {
 @Composable
 private fun QueuedRow(text: String) {
     when (LocalDesign.current) {
-        Design.Console -> Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+        Design.Console -> Row(Modifier.fillMaxWidth().padding(vertical = space.hair)) {
             Text(
                 "...>",
                 color = Faint,
                 style = type.caption,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(end = 7.dp),
+                modifier = Modifier.padding(end = space.snug),
             )
             Text(text, color = Faint, style = type.caption, fontFamily = FontFamily.Monospace)
         }
@@ -766,11 +766,11 @@ private fun QueuedRow(text: String) {
                     .widthIn(max = 300.dp)
                     .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 6.dp))
                     .background(Panel)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = space.base, vertical = space.snug),
                 horizontalAlignment = Alignment.End,
             ) {
                 Text(text, color = Dim, style = type.bodySmall, lineHeight = 19.sp)
-                Text("queued", color = Faint, style = type.micro, modifier = Modifier.padding(top = 3.dp))
+                Text("queued", color = Faint, style = type.micro, modifier = Modifier.padding(top = space.hair))
             }
         }
     }

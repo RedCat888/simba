@@ -772,21 +772,34 @@ fun Chevron(expanded: Boolean, tint: Color = Dim) {
  * spends the remaining width on however much parent context fits.
  */
 fun shortPath(path: String, maxChars: Int = 40): String {
-    val parts = path.replace('\\', '/').split('/').filter { it.isNotBlank() }
-    if (parts.isEmpty()) return path
+    val norm = path.replace('\\', '/')
+
+    // A path that fits is returned untouched — no marker, because nothing was
+    // cut. This is also the branch that made the budget correct: everything
+    // below is the truncating case, so the marker can be paid for up front
+    // rather than added afterwards to a string already sized to the limit.
+    if (norm.length <= maxChars) return norm
+
+    val parts = norm.split('/').filter { it.isNotBlank() }
+    if (parts.isEmpty()) return norm.take(maxChars)
+
     val name = parts.last()
-    // A filename alone longer than the budget is the one case where cutting
-    // inside a segment is right — and it is cut from the front, because
-    // extensions and suffixes disambiguate more than prefixes do.
-    if (name.length >= maxChars) return "…" + name.takeLast(maxChars - 1)
+    // What is left once "…/" has been paid for.
+    val budget = maxChars - 2
+
+    // A filename longer than the budget is the one case where cutting inside a
+    // segment is right, and it is cut from the front: an extension and a suffix
+    // disambiguate far more than a prefix does.
+    if (name.length > budget) return "…" + name.takeLast(maxChars - 1)
 
     val out = StringBuilder(name)
     for (i in parts.size - 2 downTo 0) {
-        if (parts[i].length + 1 + out.length > maxChars) return "…/$out"
+        if (parts[i].length + 1 + out.length > budget) break
         out.insert(0, parts[i] + "/")
     }
-    return out.toString()
+    return "…/$out"
 }
+
 
 
 /**

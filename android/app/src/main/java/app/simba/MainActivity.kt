@@ -814,7 +814,7 @@ private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
  * for everything else — "3 days ago" makes you do arithmetic to work out which
  * day, and nobody wants to do arithmetic while looking for a conversation.
  */
-private fun dayLabel(iso: String?): String {
+internal fun dayLabel(iso: String?): String {
     if (iso.isNullOrBlank()) return "Earlier"
     return runCatching {
         val zone = java.time.ZoneId.systemDefault()

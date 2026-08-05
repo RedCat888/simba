@@ -378,6 +378,10 @@ private fun MemoryList(vm: SimbaVm) {
         onForget = { entry ->
             scope.launch {
                 runCatching { vm.api?.removeMemory(entry.content.take(60)) }
+                    // Silence here is the worst kind: the entry stays on screen,
+                    // so it reads as a button that did not register the tap
+                    // rather than a request that failed.
+                    .onFailure { error = it.message }
                 load()
             }
         },

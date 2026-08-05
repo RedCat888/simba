@@ -959,14 +959,22 @@ fun MemoryScreen(vm: SimbaVm) {
     var hits by remember { mutableStateOf<List<MemoryHit>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var searched by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     fun go() {
         if (q.isBlank()) return
         scope.launch {
             searching = true
-            hits = runCatching { vm.api?.search(q) ?: emptyList() }.getOrDefault(emptyList())
-            searching = false; searched = true
+            failed = null
+            runCatching { vm.api?.search(q) ?: emptyList() }
+                .onSuccess { hits = it }
+                // A failed search was rendering as "No matches", which is a
+                // different and far more misleading claim — it says the corpus
+                // does not contain what you asked for.
+                .onFailure { hits = emptyList(); failed = it.message ?: "search failed" }
+            searching = false
+            searched = true
         }
     }
 
@@ -1006,6 +1014,7 @@ fun MemoryScreen(vm: SimbaVm) {
         Spacer(Modifier.height(6.dp))
         when {
             searching -> LoadingState(3)
+            failed != null -> FailureState(failed!!)
             // Before the first search there is nothing to say the screen works;
             // an empty column reads exactly like a failed load.
             !searched -> EmptyState(
@@ -1269,6 +1278,7 @@ private fun SystemScreen(
                                 modifier = Modifier.clickable {
                                     scope.launch {
                                         runCatching { vm.api?.toggleBrain(b.slug) }
+                                            .onFailure { vm.error = it.message }
                                         vm.refresh()
                                     }
                                 },
@@ -1355,6 +1365,7 @@ private fun SystemScreen(
                         scope.launch {
                             curating = true
                             runCatching { vm.api?.runCuration() }
+                                .onFailure { vm.error = it.message }
                             runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
                             curating = false
                         }
@@ -1504,7 +1515,11 @@ private fun SystemScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmPanic = false
-                    scope.launch { runCatching { vm.api?.panic() }; vm.refresh() }
+                    scope.launch {
+                        runCatching { vm.api?.panic() }
+                            .onFailure { vm.error = "Panic failed: ${it.message}" }
+                        vm.refresh()
+                    }
                 }) { Text("Stop all", color = Err, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { confirmPanic = false }) { Text("Cancel", color = Dim) } },

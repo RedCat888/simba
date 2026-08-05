@@ -325,6 +325,14 @@ fun ChatScreen(
                                 menu = false
                                 scope.launch {
                                     runCatching { vm.api?.killSession(sessionId) }
+                                        .onFailure {
+                                            state.items.add(
+                                                ChatItem.Failure(
+                                                    "Could not stop this session: ${it.message}",
+                                                    System.currentTimeMillis(),
+                                                ),
+                                            )
+                                        }
                                     vm.refresh()
                                 }
                             },

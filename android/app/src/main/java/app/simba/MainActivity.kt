@@ -796,7 +796,7 @@ private fun SessionRowCard(s: SessionRow, onClick: () -> Unit) {
         // way Now says it — a badge that reads differently in two places for the
         // same fact is how an interface stops being trusted.
         badge = when {
-            quiet >= 30 -> ItemMeta("quiet ${quiet}m", Tone.Warn)
+            quiet >= 30 -> ItemMeta(quietLabel(quiet), Tone.Warn)
             else -> ItemMeta(s.status, toneFor(s.status))
         },
         onClick = onClick,

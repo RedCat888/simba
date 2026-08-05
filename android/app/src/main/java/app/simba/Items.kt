@@ -267,22 +267,25 @@ private fun ConsoleItem(
             .padding(horizontal = space.snug, vertical = space.tight),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            badge?.let {
-                // A leading status column rather than a trailing pill: scanning
-                // a column of states is the whole reason to render a table.
-                // Wide enough for the longest status this app actually produces
-                // ("verifying", "cancelled"), because a status abbreviated to
-                // three letters is not a status.
-                Text(
-                    it.text.lowercase(),
-                    color = it.tone.color(),
-                    style = type.micro,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(STATUS_COLUMN),
-                )
-            }
+            // A leading status column rather than a trailing pill: scanning a
+            // column of states is the whole reason to render a table. Wide
+            // enough for the longest status this app actually produces
+            // ("verifying", "cancelled"), because a status abbreviated to three
+            // letters is not a status.
+            //
+            // Reserved even when there is no badge. A column that only exists on
+            // some rows means the titles start in two different places, and a
+            // table whose left edge moves is not a table — it was the one thing
+            // this design is for and it was getting it wrong.
+            Text(
+                badge?.text?.lowercase().orEmpty(),
+                color = badge?.tone?.color() ?: Color.Transparent,
+                style = type.micro,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(STATUS_COLUMN),
+            )
             Text(
                 title,
                 color = Fg,
@@ -316,14 +319,14 @@ private fun ConsoleItem(
                 style = type.caption.copy(fontFamily = FontFamily.Monospace),
                 maxLines = if (open) 6 else 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = if (badge != null) STATUS_COLUMN else 0.dp),
+                modifier = Modifier.padding(start = STATUS_COLUMN),
             )
         }
         // The rest of the metadata, on its own line, where there is room for it
         // rather than in competition with the title.
         if (meta.size > 1) {
             Row(
-                Modifier.padding(start = if (badge != null) STATUS_COLUMN else 0.dp),
+                Modifier.padding(start = STATUS_COLUMN),
                 horizontalArrangement = Arrangement.spacedBy(space.snug),
             ) {
                 meta.drop(1).forEach {
@@ -338,7 +341,7 @@ private fun ConsoleItem(
             }
         }
         AnimatedVisibility(visible = open && expanded != null) {
-            Column(Modifier.padding(top = space.snug, start = if (badge != null) STATUS_COLUMN else 0.dp)) {
+            Column(Modifier.padding(top = space.snug, start = STATUS_COLUMN)) {
                 expanded?.invoke()
             }
         }

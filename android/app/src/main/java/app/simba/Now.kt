@@ -193,7 +193,7 @@ fun NowBody(
                     // and no status string anywhere carries that.
                     subtitle = s.lastActivityAt?.let { "last activity ${ago(it)}" },
                     badge = when {
-                        quiet >= 30 -> ItemMeta("quiet ${quiet}m", Tone.Warn)
+                        quiet >= 30 -> ItemMeta(quietLabel(quiet), Tone.Warn)
                         else -> ItemMeta(s.status, Tone.Good)
                     },
                     meta = buildList {
@@ -407,6 +407,17 @@ private fun MachineStrip(samples: List<MemorySample>, brains: List<Brain>, onOpe
 // ---------------------------------------------------------------------------
 // Time, said the way people say it
 // ---------------------------------------------------------------------------
+
+/**
+ * How long a session has been silent, phrased like everything else.
+ *
+ * It read "quiet 506m" directly above a line saying "last activity 8h ago" —
+ * the same fact in two formats, adjacent, and the three-digit one also overflowed
+ * the status column it had to fit in. Anything past ninety minutes is said in
+ * hours, which is how the rest of the app says it.
+ */
+fun quietLabel(minutes: Long): String =
+    if (minutes >= 90) "quiet ${minutes / 60}h" else "quiet ${minutes}m"
 
 /**
  * Minutes since an ISO-8601 instant, or 0 if it cannot be read.

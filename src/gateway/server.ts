@@ -370,11 +370,27 @@ app.post('/api/brains/:slug/verify', async (c) => {
   if (!brain) return c.json({ error: 'no such brain' }, 404);
 
   const result = await verifyBrain(slug);
+
+  // A rate limit is not a broken account, and recording it as one is how a
+  // perfectly good brain stays benched. 'limited' is the status the supervisor
+  // already knows how to undo: it clears the moment the reset passes and parked
+  // sessions resume on their own. 'error' has no such path back and waits for a
+  // person — which is right for auth and for a CLI that will not answer, and
+  // wrong for the one failure that fixes itself.
+  //
+  // Without a reset timestamp from the CLI, give it an hour. Claude's windows
+  // are five hours, so an hour is a re-check rather than a guess at the answer:
+  // if it is still limited the next verify says so, and if it recovered early
+  // the brain is back rather than waiting out a window that already rolled.
+  const status = result.ok ? 'available' : result.failure === 'limited' ? 'limited' : 'error';
+  const resetsAt =
+    status === 'limited' ? new Date(Date.now() + 60 * 60_000).toISOString() : null;
   await query(
     `UPDATE brain_accounts
-        SET status = $2, last_error = $3, last_checked_at = now(), updated_at = now()
+        SET status = $2, last_error = $3, limit_resets_at = $4,
+            last_checked_at = now(), updated_at = now()
       WHERE id = $1`,
-    [brain.id, result.ok ? 'available' : 'error', result.detail],
+    [brain.id, status, result.detail, resetsAt],
   );
   await recordEvent({
     type: 'brain.verified',

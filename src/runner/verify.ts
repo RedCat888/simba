@@ -30,6 +30,45 @@ export interface VerifyResult {
   resolvedModel?: string | null;
   /** True when those two are not the same model. */
   drift?: boolean;
+  /**
+   * Why it failed, when it failed.
+   *
+   * The difference matters because only one of these heals on its own. A rate
+   * limit is over when the window rolls; an auth failure and a CLI that will
+   * not answer both need a person. Collapsing them to one status meant a brain
+   * that happened to be rate limited at the moment it was verified got recorded
+   * as broken — and `clearExpiredLimits` only revives accounts marked 'limited',
+   * so it stayed benched with a limit that had long since expired.
+   */
+  failure?: 'limited' | 'auth' | 'unresponsive';
+}
+
+export function isAuthFailure(body: string): boolean {
+  return /not logged in|unauthor|forbidden|not licensed|\b40[13]\b/i.test(body);
+}
+
+export function isRateLimited(body: string): boolean {
+  return /rate limit|quota|usage limit|\b429\b/i.test(body);
+}
+
+/**
+ * Which kind of "no" this was.
+ *
+ * Only one of the three heals on its own, and treating them alike is what left
+ * `claude-a` recorded as broken for two days over a limit that had expired: the
+ * verify route wrote 'error' for every failure, and the supervisor's recovery
+ * sweep only ever revives accounts marked 'limited'.
+ *
+ * Auth is tested first. A body can carry both signals — an account that is out
+ * of entitlement often says something quota-shaped on the way out — and of the
+ * two possible mistakes, calling a limit an auth problem merely waits for a
+ * person, while calling an auth problem a limit retries forever against an
+ * account that will never work.
+ */
+export function classifyFailure(body: string): 'limited' | 'auth' | 'unresponsive' {
+  if (isAuthFailure(body)) return 'auth';
+  if (isRateLimited(body)) return 'limited';
+  return 'unresponsive';
 }
 
 /**
@@ -272,8 +311,8 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
   // "result":"OK" with is_error:false was reported as an entitlement failure.
   // A verifier that invents auth problems is worse than none, because the whole
   // point of it is to correct a wrong stored status.
-  const authFailure = /not logged in|unauthor|forbidden|not licensed|\b40[13]\b/i.test(body);
-  const limited = /rate limit|quota|usage limit|\b429\b/i.test(body);
+  const authFailure = isAuthFailure(body);
+  const limited = isRateLimited(body);
 
   if (answered && !authFailure) {
     // Drift is "the model I asked for never appears in what the CLI reported
@@ -306,5 +345,5 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
       ? `rate limited: ${extractMessage(body)}`
       : `no answer (exit ${r.code}): ${extractMessage(body)}`;
 
-  return { ok: false, detail, ms: r.ms, model };
+  return { ok: false, detail, ms: r.ms, model, failure: classifyFailure(body) };
 }

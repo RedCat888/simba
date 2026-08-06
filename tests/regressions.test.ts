@@ -4,7 +4,12 @@ import assert from 'node:assert/strict';
 import { denyRulesFor } from '../src/runner/opencode.js';
 import { denyNotice } from '../src/runner/boundary.js';
 import { describeExit } from '../src/session/engine.js';
-import { looksLikeSameModel, reportedModels, extractMessage } from '../src/runner/verify.js';
+import {
+  looksLikeSameModel,
+  reportedModels,
+  extractMessage,
+  classifyFailure,
+} from '../src/runner/verify.js';
 import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js';
 import { parseSchedule } from '../src/missions/schedule.js';
 
@@ -181,5 +186,39 @@ describe('natural-language schedules', () => {
 
   test('reads the schedule back so a misparse is visible', () => {
     assert.match(String(parseSchedule('every morning')?.describes), /07:00/);
+  });
+});
+
+describe('why a brain said no', () => {
+  // claude-a was verified on 4 August while rate limited, recorded as 'error',
+  // and was still benched two days later — because clearExpiredLimits only
+  // revives accounts marked 'limited', and nothing else ever revisits 'error'.
+  // Simba ran on one Claude account for two days with a second one healthy.
+  test('a rate limit is limited, not broken', () => {
+    assert.equal(classifyFailure('Claude AI usage limit reached'), 'limited');
+    assert.equal(classifyFailure('API Error: 429 Too Many Requests'), 'limited');
+    assert.equal(classifyFailure('you have exceeded your quota'), 'limited');
+    assert.equal(classifyFailure('rate limit exceeded, try again later'), 'limited');
+  });
+
+  test('auth problems stay broken, because they need a person', () => {
+    assert.equal(classifyFailure('Invalid API key · Not logged in'), 'auth');
+    assert.equal(classifyFailure('403 Forbidden'), 'auth');
+    assert.equal(classifyFailure('GitHub Copilot: not licensed'), 'auth');
+  });
+
+  // Both signals in one body. Retrying forever against an account that will
+  // never work is worse than waiting for a human who can fix it.
+  test('auth wins when a body carries both signals', () => {
+    assert.equal(
+      classifyFailure('401 Unauthorized: your plan has no quota for this model'),
+      'auth',
+    );
+  });
+
+  test('anything else is unresponsive', () => {
+    assert.equal(classifyFailure('spawn ENOENT'), 'unresponsive');
+    assert.equal(classifyFailure(''), 'unresponsive');
+    assert.equal(classifyFailure('exit code 1'), 'unresponsive');
   });
 });

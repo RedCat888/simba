@@ -118,6 +118,8 @@ private sealed interface Push {
     data class SessionDiff(val id: String) : Push
     data object Agents : Push
     data object Knowledge : Push
+    data object Reels : Push
+    data class ReelDetail(val id: String) : Push
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -206,6 +208,8 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
 
                     Push.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
                     Push.Knowledge -> KnowledgeScreen(vm)
+                    Push.Reels -> ReelsScreen(vm) { push = Push.ReelDetail(it) }
+                    is Push.ReelDetail -> ReelDetailScreen(vm, here.id) { push = Push.Reels }
                 }
 
                 // `shown`, not `dest`: during a Fluid transition the outgoing
@@ -223,6 +227,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                         vm,
                         onOpenAgents = { push = Push.Agents },
                         onOpenKnowledge = { push = Push.Knowledge },
+                        onOpenReels = { push = Push.Reels },
                     ) { url, token, clientId, clientSecret ->
                         scope.launch {
                             ctx.saveGateway(url, token, clientId, clientSecret)
@@ -1056,6 +1061,7 @@ private fun SystemScreen(
     vm: SimbaVm,
     onOpenAgents: () -> Unit = {},
     onOpenKnowledge: () -> Unit = {},
+    onOpenReels: () -> Unit = {},
     save: (String, String, String, String) -> Unit,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -1156,6 +1162,11 @@ private fun SystemScreen(
             title = "Knowledge",
             subtitle = "Skills it wrote for itself, what it remembers, and what it has decided",
             onClick = onOpenKnowledge,
+        )
+        ItemRow(
+            title = "Reels",
+            subtitle = "Reels shared to Instagram, downloaded, transcribed and written up",
+            onClick = onOpenReels,
         )
 
         SectionHeading("Design") { Meta(BuildConfig.BUILD_STAMP, Accent) }

@@ -116,6 +116,20 @@ export const config = {
     batchSize: 32,
   },
 
+  /**
+   * ReelAgent — the Instagram intake, which is its own process.
+   *
+   * It listens on loopback and cannot reach the phone; the gateway can. So the
+   * gateway proxies it, and the phone keeps needing exactly one credential
+   * (Cloudflare Access) rather than learning about a second service.
+   */
+  reels: {
+    url: process.env.SIMBA_REEL_URL ?? 'http://127.0.0.1:4877',
+    token: process.env.SIMBA_REEL_TOKEN ?? '',
+    /** Short: a busy or dead ReelAgent must render as "not running", not hang. */
+    timeoutMs: 6000,
+  },
+
   supervisor: {
     /** How often to sweep for stalled sessions and due wake-ups. */
     tickMs: 15_000,

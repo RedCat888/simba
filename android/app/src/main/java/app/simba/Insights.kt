@@ -231,6 +231,88 @@ suspend fun SimbaApi.pendingActions(): List<PendingAction> = get("/api/actions/p
 
 suspend fun SimbaApi.captures(): List<Capture> = get("/api/captures")
 
+// ---------------------------------------------------------------------------
+// Reels
+// ---------------------------------------------------------------------------
+
+/**
+ * One item the reel pipeline has taken in.
+ *
+ * The intake is an Instagram DM: the operator shares a reel to the bot account, and a
+ * headless Claude session downloads it, pulls keyframes, transcribes the audio,
+ * works out what it actually is, and writes it up. This is the summary shape —
+ * enough for a list — with the writeup itself fetched only when one is opened,
+ * because notes can run to thousands of words.
+ */
+@Serializable
+data class Reel(
+    val id: String = "",
+    val title: String = "",
+    /** `YYYYMMDD-HHMMSS`, from the folder name. */
+    val received: String = "",
+    /** A writeup exists. False means still working, or died before finishing. */
+    val done: Boolean = false,
+    val summary: String? = null,
+    @SerialName("has_notes") val hasNotes: Boolean = false,
+    @SerialName("has_media") val hasMedia: Boolean = false,
+    val frames: Int = 0,
+    @SerialName("source_url") val sourceUrl: String? = null,
+)
+
+/** The pipeline's own view of itself: what it is holding and what it owes. */
+@Serializable
+data class ReelHealth(
+    @SerialName("logged_in_as") val loggedInAs: String? = null,
+    val agents: Int = 0,
+    val working: Int = 0,
+    /** Events seen but not finished — the backlog, including anything replayed. */
+    val owed: Int = 0,
+    val items: Int = 0,
+)
+
+@Serializable
+data class ReelFeed(
+    val items: List<Reel> = emptyList(),
+    val health: ReelHealth? = null,
+    /**
+     * The pipeline runs as its own process on the PC. It being off is an
+     * ordinary thing to display — and the thing most worth displaying, since
+     * that is exactly the state in which reels pile up unanswered.
+     */
+    val reachable: Boolean = false,
+)
+
+/** The full writeup, fetched on open. */
+@Serializable
+data class ReelDetail(
+    val id: String = "",
+    @SerialName("source_url") val sourceUrl: String? = null,
+    /** The short version, as DM'd back. */
+    val status: String? = null,
+    /** The long version. */
+    val notes: String? = null,
+    val caption: String? = null,
+    val transcript: String? = null,
+    val comments: String? = null,
+)
+
+suspend fun SimbaApi.reels(): ReelFeed = get("/api/reels")
+
+suspend fun SimbaApi.reel(id: String): ReelDetail = get("/api/reels/$id")
+
+/** Send a link into the pipeline from the phone, without going via Instagram. */
+suspend fun SimbaApi.queueReel(url: String, note: String = ""): String = call(
+    req("/api/reels").post(
+        json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            kotlinx.serialization.json.buildJsonObject {
+                put("url", kotlinx.serialization.json.JsonPrimitive(url))
+                if (note.isNotBlank()) put("note", kotlinx.serialization.json.JsonPrimitive(note))
+            },
+        ).toRequestBody("application/json".toMediaType()),
+    ).build(),
+)
+
 /**
  * Answer an approval request.
  *

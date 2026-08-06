@@ -142,6 +142,42 @@ app.get('/api/brains', async (c) => {
 });
 
 /**
+ * The brains a non-Simba process should try, best first.
+ *
+ * Simba's own runners pick a brain through the router and fail over when one
+ * hits its limit. ReelAgent — the Instagram intake — spawns `claude -p` itself
+ * and had no idea any of that existed, so it used whatever account the CLI
+ * defaults to. When that account hit its limit, every reel came back with a
+ * usage-limit message as its "answer", and it stayed that way until the window
+ * rolled over. Reels went unread for a whole evening that way.
+ *
+ * Exposing the chain rather than a single choice is deliberate: the caller
+ * spawns the CLI itself and so is the only thing that can tell a limit message
+ * from a real answer, which makes it the only thing that can decide to move on
+ * to the next one.
+ *
+ * `config_dir` is the whole mechanism — account isolation for the Claude CLI is
+ * entirely CLAUDE_CONFIG_DIR, so handing it over is handing over the account.
+ * Loopback and Access-guarded, same as everything else here.
+ */
+app.get('/api/brains/chain', async (c) => {
+  const cli = c.req.query('cli') ?? 'claude';
+  const rows = await query(
+    `SELECT slug, label, cli, config_dir, status, priority
+       FROM brain_accounts
+      WHERE enabled
+        AND cli = $1
+        AND status IN ('available', 'unverified')
+        -- A limit that has already rolled over is not a limit any more. Without
+        -- this an account stays benched long after it recovered.
+        AND (status <> 'limited' OR limit_resets_at IS NULL OR limit_resets_at <= now())
+      ORDER BY priority`,
+    [cli],
+  );
+  return c.json(rows);
+});
+
+/**
  * Isolated checkouts holding work nobody has collected.
  *
  * A worktree is kept rather than deleted whenever it still contains changes,
@@ -864,6 +900,75 @@ app.post('/api/captures/:id/:action', async (c) => {
     [c.req.param('id'), status],
   );
   return c.json({ ok: true, status });
+});
+
+// ---------------------------------------------------------------------------
+// Reels
+//
+// ReelAgent is a separate process with its own pipeline — Instagram DMs in,
+// yt-dlp and Whisper and a headless Claude pass, a writeup out. It already
+// records every arrival in `captures`, which is what puts reels on the Now
+// screen. What it cannot do is reach the phone: it listens on loopback, and the
+// phone talks to this gateway through the tunnel.
+//
+// So these proxy rather than reimplement. Anything ReelAgent knows about its own
+// items stays ReelAgent's business; this just carries it across the boundary
+// that Cloudflare Access is guarding, so the app needs exactly one credential.
+// ---------------------------------------------------------------------------
+
+async function reelFetch(path: string, init?: RequestInit) {
+  return fetch(`${config.reels.url}${path}`, {
+    ...init,
+    signal: AbortSignal.timeout(config.reels.timeoutMs),
+    headers: { ...(init?.headers ?? {}), authorization: `Bearer ${config.reels.token}` },
+  });
+}
+
+app.get('/api/reels', async (c) => {
+  try {
+    const [items, health] = await Promise.all([
+      reelFetch('/items').then((r) => r.json() as Promise<{ items: unknown[] }>),
+      reelFetch('/health').then((r) => r.json() as Promise<Record<string, unknown>>),
+    ]);
+    return c.json({ items: items.items ?? [], health, reachable: true });
+  } catch (err) {
+    // A dead ReelAgent is a normal state to render, not an error to throw at
+    // the phone — the app shows "not running" and offers to say why.
+    return c.json({ items: [], reachable: false, error: String(err) });
+  }
+});
+
+app.get('/api/reels/:id', async (c) => {
+  try {
+    const r = await reelFetch(`/items/${encodeURIComponent(c.req.param('id'))}`);
+    if (!r.ok) return c.json({ error: 'no such reel' }, 404);
+    return c.json(await r.json());
+  } catch (err) {
+    return c.json({ error: String(err) }, 502);
+  }
+});
+
+/** Push a link into the reel pipeline from the app's share sheet. */
+app.post('/api/reels', async (c) => {
+  const b = await c.req.json<{ url?: string; note?: string }>();
+  if (!b.url?.trim() && !b.note?.trim()) return c.json({ error: 'url or note required' }, 400);
+  try {
+    const r = await reelFetch('/intake', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: b.url, note: b.note, source: 'simba' }),
+    });
+    const body = await r.json();
+    if (!r.ok) return c.json(body, r.status as 400);
+    await recordEvent({
+      type: 'capture.received',
+      message: `reel queued from the app${b.url ? `: ${b.url}` : ''}`,
+      data: { url: b.url ?? null },
+    });
+    return c.json(body, 202);
+  } catch (err) {
+    return c.json({ error: `reel agent unreachable: ${err}` }, 502);
+  }
 });
 
 // ---------------------------------------------------------------------------

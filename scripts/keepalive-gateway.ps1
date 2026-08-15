@@ -57,6 +57,25 @@ foreach ($i in 1..60) {
     Start-Sleep -Seconds 2
 }
 
+# Ollama, because search silently depends on it.
+#
+# Every knowledge search answered "No matches" for an unknown stretch because
+# Ollama was not running: embed() throws, recall() catches and returns nothing,
+# and an empty result is indistinguishable from a genuine miss. There are thirty
+# thousand vectors in the database, so "no matches" was never true. Starting it
+# here rather than in its own task keeps the dependency visible — the thing that
+# needs it is the thing that starts it.
+$ollama = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
+if (Test-Path $ollama) {
+    $running = Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue
+    if (-not $running) {
+        Write-Log 'starting ollama (embeddings for search)'
+        Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden
+    }
+} else {
+    Write-Log 'ollama not installed — knowledge search will report unavailable'
+}
+
 $backoff = 2
 while ($true) {
     # Something else already holding the port means a manual run is in progress.

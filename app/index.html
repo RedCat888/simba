@@ -6,105 +6,210 @@
 <meta name="theme-color" content="#0b0d10">
 <title>Simba</title>
 <style>
+  /* ------------------------------------------------------------------------
+     Simba, in Claude's design language.
+
+     The previous sheet had three faults that made the app feel unfinished, and
+     all three were layout rather than taste:
+
+       main had no max-width, so on a 2560px monitor a row of cards stretched
+       the full width of the screen and every line of text ran to 200 characters.
+
+       .msg was capped at max-width:92%, which is a phone measurement. On a
+       desktop it made a two-word reply span almost the entire window, which is
+       what "chat renders weirdly" was.
+
+       Nothing constrained reading measure anywhere, so prose, tables and chat
+       all shared the same unbounded column.
+
+     The palette is Claude's: warm neutrals rather than blue-black, a coral
+     accent, and near-black warm text. Amber-on-slate read as a terminal theme
+     rather than a product.
+     ------------------------------------------------------------------------ */
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+
   :root{
-    --bg:#0b0d10; --panel:#12151a; --panel2:#171b21; --line:#242a33;
-    --fg:#e6e9ef; --dim:#8b95a5; --faint:#5c6675;
-    --accent:#f5a524; --ok:#3ecf8e; --warn:#f5a524; --err:#f5555a; --info:#5b9bf8;
+    /* Warm neutrals. The greys carry a slight ochre bias so they sit with the
+       accent instead of fighting it — a pure grey next to coral reads cold. */
+    --bg:#F5F4EF; --panel:#FFFFFF; --panel2:#F0EEE7; --line:#E3E0D8;
+    --fg:#1F1E1D; --dim:#6B6A65; --faint:#94928B;
+    --accent:#C4643C; --accent-soft:#F6EAE3; --accent-line:#E5C4B3;
+    --ok:#3F7F5B; --warn:#9A6D18; --err:#B4453F; --info:#3A6E96;
+    --ok-soft:#E7F1EA; --warn-soft:#F7EEDC; --err-soft:#F8E9E7; --info-soft:#E7EFF6;
+    --shadow:0 1px 2px rgba(31,30,29,.05), 0 1px 3px rgba(31,30,29,.04);
     --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    /* One place decides how wide anything gets. */
+    --page:1180px; --read:56rem;
   }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#232220; --panel:#2E2D2A; --panel2:#383632; --line:#403E3A;
+      --fg:#F2F0EA; --dim:#A9A69E; --faint:#7C7970;
+      --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034;
+      --ok:#5FAE83; --warn:#C99A3B; --err:#D97570; --info:#6BA3CC;
+      --ok-soft:#1F2E26; --warn-soft:#33291597; --err-soft:#33211F; --info-soft:#1E2A33;
+      --shadow:0 1px 2px rgba(0,0,0,.28), 0 1px 3px rgba(0,0,0,.22);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#232220; --panel:#2E2D2A; --panel2:#383632; --line:#403E3A;
+    --fg:#F2F0EA; --dim:#A9A69E; --faint:#7C7970;
+    --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034;
+    --ok:#5FAE83; --warn:#C99A3B; --err:#D97570; --info:#6BA3CC;
+    --ok-soft:#1F2E26; --warn-soft:#332915; --err-soft:#33211F; --info-soft:#1E2A33;
+    --shadow:0 1px 2px rgba(0,0,0,.28), 0 1px 3px rgba(0,0,0,.22);
+  }
+
   html,body{height:100%}
   body{
     background:var(--bg);color:var(--fg);
-    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+    font:15px/1.55 var(--sans);
     display:flex;flex-direction:column;overflow:hidden;
+    -webkit-font-smoothing:antialiased;
   }
+
+  /* ── chrome ─────────────────────────────────────────────────────────── */
   header{
-    display:flex;align-items:center;gap:12px;padding:10px 14px;
-    padding-top:calc(10px + env(safe-area-inset-top));
+    display:flex;align-items:center;gap:14px;
+    padding:11px max(18px,calc((100vw - var(--page))/2));
+    padding-top:calc(11px + env(safe-area-inset-top));
     background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;
   }
-  .brand{font-weight:700;letter-spacing:.5px;color:var(--accent);font-size:16px}
-  .stats{display:flex;gap:12px;font-size:11px;color:var(--dim);flex-wrap:wrap;flex:1}
-  .stats b{color:var(--fg);font-weight:600}
-  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
-  .dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)} .dot.off{background:var(--faint)}
-  button{
-    font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);
-    border-radius:7px;padding:6px 11px;cursor:pointer
+  .brand{
+    font-family:var(--serif);font-size:19px;font-weight:600;letter-spacing:-.01em;
+    color:var(--fg);text-transform:none;
   }
-  button:active{transform:translateY(1px)}
-  button.danger{border-color:#5a2226;color:#ff8a8e;background:#1c1113}
-  button.primary{background:var(--accent);color:#1a1206;border-color:var(--accent);font-weight:600}
+  .stats{display:flex;gap:16px;font-size:12.5px;color:var(--dim);flex-wrap:wrap;flex:1;align-items:center}
+  .stats b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:1px}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--faint)}
 
-  nav{display:flex;gap:2px;padding:8px 10px 0;background:var(--panel);flex-shrink:0;overflow-x:auto}
+  nav{
+    display:flex;gap:2px;flex-shrink:0;overflow-x:auto;
+    padding:0 max(18px,calc((100vw - var(--page))/2));
+    background:var(--panel);border-bottom:1px solid var(--line);
+    scrollbar-width:none;
+  }
+  nav::-webkit-scrollbar{display:none}
   nav button{
-    border:none;border-radius:7px 7px 0 0;background:transparent;color:var(--dim);
-    padding:8px 14px;white-space:nowrap
+    border:none;background:transparent;color:var(--dim);
+    padding:9px 13px 10px;white-space:nowrap;border-radius:0;
+    border-bottom:2px solid transparent;font-size:13.5px;font-weight:500;
   }
-  nav button.sel{background:var(--bg);color:var(--fg);font-weight:600}
+  nav button:hover{color:var(--fg)}
+  nav button.sel{color:var(--fg);font-weight:600;border-bottom-color:var(--accent)}
 
-  main{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px;-webkit-overflow-scrolling:touch}
-  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+  main{
+    flex:1;overflow-y:auto;overflow-x:hidden;
+    padding:20px max(18px,calc((100vw - var(--page))/2)) 48px;
+    -webkit-overflow-scrolling:touch;
+  }
 
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px}
-  .card h3{font-size:14px;display:flex;align-items:center;gap:8px;margin-bottom:3px}
-  .card .sub{color:var(--dim);font-size:12px;margin-bottom:9px}
-  .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .meta{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-top:8px}
-  .meta b{color:var(--dim);font-weight:500}
+  /* ── controls ───────────────────────────────────────────────────────── */
+  button{
+    font:inherit;font-size:13.5px;color:var(--fg);background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;
+    transition:background .12s ease,border-color .12s ease;
+  }
+  button:hover{background:var(--panel2)}
+  button:active{transform:translateY(.5px)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  button.primary:hover{filter:brightness(1.06);background:var(--accent)}
+  button.danger{background:var(--err-soft);border-color:var(--err);color:var(--err);font-weight:600}
+  input,textarea{
+    font:inherit;font-size:14px;color:var(--fg);background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:8px 11px;width:100%;
+  }
+  input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input::placeholder,textarea::placeholder{color:var(--faint)}
 
+  /* ── cards ──────────────────────────────────────────────────────────── */
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;box-shadow:var(--shadow);
+  }
+  .card h3{
+    font-size:14.5px;font-weight:600;letter-spacing:-.005em;
+    display:flex;align-items:center;gap:8px;margin-bottom:3px;
+  }
+  .card .sub{color:var(--dim);font-size:13px;margin-bottom:10px;max-width:62ch}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .meta{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--faint);margin-top:10px}
+  .meta b{color:var(--dim);font-weight:500;font-variant-numeric:tabular-nums}
+
+  /* A section title, so a page reads as sections rather than a heap of cards. */
+  .sec{
+    font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);
+    font-weight:600;margin:22px 0 10px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .sec:first-child{margin-top:0}
+
+  /* ── state ──────────────────────────────────────────────────────────── */
   .pill{
-    font-size:10px;padding:2px 7px;border-radius:99px;border:1px solid var(--line);
-    color:var(--dim);text-transform:uppercase;letter-spacing:.4px;font-weight:600
+    font-size:10.5px;padding:2px 8px;border-radius:99px;border:1px solid transparent;
+    background:var(--panel2);color:var(--dim);
+    text-transform:uppercase;letter-spacing:.05em;font-weight:600;white-space:nowrap;
   }
-  .pill.running{background:#0f2a1e;color:var(--ok);border-color:#1c5138}
-  .pill.idle{background:#1a1d24;color:var(--dim)}
-  .pill.waiting_limit,.pill.limited{background:#2a2110;color:var(--warn);border-color:#5a441a}
-  .pill.failed,.pill.error,.pill.logged_out{background:#2a1315;color:var(--err);border-color:#5a2226}
-  .pill.available{background:#0f2a1e;color:var(--ok);border-color:#1c5138}
-  .pill.t0{background:#2a1f0c;color:var(--accent);border-color:#5c451a}
+  .pill.running,.pill.available,.pill.completed{background:var(--ok-soft);color:var(--ok)}
+  .pill.idle{background:var(--panel2);color:var(--dim)}
+  .pill.waiting_limit,.pill.limited,.pill.paused,.pill.blocked{background:var(--warn-soft);color:var(--warn)}
+  .pill.failed,.pill.error,.pill.logged_out,.pill.cancelled{background:var(--err-soft);color:var(--err)}
+  .pill.t0{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
   .pill.high{color:var(--accent)} .pill.mid{color:var(--info)} .pill.cheap{color:var(--dim)}
 
-  .bar{height:4px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-top:7px}
-  .bar > i{display:block;height:100%;background:var(--info)}
+  .bar{height:5px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:9px}
+  .bar > i{display:block;height:100%;background:var(--info);border-radius:99px}
 
-  .thread{display:flex;flex-direction:column;height:100%}
-  .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-bottom:8px}
-  .msg{border-radius:9px;padding:9px 11px;max-width:92%;white-space:pre-wrap;word-break:break-word}
-  .msg.user{align-self:flex-end;background:#1b2a3f;border:1px solid #24405e}
-  .msg.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
-  .msg.system{align-self:center;background:transparent;border:1px dashed var(--line);color:var(--dim);font-size:12px}
-  .msg .who{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-  .tool{
-    align-self:flex-start;font-family:var(--mono);font-size:11.5px;
-    background:#0e1116;border:1px solid var(--line);border-left:2px solid var(--info);
-    border-radius:6px;padding:7px 9px;color:var(--dim);max-width:92%;
-    overflow-x:auto;white-space:pre
+  /* ── chat ───────────────────────────────────────────────────────────── */
+  .thread{display:flex;flex-direction:column;height:100%;max-width:var(--read);margin:0 auto;width:100%}
+  .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:10px}
+  .msg{
+    border-radius:12px;padding:11px 14px;white-space:pre-wrap;word-break:break-word;
+    /* ch, not %. A percentage of the viewport is a phone measurement, and it is
+       what made a two-word reply span an entire desktop window. */
+    max-width:min(46rem,88%);font-size:14.5px;line-height:1.6;
   }
-  .tool.err{border-left-color:var(--err);color:#ffb0b3}
-  .swap{
-    align-self:center;font-size:11.5px;color:var(--accent);background:#231a09;
-    border:1px solid #5c451a;border-radius:7px;padding:6px 11px;text-align:center
+  .msg.user{align-self:flex-end;background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .msg.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .msg.system{
+    align-self:center;background:transparent;border:none;color:var(--faint);
+    font-size:12.5px;max-width:56ch;text-align:center;padding:2px 0;
   }
-  .composer{display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--line);flex-shrink:0}
-  .composer textarea{
-    flex:1;background:var(--panel);color:var(--fg);border:1px solid var(--line);
-    border-radius:9px;padding:9px 11px;font:inherit;resize:none;min-height:42px;max-height:130px
+  .msg .who{
+    display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--faint);font-weight:600;margin-bottom:5px;
   }
-  .composer textarea:focus{outline:none;border-color:var(--info)}
+  .composer{display:flex;gap:9px;padding-top:12px;border-top:1px solid var(--line);align-items:flex-end}
+  .composer textarea{resize:none;min-height:42px;max-height:180px}
 
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line)}
-  th{color:var(--faint);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px}
-  td.mono{font-family:var(--mono);font-size:11px}
-  .scroll-x{overflow-x:auto}
+  /* ── misc ───────────────────────────────────────────────────────────── */
+  .empty{
+    color:var(--dim);text-align:center;padding:44px 20px;font-size:14px;
+    max-width:52ch;margin:0 auto;
+  }
+  .mono{font-family:var(--mono);font-size:12.5px}
+  .scroll-x{overflow-x:auto;max-width:100%}
+  .swap{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+  .sev-warn{color:var(--warn)} .sev-error{color:var(--err)} .sev-escalated{color:var(--err)}
+  a{color:var(--accent);text-underline-offset:2px}
 
-  .empty{color:var(--faint);text-align:center;padding:36px 16px;font-size:13px}
-  .back{color:var(--info);cursor:pointer;font-size:12px;margin-bottom:10px;display:inline-block}
-  .sev-warn{color:var(--warn)} .sev-error,.sev-critical{color:var(--err)} .sev-debug{color:var(--faint)}
-  .hide{display:none !important}
-  @media(max-width:520px){ main{padding:9px} .grid{grid-template-columns:1fr} }
+  /* Prose and search results read, so they get a measure. */
+  .reading{max-width:var(--read);margin:0 auto}
+
+  /* A card sitting directly in main is prose — the brief, a detail panel — and
+     without this it inherits the full 1180px column and sets ~150-character
+     lines. Cards inside .grid are unaffected; they are already sized by their
+     track. Tables opt out via .scroll-x, because a data table genuinely wants
+     the width and scrolls itself when it runs out. */
+  main > .card:not(.scroll-x){max-width:var(--read)}
+  .card p{max-width:68ch}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
@@ -116,10 +221,14 @@
 </header>
 
 <nav>
+  <button data-tab="find">Find</button>
   <button data-tab="missions" class="sel">Missions</button>
   <button data-tab="agents">Agents</button>
   <button data-tab="sessions">Sessions</button>
   <button data-tab="brains">Brains</button>
+  <button data-tab="requests">Requests</button>
+  <button data-tab="projects">Projects</button>
+  <button data-tab="reels">Reels</button>
   <button data-tab="memory">Memory</button>
   <button data-tab="docs">Docs</button>
   <button data-tab="router">Router</button>
@@ -626,10 +735,190 @@ async function renderEvents() {
   </table></div>`;
 }
 
+/* ---------------------------------------------------------------------------
+   The four surfaces the phone had and the desktop did not.
+
+   Requests, projects, reels and the search box were all built as gateway routes
+   and Android screens, which meant the machine they actually run on was the one
+   place you could not see them. Each is a plain read of an endpoint that already
+   exists — no new backend.
+   --------------------------------------------------------------------------- */
+
+let findQuery = '';
+let findHits = null;
+
+async function renderFind() {
+  $('main').innerHTML = `<div class="reading">
+    <div class="row" style="gap:9px;margin-bottom:6px">
+      <input id="fq" placeholder="Anything you half-remember — a word is enough"
+             value="${esc(findQuery)}" autocomplete="off">
+      <button class="primary" id="fgo">Find</button>
+    </div>
+    <div class="sec">Requests · captures · projects · sessions · missions</div>
+    <div id="fres">${findHits === null ? emptyFind() : renderFound(findHits)}</div>
+  </div>`;
+
+  const go = async () => {
+    findQuery = $('fq').value.trim();
+    if (findQuery.length < 2) { $('fres').innerHTML = emptyFind(); return; }
+    $('fres').innerHTML = `<div class="empty">Searching…</div>`;
+    try {
+      findHits = await api(`/api/find?q=${encodeURIComponent(findQuery)}`);
+      $('fres').innerHTML = renderFound(findHits);
+    } catch (e) { $('fres').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  };
+  $('fgo').onclick = go;
+  $('fq').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  $('fq').focus();
+}
+
+const emptyFind = () => `<div class="empty">Type a word you remember. This searches
+  operational records — what you asked for, what you shared in, your projects, and
+  every session and mission by name. Notes and conversations live under Memory.</div>`;
+
+function renderFound(hits) {
+  if (!hits.length) return `<div class="empty">Nothing matches “${esc(findQuery)}”.</div>`;
+  // Outstanding first, because the question behind almost every search here is
+  // "what happened to X".
+  const open = hits.filter((h) => h.live);
+  const rest = hits.filter((h) => !h.live);
+  const row = (h) => `<div class="card" style="margin-bottom:8px">
+    <div class="row"><h3>${esc(h.title ?? '')}</h3>
+      <span class="pill ${esc(h.status ?? '')}">${esc(h.kind)}</span></div>
+    ${h.subtitle ? `<div class="sub">${esc(h.subtitle)}</div>` : ''}
+    <div class="meta">${h.status ? `<span>${esc(h.status)}</span>` : ''}
+      ${h.when_at ? `<span>${ago(h.when_at)}</span>` : ''}</div>
+  </div>`;
+  return (open.length ? `<div class="sec">Still open</div>${open.map(row).join('')}` : '')
+       + (rest.length ? `<div class="sec">${open.length ? 'Everything else' : 'Found'}</div>${rest.map(row).join('')}` : '');
+}
+
+async function renderRequests() {
+  const rows = await api('/api/requests');
+  const open = rows.filter((r) => r.status === 'open');
+  const done = rows.filter((r) => r.status !== 'open');
+  if (!rows.length) {
+    $('main').innerHTML = `<div class="empty">Nothing outstanding. Anything you ask for —
+      as a note on a reel, over DM, or from the app — is kept here until it is actually done.</div>`;
+    return;
+  }
+  // Verbatim, never summarised: these are searched for in the words they were
+  // asked in, and a tidied version is one that cannot be found.
+  const row = (r) => `<div class="card" style="margin-bottom:8px">
+    <div class="row"><h3>${esc(r.ask)}</h3>
+      <span class="pill ${esc(r.status)}">${esc(r.status)}</span></div>
+    ${r.outcome ? `<div class="sub">${esc(r.outcome)}</div>` : ''}
+    <div class="meta"><span>${esc(r.source)}</span><span>asked ${ago(r.created_at)}</span>
+      ${r.agent ? `<span>${esc(r.agent)}</span>` : ''}</div>
+    ${r.status === 'open' ? `<div class="row" style="margin-top:11px;justify-content:flex-start;gap:8px">
+      <button data-req="${esc(r.id)}" data-act="done">Mark done</button>
+      <button data-req="${esc(r.id)}" data-act="drop">Never mind</button></div>` : ''}
+  </div>`;
+  $('main').innerHTML = `<div class="reading">
+    ${open.length ? `<div class="sec">You asked for<span>${open.length} open</span></div>${open.map(row).join('')}` : ''}
+    ${done.length ? `<div class="sec">Answered</div>${done.map(row).join('')}` : ''}
+  </div>`;
+  document.querySelectorAll('[data-req]').forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await api(`/api/requests/${b.dataset.req}/${b.dataset.act}`, { method: 'POST' }); render(); }
+      catch (e) { b.disabled = false; alert(e.message); }
+    };
+  });
+}
+
+async function renderProjects() {
+  const rows = await api('/api/projects');
+  const exposed = rows.filter((p) => p.at_risk);
+  const unread = rows.filter((p) => p.scan_error);
+  const settled = rows.filter((p) => !p.at_risk && !p.scan_error);
+  const homeless = exposed.filter((p) => !p.git_remote).length;
+
+  const row = (p) => `<div class="card" style="margin-bottom:8px">
+    <div class="row"><h3>${esc(p.name)}</h3>
+      ${p.scan_error ? `<span class="pill error">unreadable</span>`
+        : !p.git_remote ? `<span class="pill error">no remote</span>` : ''}</div>
+    <div class="sub mono">${esc(p.root_path ?? '')}</div>
+    <div class="meta">
+      ${p.dirty_files > 0 ? `<span class="sev-warn">${p.dirty_files} uncommitted</span>` : ''}
+      ${p.unpushed > 0 ? (p.git_remote
+          ? `<span class="sev-warn">${p.unpushed} unpushed</span>`
+          : `<span class="sev-error">${p.unpushed} commits, nowhere else</span>`) : ''}
+      ${p.branch ? `<span>${esc(p.branch)}</span>` : ''}
+      ${p.last_commit_at ? `<span>${ago(p.last_commit_at)}</span>` : ''}
+      ${p.owner ? `<span>${esc(p.owner)}</span>` : ''}
+    </div>
+    ${p.scan_error ? `<div class="sub sev-error" style="margin-top:8px">${esc(p.scan_error)}</div>` : ''}
+  </div>`;
+
+  $('main').innerHTML = `<div class="reading">
+    <div class="card" style="margin-bottom:14px">
+      <div class="row">
+        <h3>${exposed.length === 0 ? 'Everything is published'
+             : exposed.length === 1 ? '1 project holds work that’s only here'
+             : `${exposed.length} projects hold work that’s only here`}</h3>
+        ${exposed.length === 0 ? `<span class="pill available">clear</span>`
+          : homeless ? `<span class="pill error">${homeless} with no remote</span>`
+          : `<span class="pill paused">unpublished</span>`}
+      </div>
+      <div class="sub">${rows.length} tracked · rescanned every half hour</div>
+      <button id="rescan">Rescan now</button>
+    </div>
+    ${exposed.length ? `<div class="sec">Only on this disk</div>${exposed.map(row).join('')}` : ''}
+    ${unread.length ? `<div class="sec">Couldn’t read</div>${unread.map(row).join('')}` : ''}
+    ${settled.length ? `<div class="sec">Published</div>${settled.map(row).join('')}` : ''}
+  </div>`;
+
+  $('rescan').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Scanning…';
+    try { await api('/api/projects/scan', { method: 'POST' }); render(); }
+    catch (err) { e.target.disabled = false; e.target.textContent = 'Rescan now'; alert(err.message); }
+  };
+}
+
+async function renderReels() {
+  const feed = await api('/api/reels');
+  const h = feed.health ?? {};
+  if (!feed.reachable) {
+    $('main').innerHTML = `<div class="empty">The reel agent isn’t running, so reels shared to
+      Instagram aren’t being picked up. Nothing is lost — they’re read from the DM history when
+      it starts again.</div>`;
+    return;
+  }
+  const items = feed.items ?? [];
+  $('main').innerHTML = `<div class="reading">
+    <div class="card" style="margin-bottom:14px">
+      <div class="row">
+        <h3>${h.working > 0 ? 'Working' : 'Idle, waiting for reels'}</h3>
+        <span class="pill available">live</span>
+      </div>
+      <div class="sub">listening as @${esc(h.logged_in_as ?? '?')}</div>
+      <div class="meta">
+        ${h.working > 0 ? `<span>${h.working} in progress</span>` : ''}
+        ${h.owed > 0 ? `<span class="sev-warn">${h.owed} queued</span>` : ''}
+        <span>${items.length} written up</span>
+      </div>
+    </div>
+    <div class="sec">Processed</div>
+    ${items.map((r) => `<div class="card" style="margin-bottom:8px">
+      <div class="row"><h3>${esc(r.title)}</h3>
+        ${r.done ? '' : `<span class="pill paused">working</span>`}</div>
+      ${r.summary ? `<div class="sub">${esc(r.summary)}</div>` : ''}
+      <div class="meta"><span>${esc(r.received ?? '')}</span>
+        ${r.frames ? `<span>${r.frames} frames</span>` : ''}
+        ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" rel="noreferrer">source</a>` : ''}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
 async function render() {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.tab === tab));
   try {
-    if (tab === 'missions') await renderMissions();
+    if (tab === 'find') await renderFind();
+    else if (tab === 'requests') await renderRequests();
+    else if (tab === 'projects') await renderProjects();
+    else if (tab === 'reels') await renderReels();
+    else if (tab === 'missions') await renderMissions();
     else if (tab === 'agents') await renderAgents();
     else if (tab === 'sessions') await renderSessions();
     else if (tab === 'brains') await renderBrains();

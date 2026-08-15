@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { query, one, recordEvent } from '../db/index.js';
 import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
-import { recall } from '../knowledge/embed.js';
+import { recall, embeddingFailure } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
 import { verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
@@ -530,6 +530,24 @@ app.get('/api/knowledge/search', async (c) => {
   // Capped. Uncapped, `?limit=999999` is a one-request dump of the entire
   // personal corpus — the highest-likelihood real loss from a stolen device.
   const hits = await recall(q, { limit: capLimit(c.req.query('limit'), 12, 50) });
+
+  // An empty result has two very different causes and the caller cannot tell
+  // them apart from the payload. Ollama being down answered "No matches" to
+  // every query for an unknown stretch, which reads as "you have nothing about
+  // that" — the opposite of the truth, since there are thirty thousand vectors.
+  if (hits.length === 0) {
+    const failure = embeddingFailure();
+    if (failure) {
+      return c.json(
+        {
+          error: 'search is unavailable',
+          detail: `the local embedding model did not answer: ${failure.reason}`,
+          fix: 'start Ollama — the gateway reaches it at ' + config.embedding.endpoint,
+        },
+        503,
+      );
+    }
+  }
   return c.json(
     hits.map((h) => ({
       source: h.source,

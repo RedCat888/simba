@@ -55,6 +55,20 @@ export interface RecallHit {
 }
 
 /**
+ * Why the last recall came back empty, when the reason was not "nothing matched".
+ *
+ * Deliberately a module-level note rather than a thrown error: recall's contract
+ * with hydration is that it never fails a bundle, and changing that to serve the
+ * search box would trade a visible problem for an invisible one somewhere else.
+ */
+let lastEmbedFailure: { at: number; reason: string } | null = null;
+
+/** Null when embeddings are working. Cleared by the next success. */
+export function embeddingFailure(): { at: number; reason: string } | null {
+  return lastEmbedFailure;
+}
+
+/**
  * Semantic recall across the knowledge corpus and Simba's own history.
  * Returns nothing rather than throwing when embeddings are unavailable —
  * recall is an enhancement to a hydration bundle, never a precondition for one.
@@ -66,10 +80,19 @@ export async function recall(
   let vector: number[];
   try {
     [vector] = (await embed([queryText])) as [number[]];
-  } catch {
+  } catch (err) {
+    // Still returns nothing rather than throwing — hydration genuinely does not
+    // care, which is what the doc comment above is about. But it says so now,
+    // because one caller does care very much: a person typed a query into a
+    // search box and pressed a button. Ollama was down for an unknown stretch
+    // and every search answered "No matches", which is a different sentence
+    // from "the search engine is not running" and sent the reader looking for
+    // the wrong problem.
+    lastEmbedFailure = { at: Date.now(), reason: String((err as Error).message ?? err) };
     return [];
   }
   if (!vector) return [];
+  lastEmbedFailure = null;
 
   const limit = opts.limit ?? 8;
   const kinds = opts.ownerKinds ?? null;

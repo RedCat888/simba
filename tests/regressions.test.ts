@@ -11,6 +11,7 @@ import {
   classifyFailure,
 } from '../src/runner/verify.js';
 import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js';
+import { samePath } from '../src/session/worktree.js';
 import { parseSchedule } from '../src/missions/schedule.js';
 
 /**
@@ -220,5 +221,30 @@ describe('why a brain said no', () => {
     assert.equal(classifyFailure('spawn ENOENT'), 'unresponsive');
     assert.equal(classifyFailure(''), 'unresponsive');
     assert.equal(classifyFailure('exit code 1'), 'unresponsive');
+  });
+});
+
+describe('worktree path identity', () => {
+  // git answers --show-toplevel in forward slashes on every platform, so on
+  // Windows the reply never string-matches the path it was given. Getting this
+  // wrong fails dangerously: every real worktree would look like a stale empty
+  // directory and its uncollected work would be reported as nothing to collect.
+  test('matches across separator and case differences', () => {
+    assert.equal(
+      samePath('C:/workspace/simba/var/worktrees/a', 'C:\\Users\\operator\\simba\\var\\worktrees\\a'),
+      true,
+    );
+    assert.equal(samePath('C:/example-workspace/Simba', 'c:/users/operator/simba'), true);
+    assert.equal(samePath('C:/workspace/simba/', 'C:/workspace/simba'), true);
+  });
+
+  // The case that mattered: an empty leftover directory makes git walk up to
+  // the parent repository, so the parent's toplevel comes back instead. Those
+  // are different places and must not compare equal.
+  test('a parent repository is not the worktree', () => {
+    assert.equal(
+      samePath('C:/workspace/simba', 'C:/workspace/simba/var/worktrees/mobile-app-19ca077f'),
+      false,
+    );
   });
 });

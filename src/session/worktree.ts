@@ -153,9 +153,71 @@ export interface WorktreeState {
   originMissing: boolean;
 }
 
+/**
+ * Two paths naming the same place.
+ *
+ * git answers in forward slashes regardless of platform, and Windows adds case
+ * insensitivity and the occasional trailing separator. Comparing the raw
+ * strings would make every worktree on this machine look like a stale
+ * directory, which fails in the opposite and more dangerous direction: real
+ * uncollected work reported as nothing to collect.
+ */
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) =>
+    p.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * The commit every *other* checkout of this repository is sitting on.
+ *
+ * `git worktree list --porcelain` emits a stanza per checkout, blank-line
+ * separated, each starting `worktree <path>` and carrying `HEAD <sha>`. The
+ * main repository is one of those stanzas, which is the one that matters here —
+ * it is usually the thing holding the commits a session worktree appears to own.
+ *
+ * Returns SHAs rather than refs so a detached HEAD counts too.
+ */
+async function headsOfOtherWorktrees(path: string): Promise<string[]> {
+  const out = await gitQuiet(path, ['worktree', 'list', '--porcelain']);
+  if (!out) return [];
+
+  const here = path.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  const heads: string[] = [];
+  let current: string | null = null;
+
+  for (const line of out.split('\n')) {
+    const text = line.trim();
+    if (text.startsWith('worktree ')) {
+      current = text.slice('worktree '.length).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+    } else if (text.startsWith('HEAD ') && current && current !== here) {
+      heads.push(text.slice('HEAD '.length));
+    }
+  }
+  return heads;
+}
+
 /** Whether a worktree still holds work nobody has collected. */
 export async function inspectWorktree(path: string): Promise<WorktreeState | null> {
   if (!existsSync(path)) return null;
+
+  // The directory existing is not the same as it being a checkout.
+  //
+  // Every git command here runs with -C <path>, and git walks *up* from there
+  // when the directory is not a repository root. A leftover empty folder under
+  // var/worktrees therefore answers every question with the main repository's
+  // state — its branch, its commit count, its uncommitted files — and the
+  // result is a worktree that appears to be holding work it does not have and
+  // cannot have, because there is nothing in it at all.
+  //
+  // That is exactly what happened: two empty directories left behind by pruned
+  // worktrees reported forty-nine unmerged commits for days, which were simply
+  // master's commits seen through them. A warning about unrecoverable work that
+  // is always on is worse than no warning, because the one time it is real it
+  // reads the same as every false one before it.
+  const top = await gitQuiet(path, ['rev-parse', '--show-toplevel']);
+  if (!top || !samePath(top, path)) return null;
+
   const [branch, status] = await Promise.all([
     gitQuiet(path, ['rev-parse', '--abbrev-ref', 'HEAD']),
     gitQuiet(path, ['status', '--porcelain']),
@@ -188,7 +250,24 @@ export async function inspectWorktree(path: string): Promise<WorktreeState | nul
       .map((r) => r.trim())
       .filter((r) => r && r !== `refs/heads/${branch}`);
 
-    const only = await gitQuiet(path, ['rev-list', '--count', 'HEAD', '--not', ...others]);
+    // Every other worktree's HEAD, including the main checkout's.
+    //
+    // Excluding only *other* branches is right for a session branch that no one
+    // else has, and wrong the moment a worktree is checked out on a branch the
+    // main repository also holds. Then the branch is left out of its own safety
+    // check and every commit unique to it is counted as stranded — two
+    // worktrees sitting on master reported forty-nine uncollected commits for
+    // days while `git` put them at zero ahead and zero behind, because master
+    // was holding those commits in the main checkout the entire time.
+    //
+    // The question was never "is this branch unique" but "would deleting this
+    // directory lose anything", and anything another checkout has its own hold
+    // on is not lost by deleting this one.
+    const elsewhere = await headsOfOtherWorktrees(path);
+
+    const only = await gitQuiet(path, [
+      'rev-list', '--count', 'HEAD', '--not', ...others, ...elsewhere,
+    ]);
     ahead = Number(only ?? 0) || 0;
   }
 

@@ -14,6 +14,7 @@ import { verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
 import { scanProjects } from '../inventory/scan.js';
+import { allowedRoots, confine, listDir, readTextFile } from '../inventory/files.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -1008,6 +1009,53 @@ app.get('/api/find', async (c) => {
     [q],
   );
   return c.json(rows);
+});
+
+// ---------------------------------------------------------------------------
+// Files — reading the PC from the phone
+//
+// The most dangerous surface here: file contents, over a tunnel, to a phone.
+// See src/inventory/files.ts for why confinement is by resolved path and why
+// secrets are masked by content rather than refused by filename. Read only —
+// no write, no delete, no rename.
+// ---------------------------------------------------------------------------
+
+app.get('/api/files', async (c) => {
+  const roots = await allowedRoots();
+  const requested = c.req.query('path');
+
+  // No path means "where can I start" rather than an error, so the client never
+  // has to know a filesystem layout in order to ask its first question.
+  if (!requested) {
+    return c.json({
+      roots,
+      entries: roots.map((r) => ({
+        name: r.split(/[\\/]/).filter(Boolean).pop() ?? r,
+        path: r, kind: 'dir' as const, bytes: 0, modified: null,
+      })),
+    });
+  }
+
+  const dir = await confine(requested, roots);
+  if (!dir) return c.json({ error: 'outside the readable roots' }, 403);
+  try {
+    return c.json({ roots, path: dir, entries: await listDir(dir) });
+  } catch (err) {
+    return c.json({ error: `cannot list: ${err}` }, 400);
+  }
+});
+
+app.get('/api/files/read', async (c) => {
+  const requested = c.req.query('path');
+  if (!requested) return c.json({ error: 'path required' }, 400);
+
+  const path = await confine(requested, await allowedRoots());
+  if (!path) return c.json({ error: 'outside the readable roots' }, 403);
+  try {
+    return c.json(await readTextFile(path));
+  } catch (err) {
+    return c.json({ error: `cannot read: ${err}` }, 400);
+  }
 });
 
 // ---------------------------------------------------------------------------

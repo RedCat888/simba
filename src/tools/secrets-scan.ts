@@ -4,6 +4,7 @@ import { join, extname, basename } from 'node:path';
 import { homedir } from 'node:os';
 
 import { query, recordEvent, closePool } from '../db/index.js';
+import { PATTERNS, type Pattern } from './secret-patterns.js';
 
 /**
  * Credential scanner.
@@ -18,32 +19,7 @@ import { query, recordEvent, closePool } from '../db/index.js';
  * consequences (breaking whatever uses the credential) and belongs to a human.
  */
 
-interface Pattern {
-  name: string;
-  re: RegExp;
-  severity: 'critical' | 'high' | 'medium';
-}
 
-const PATTERNS: Pattern[] = [
-  // Long-lived and directly abusable.
-  { name: 'AWS access key', re: /\bAKIA[0-9A-Z]{16}\b/, severity: 'critical' },
-  { name: 'GitHub token', re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/, severity: 'critical' },
-  { name: 'Slack token', re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, severity: 'critical' },
-  { name: 'Stripe secret key', re: /\bsk_live_[A-Za-z0-9]{16,}\b/, severity: 'critical' },
-  { name: 'OpenAI key', re: /\bsk-[A-Za-z0-9_-]{32,}\b/, severity: 'critical' },
-  { name: 'Anthropic key', re: /\bsk-ant-[A-Za-z0-9_-]{32,}\b/, severity: 'critical' },
-  { name: 'Discord bot token', re: /\b[MNO][A-Za-z0-9_-]{23,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b/, severity: 'critical' },
-  { name: 'Private key block', re: /-----BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/, severity: 'critical' },
-  { name: 'Google API key', re: /\bAIza[0-9A-Za-z_-]{35}\b/, severity: 'high' },
-
-  // JWTs are worth flagging but are often short-lived or public-scoped, so they
-  // sit below the keys above rather than alongside them.
-  { name: 'JWT (possible service key)', re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, severity: 'high' },
-
-  // Assignment-shaped secrets: high recall, so kept at medium to avoid drowning
-  // the real findings.
-  { name: 'Hardcoded secret assignment', re: /\b(?:api[_-]?key|secret|password|passwd|token)\s*[:=]\s*['"][^'"\s]{12,}['"]/i, severity: 'medium' },
-];
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'venv', '.venv', '__pycache__',

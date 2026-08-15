@@ -12,6 +12,7 @@ import {
 } from '../src/runner/verify.js';
 import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js';
 import { samePath } from '../src/session/worktree.js';
+import { maskSecrets } from '../src/inventory/files.js';
 import { parseSchedule } from '../src/missions/schedule.js';
 
 /**
@@ -246,5 +247,84 @@ describe('worktree path identity', () => {
       samePath('C:/workspace/simba', 'C:/workspace/simba/var/worktrees/mobile-app-19ca077f'),
       false,
     );
+  });
+});
+
+describe('file browsing masks secrets by content, not by filename', () => {
+  // The intuitive design is a deny list of .env and *.pem. It fails in the
+  // direction that matters, and this repository has the proof: its own scanner
+  // exists because a live Discord bot token was found in six ordinary-looking
+  // config files. Filenames do not predict secrets.
+  test('masks a key in a file no deny list would have covered', () => {
+    const src = 'const client = new OpenAI({ apiKey: "sk-' + 'a'.repeat(40) + '" });';
+    const { text, masked } = maskSecrets(src);
+    assert.equal(masked, 1);
+    assert.doesNotMatch(text, /sk-a{40}/, 'the key survived masking');
+    assert.match(text, /redacted/);
+  });
+
+  test('never leaks a prefix of the value it masked', () => {
+    // A mask that shows the first characters has narrowed the key for whoever
+    // is reading over your shoulder, which is most of the value of hiding it.
+    const token = 'ghp_' + 'B'.repeat(36);
+    const { text } = maskSecrets(`GITHUB_TOKEN=${token}`);
+    assert.doesNotMatch(text, /ghp_B/);
+    assert.match(text, /GitHub token redacted, \d+ chars/);
+  });
+
+  test('masks every occurrence, not just the first', () => {
+    // The source patterns are not global; a file with two keys must not keep
+    // the second one.
+    const a = 'AKIA' + 'C'.repeat(16);
+    const b = 'AKIA' + 'D'.repeat(16);
+    const { text, masked } = maskSecrets(`one=${a}\ntwo=${b}`);
+    assert.equal(masked, 2);
+    assert.doesNotMatch(text, /AKIAC|AKIAD/);
+  });
+
+  test('leaves ordinary source untouched', () => {
+    // A masker that fires on ordinary code makes every file unreadable, which
+    // is its own kind of broken.
+    const src = 'export function add(a: number, b: number) { return a + b }';
+    const { text, masked } = maskSecrets(src);
+    assert.equal(masked, 0);
+    assert.equal(text, src);
+  });
+});
+
+describe('env assignments, the shape the quoted pattern missed', () => {
+  // Found by pointing the new file browser at ReelAgent/.env and getting the
+  // Instagram password, the session id and the intake token back in the clear,
+  // masked count zero. The quoted-assignment pattern fits source code and
+  // misses the entire syntax of a .env file, and the scanner reads .env files
+  // too — so it had been blind to exactly this.
+  test('masks the values that were served in the clear', () => {
+    const env = [
+      'IG_BOT_PASSWORD=hunter2hunter2',
+      'IG_SESSIONID=' + '9'.repeat(60),
+      'INTAKE_TOKEN=' + 'f'.repeat(32),
+    ].join('\n');
+    const { text, masked } = maskSecrets(env);
+    assert.equal(masked, 3);
+    assert.doesNotMatch(text, /hunter2/);
+    assert.doesNotMatch(text, /9{20}/);
+    assert.doesNotMatch(text, /f{20}/);
+  });
+
+  test('keeps the name so the file still reads as a file', () => {
+    // Hiding the whole line would make a config unreadable, which is a
+    // different way of hiding things rather than a safer one.
+    const { text } = maskSecrets('INTAKE_TOKEN=' + 'a'.repeat(32));
+    assert.match(text, /^INTAKE_TOKEN=/);
+    assert.match(text, /redacted, 32 chars/);
+  });
+
+  test('leaves ports, urls and usernames alone', () => {
+    // Keyed on the name, not the shape of the value: a password and a port
+    // number look identical, and only the name says which is which.
+    const env = 'INTAKE_PORT=4877\nSIMBA_URL=http://127.0.0.1:8787\nIG_BOT_USERNAME=sample-account';
+    const { text, masked } = maskSecrets(env);
+    assert.equal(masked, 0, 'a masker that fires on every config line makes it unreadable');
+    assert.equal(text, env);
   });
 });

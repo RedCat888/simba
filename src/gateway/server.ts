@@ -911,11 +911,18 @@ app.post('/api/captures/:id/:action', async (c) => {
   const map: Record<string, string> = { reject: 'rejected', done: 'done', requeue: 'pending' };
   const status = map[action];
   if (!status) return c.json({ error: `unknown action: ${action}` }, 400);
-  await query(
+  // RETURNING, and checked. Without it this reported {ok:true} for an id that
+  // matched nothing — so a resolve against a capture that had been deleted, or
+  // against a mistyped id, was indistinguishable from one that worked, and the
+  // caller removed the row from view on the strength of it. The requests route
+  // next door already answered 404 for exactly this; the two disagreeing is
+  // worse than either, because it makes the correct one look like the anomaly.
+  const row = await one<{ id: string }>(
     `UPDATE captures SET status = $2, resolved_at = CASE WHEN $2 IN ('rejected','done')
-       THEN now() ELSE NULL END WHERE id = $1`,
+       THEN now() ELSE NULL END WHERE id = $1 RETURNING id`,
     [c.req.param('id'), status],
   );
+  if (!row) return c.json({ error: 'no such capture' }, 404);
   return c.json({ ok: true, status });
 });
 

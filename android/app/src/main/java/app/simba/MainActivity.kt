@@ -212,7 +212,12 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     Push.Knowledge -> KnowledgeScreen(vm)
                     Push.Reels -> ReelsScreen(vm) { push = Push.ReelDetail(it) }
                     Push.Projects -> ProjectsScreen(vm)
-                    Push.Find -> FindScreen(vm)
+                    Push.Find -> FindScreen(
+                        vm,
+                        onOpenSession = { id, title -> push = Push.SessionDetail(id, title) },
+                        onOpenMission = { push = Push.MissionDetail(it) },
+                        onOpenProjects = { push = Push.Projects },
+                    )
                     is Push.ReelDetail -> ReelDetailScreen(vm, here.id) { push = Push.Reels }
                 }
 

@@ -63,7 +63,24 @@ class SimbaVm : ViewModel() {
     var brains by mutableStateOf<List<Brain>>(emptyList())
     var briefs by mutableStateOf<List<Brief>>(emptyList())
     var sessions by mutableStateOf<List<SessionRow>>(emptyList())
+    /**
+     * The PC could not be reached, or answered badly, on the last refresh.
+     *
+     * Written only by [refresh]. It is the signal behind "PC connected", so
+     * anything else writing here claims the machine is unreachable — which is
+     * how a 404 on resolving one capture came to report the whole system down.
+     */
     var error by mutableStateOf<String?>(null)
+
+    /**
+     * The last thing you asked for that did not happen.
+     *
+     * Separate from [error] because the two need different words and have
+     * different consequences: "the PC is asleep" is a state to wait out, and
+     * "that capture no longer exists" is an answer. Cleared when acknowledged
+     * or when the next action succeeds.
+     */
+    var actionFailed by mutableStateOf<String?>(null)
     var loading by mutableStateOf(false)
 
     /**
@@ -188,6 +205,20 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
             ),
         ) { shown ->
             val here = push
+            // One Column, not two siblings.
+            //
+            // Fluid hands this lambda to `Box(Modifier.fillMaxSize())`, so two
+            // children would stack rather than sit one above the other — and
+            // the banner, emitted first, would be drawn *underneath* a
+            // full-size screen and never seen. Which is precisely the bug this
+            // banner exists to fix, reintroduced by the fix for it.
+            //
+            // Rendered here rather than by each screen because the screens that
+            // forgot it are the ones that most needed it: Find and Projects
+            // both reported failures into the view model and drew nothing. In
+            // the shell, a new screen cannot forget.
+            Column(Modifier.fillMaxSize()) {
+            ActionFailure(vm.actionFailed) { vm.actionFailed = null }
             when {
                 !ready -> LoadingState()
 
@@ -250,6 +281,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     }
                 }
             }
+            }
         }
     }
 }
@@ -293,6 +325,45 @@ private fun ErrorBanner(error: String?, configured: Boolean = true) {
                 color = Faint,
                 style = type.caption,
                 modifier = Modifier.padding(top = space.tight),
+            )
+        }
+    }
+}
+
+/**
+ * Something you asked for did not happen.
+ *
+ * Deliberately not the same banner as being unable to reach the PC, and shown
+ * even when the PC is perfectly reachable. Both used to write to one field
+ * titled "Cannot reach Simba", so declining an approval that had already been
+ * decided reported the whole system down — alarming, wrong, and pointing at the
+ * wrong thing to check.
+ *
+ * Dismissible, because unlike an unreachable PC this describes a moment rather
+ * than a condition: it will not fix itself and there is nothing to wait for.
+ */
+@Composable
+fun ActionFailure(message: String?, onDismiss: () -> Unit) {
+    AnimatedVisibility(message != null) {
+        Card(Modifier.screenPad().padding(vertical = space.tight)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("That didn't go through", color = Warn, fontWeight = FontWeight.SemiBold, style = type.bodySmall)
+                Text(
+                    "dismiss",
+                    color = Dim,
+                    style = type.label,
+                    modifier = Modifier.clickable(onClick = onDismiss).tapTarget(),
+                )
+            }
+            Text(
+                message.orEmpty().take(200),
+                color = Dim,
+                style = type.label,
+                modifier = Modifier.padding(top = space.hair),
             )
         }
     }
@@ -432,7 +503,7 @@ private fun MissionsScreen(vm: SimbaVm, open: (String) -> Unit) {
                 creating = false
                 vm.viewModelScope.launch {
                     runCatching { vm.api?.createMission(title, objective, criteria, schedule) }
-                        .onFailure { vm.error = it.message }
+                        .onFailure { vm.actionFailed = it.message }
                     vm.refresh()
                 }
             },
@@ -628,7 +699,7 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
             scope.launch {
                 busy = true
                 runCatching { vm.api?.missionAction(id, action) }
-                    .onFailure { vm.error = it.message }
+                    .onFailure { vm.actionFailed = it.message }
                 load()
                 busy = false
                 vm.refresh()
@@ -639,7 +710,7 @@ private fun MissionDetailScreen(vm: SimbaVm, id: String, back: () -> Unit) {
                 busy = true
                 runCatching {
                     vm.api?.missionBudget(id, d.mission.maxSessions + 10, d.mission.maxCost + 10.0)
-                }.onFailure { vm.error = it.message }
+                }.onFailure { vm.actionFailed = it.message }
                 load()
                 busy = false
             }
@@ -926,7 +997,7 @@ private fun AgentRow(a: Agent, onStart: () -> Unit, onRetier: (String) -> Unit) 
 private fun retier(vm: SimbaVm, a: Agent, tier: String) {
     vm.viewModelScope.launch {
         runCatching { vm.api?.setAgentModel(a.slug, tier) }
-            .onFailure { vm.error = it.message }
+            .onFailure { vm.actionFailed = it.message }
         vm.refresh()
     }
 }
@@ -1344,7 +1415,7 @@ private fun SystemScreen(
                                 modifier = Modifier.clickable {
                                     scope.launch {
                                         runCatching { vm.api?.toggleBrain(b.slug) }
-                                            .onFailure { vm.error = it.message }
+                                            .onFailure { vm.actionFailed = it.message }
                                         vm.refresh()
                                     }
                                 }.tapTarget(),
@@ -1431,7 +1502,7 @@ private fun SystemScreen(
                         scope.launch {
                             curating = true
                             runCatching { vm.api?.runCuration() }
-                                .onFailure { vm.error = it.message }
+                                .onFailure { vm.actionFailed = it.message }
                             runCatching { vm.api?.storePressure() }.onSuccess { stores = it }
                             curating = false
                         }

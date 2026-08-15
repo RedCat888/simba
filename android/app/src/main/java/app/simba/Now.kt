@@ -110,14 +110,14 @@ fun NowScreen(
         onCloseAsk = { ask, action ->
             vm.viewModelScope.launch {
                 runCatching { vm.api?.decideRequest(ask.id, action) }
-                    .onFailure { vm.error = it.message }
+                    .onFailure { vm.actionFailed = it.message }
                 load()
             }
         },
         onResolveCapture = { capture, action ->
             vm.viewModelScope.launch {
                 runCatching { vm.api?.resolveCapture(capture.id, action) }
-                    .onFailure { vm.error = it.message }
+                    .onFailure { vm.actionFailed = it.message }
                 load()
             }
         },
@@ -125,7 +125,7 @@ fun NowScreen(
             busy = action.id
             vm.viewModelScope.launch {
                 runCatching { vm.api?.decideAction(action.id, approve) }
-                    .onFailure { vm.error = it.message }
+                    .onFailure { vm.actionFailed = it.message }
                 load()
                 busy = null
             }

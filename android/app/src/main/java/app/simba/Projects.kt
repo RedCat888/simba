@@ -56,7 +56,7 @@ fun ProjectsScreen(vm: SimbaVm) {
             onRescan = {
                 scanning = true
                 scope.launch {
-                    runCatching { vm.api?.scanProjects() }.onFailure { vm.error = it.message }
+                    runCatching { vm.api?.scanProjects() }.onFailure { vm.actionFailed = it.message }
                     load()
                     scanning = false
                 }

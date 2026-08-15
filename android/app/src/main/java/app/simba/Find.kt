@@ -66,7 +66,7 @@ fun FindScreen(
         searching = true
         runCatching { vm.api?.find(q.trim()) }
             .onSuccess { results = it ?: emptyList() }
-            .onFailure { vm.error = it.message }
+            .onFailure { vm.actionFailed = it.message }
         searching = false
     }
 
@@ -91,7 +91,7 @@ fun FindScreen(
                         "capture" -> vm.api?.resolveCapture(f.id, action)
                         else -> null
                     }
-                }.onFailure { vm.error = it.message }
+                }.onFailure { vm.actionFailed = it.message }
                 reload++
             }
         },

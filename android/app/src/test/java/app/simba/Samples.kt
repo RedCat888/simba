@@ -207,6 +207,21 @@ fun NowBusyFixture() {
             Brain(slug = "codex", status = "available", enabled = true),
             Brain(slug = "opencode", status = "available", enabled = true),
         ),
+        // Work that exists in exactly one place. Real, from the first scan:
+        // ReelAgent had just had a fortnight of durability work and no remote.
+        exposed = listOf(
+            Project(
+                id = "x1", slug = "reelagent", name = "Instagram intake (legacy)",
+                rootPath = "C:/workspace/ReelAgent", gitRemote = null,
+                branch = "master", unpushed = 2, atRisk = true,
+            ),
+            Project(
+                id = "x2", slug = "simba", name = "Simba itself",
+                rootPath = "C:/workspace/simba",
+                gitRemote = "https://github.com/PROJECT_OWNER/simba.git",
+                branch = "master", dirtyFiles = 5, unpushed = 6, atRisk = true,
+            ),
+        ),
         // Asked for and not done. The real one is first, at the age it actually
         // reached: attached as a note to a reel on 23 July, unfindable when he
         // asked for progress days later, and still open three weeks on. It is

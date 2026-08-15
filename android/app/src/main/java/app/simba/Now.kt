@@ -58,12 +58,14 @@ fun NowScreen(
     onOpenMission: (String) -> Unit,
     onOpenSession: (String, String) -> Unit,
     onOpenSystem: () -> Unit,
+    onOpenProjects: () -> Unit = {},
 ) {
     var pending by remember { mutableStateOf<List<PendingAction>>(emptyList()) }
     var memory by remember { mutableStateOf<List<MemorySample>>(emptyList()) }
     var events by remember { mutableStateOf<List<SystemEvent>>(emptyList()) }
     var captures by remember { mutableStateOf<List<Capture>>(emptyList()) }
     var asks by remember { mutableStateOf<List<Request>>(emptyList()) }
+    var exposed by remember { mutableStateOf<List<Project>>(emptyList()) }
     var busy by remember { mutableStateOf<String?>(null) }
 
     suspend fun load() {
@@ -73,6 +75,7 @@ fun NowScreen(
         runCatching { api.events() }.onSuccess { events = it }
         runCatching { api.captures() }.onSuccess { captures = it.filter { c -> c.status == "pending" } }
         runCatching { api.requests() }.onSuccess { asks = it.filter { r -> r.status == "open" } }
+        runCatching { api.projects() }.onSuccess { exposed = it.filter { p -> p.atRisk } }
     }
     LaunchedEffect(vm.api) { load() }
     // Slower than the session poll: these change on the scale of minutes, and a
@@ -97,11 +100,13 @@ fun NowScreen(
         events = events,
         captures = captures,
         asks = asks,
+        exposed = exposed,
         notSetUp = !vm.configured,
         busyAction = busy,
         onOpenMission = onOpenMission,
         onOpenSession = onOpenSession,
         onOpenSystem = onOpenSystem,
+        onOpenProjects = onOpenProjects,
         onCloseAsk = { ask, action ->
             vm.viewModelScope.launch {
                 runCatching { vm.api?.decideRequest(ask.id, action) }
@@ -170,6 +175,8 @@ fun NowBody(
     captures: List<Capture> = emptyList(),
     /** Asked for and not yet done — the only list here that ages badly. */
     asks: List<Request> = emptyList(),
+    /** Projects holding work that exists nowhere else. */
+    exposed: List<Project> = emptyList(),
     /** No Access credentials have ever been entered on this install. */
     notSetUp: Boolean = false,
     busyAction: String? = null,
@@ -179,6 +186,7 @@ fun NowBody(
     onDecide: (PendingAction, Boolean) -> Unit = { _, _ -> },
     onResolveCapture: (Capture, String) -> Unit = { _, _ -> },
     onCloseAsk: (Request, String) -> Unit = { _, _ -> },
+    onOpenProjects: () -> Unit = {},
 ) {
     if (notSetUp) {
         NotSetUp(onOpenSystem)
@@ -199,6 +207,28 @@ fun NowBody(
                     action = action,
                     busy = busyAction == action.id,
                     onDecide = { approve -> onDecide(action, approve) },
+                )
+            }
+        }
+
+        // Work that exists in exactly one place.
+        //
+        // One row, never a list: this is a standing condition rather than
+        // something that happened, and it does not need to compete with the
+        // things that do. It earns a place on this screen at all because it is
+        // the only kind of loss here that is silent and permanent — nothing
+        // fails, nothing is blocked, right up until the disk stops working.
+        if (exposed.isNotEmpty()) {
+            item {
+                val homeless = exposed.count { !it.hasRemote }
+                ItemRow(
+                    title = if (exposed.size == 1) "1 project holds work that's only here"
+                            else "${exposed.size} projects hold work that's only here",
+                    subtitle = exposed.take(3).joinToString(", ") { it.name } +
+                        if (exposed.size > 3) " and ${exposed.size - 3} more" else "",
+                    badge = if (homeless > 0) ItemMeta("$homeless with no remote", Tone.Bad)
+                            else ItemMeta("unpublished", Tone.Warn),
+                    onClick = onOpenProjects,
                 )
             }
         }

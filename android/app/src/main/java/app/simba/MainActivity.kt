@@ -119,6 +119,7 @@ private sealed interface Push {
     data object Agents : Push
     data object Knowledge : Push
     data object Reels : Push
+    data object Projects : Push
     data class ReelDetail(val id: String) : Push
 }
 
@@ -209,6 +210,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     Push.Agents -> AgentsScreen(vm) { sid, title -> openChat = sid to title }
                     Push.Knowledge -> KnowledgeScreen(vm)
                     Push.Reels -> ReelsScreen(vm) { push = Push.ReelDetail(it) }
+                    Push.Projects -> ProjectsScreen(vm)
                     is Push.ReelDetail -> ReelDetailScreen(vm, here.id) { push = Push.Reels }
                 }
 
@@ -220,6 +222,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                         onOpenMission = { push = Push.MissionDetail(it) },
                         onOpenSession = { id, title -> push = Push.SessionDetail(id, title) },
                         onOpenSystem = { dest = Destination.System },
+                        onOpenProjects = { push = Push.Projects },
                     )
                     Destination.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
                     Destination.Missions -> MissionsScreen(vm) { push = Push.MissionDetail(it) }
@@ -228,6 +231,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                         onOpenAgents = { push = Push.Agents },
                         onOpenKnowledge = { push = Push.Knowledge },
                         onOpenReels = { push = Push.Reels },
+                        onOpenProjects = { push = Push.Projects },
                     ) { url, token, clientId, clientSecret ->
                         scope.launch {
                             ctx.saveGateway(url, token, clientId, clientSecret)
@@ -1062,6 +1066,7 @@ private fun SystemScreen(
     onOpenAgents: () -> Unit = {},
     onOpenKnowledge: () -> Unit = {},
     onOpenReels: () -> Unit = {},
+    onOpenProjects: () -> Unit = {},
     save: (String, String, String, String) -> Unit,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -1167,6 +1172,11 @@ private fun SystemScreen(
             title = "Reels",
             subtitle = "Reels shared to Instagram, downloaded, transcribed and written up",
             onClick = onOpenReels,
+        )
+        ItemRow(
+            title = "Projects",
+            subtitle = "Everything on this machine, and which of it exists nowhere else",
+            onClick = onOpenProjects,
         )
 
         // The overlay is the one setting here that changes the app's behaviour

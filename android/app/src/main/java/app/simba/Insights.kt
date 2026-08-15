@@ -297,6 +297,58 @@ data class ReelDetail(
 )
 
 // ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+/**
+ * A project, and whether the work in it exists anywhere but here.
+ *
+ * The two numbers are the entire point. Everything a project inventory might
+ * record about what something *is* goes stale the week it is written; how much
+ * of it is unpublished does not, and is the only thing here that can cost you
+ * something. A repository with no remote at all is the sharpest case — its
+ * whole history is on one disk — which is why [hasRemote] is surfaced rather
+ * than left as a detail of the URL.
+ */
+@Serializable
+data class Project(
+    val id: String = "",
+    val slug: String = "",
+    /** The human name where one was given, not the directory name. */
+    val name: String = "",
+    val kind: String = "repo",
+    @SerialName("root_path") val rootPath: String? = null,
+    @SerialName("git_remote") val gitRemote: String? = null,
+    val branch: String? = null,
+    @SerialName("dirty_files") val dirtyFiles: Int = 0,
+    val unpushed: Int = 0,
+    @SerialName("last_commit_at") val lastCommitAt: String? = null,
+    @SerialName("last_scanned_at") val lastScannedAt: String? = null,
+    /**
+     * Set when a scan could not read the repository at all.
+     *
+     * Carried separately from the counts so "nothing at risk" and "could not
+     * tell" never render the same — the value of a zero is entirely in being
+     * able to trust it.
+     */
+    @SerialName("scan_error") val scanError: String? = null,
+    @SerialName("at_risk") val atRisk: Boolean = false,
+    /** The agent that owns this scope, if one does. */
+    val owner: String? = null,
+) {
+    val hasRemote: Boolean get() = !gitRemote.isNullOrBlank()
+
+    /** How much is here and nowhere else. Orders the list. */
+    val exposure: Int get() = dirtyFiles + unpushed
+}
+
+suspend fun SimbaApi.projects(): List<Project> = get("/api/projects")
+
+/** Walks the disk and runs git in every repo it finds — asked for, never automatic. */
+suspend fun SimbaApi.scanProjects(): String =
+    call(req("/api/projects/scan").post("{}".toRequestBody("application/json".toMediaType())).build())
+
+// ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
 

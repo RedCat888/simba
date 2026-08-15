@@ -2,6 +2,7 @@ import { query, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { releaseWorktree } from '../session/worktree.js';
+import { scanProjects } from '../inventory/scan.js';
 import { learn } from '../knowledge/learn.js';
 import { curate } from '../knowledge/curator.js';
 import { cheapComplete } from '../hydration/cheap.js';
@@ -29,6 +30,7 @@ import { saveHandoff } from '../tools/handoff.js';
 export class Supervisor {
   /** Curation is hourly; this is when it last ran. */
   private lastCurationAt = 0;
+  private lastProjectScan = 0;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private readonly router: Router;
@@ -103,6 +105,7 @@ export class Supervisor {
       await this.titleUntitledSessions();
       await this.reclaimCleanWorktrees();
       await this.harvestLessons();
+      await this.rescanProjects();
 
       // Curation is hourly, not per-tick. Neither store changes fast enough to
       // justify a model call every fifteen seconds, and consolidation is the
@@ -310,6 +313,38 @@ export class Supervisor {
    * ever reclaim directories with nothing in them. Sessions still live are
    * excluded before it is asked.
    */
+  /**
+   * Re-measure what every project is holding.
+   *
+   * Half-hourly, not per-tick: it walks the profile and runs several git
+   * commands per repository, which is far too much to do every fifteen seconds
+   * to learn that nothing changed. But it has to be automatic — an inventory
+   * that only refreshes when someone remembers to ask is one that is always
+   * stale at the moment it matters, and the whole point of it is to notice work
+   * sitting in one place *before* the disk it is sitting on stops working.
+   *
+   * Failure is swallowed to a log line. A scan that cannot read one repository
+   * must not take down the tick that also resumes limited brains and reclaims
+   * worktrees.
+   */
+  private async rescanProjects(): Promise<void> {
+    if (Date.now() - this.lastProjectScan < 30 * 60_000) return;
+    this.lastProjectScan = Date.now();
+    try {
+      const result = await scanProjects();
+      if (result.added > 0 || result.atRisk > 0) {
+        await recordEvent({
+          type: 'projects.scanned',
+          severity: 'debug',
+          message: `${result.scanned} projects, ${result.atRisk} holding work that exists in one place`,
+          data: result,
+        });
+      }
+    } catch (err) {
+      console.error('[supervisor] project scan failed', err);
+    }
+  }
+
   private async reclaimCleanWorktrees(): Promise<void> {
     const candidates = await query<{ id: string; worktree_path: string }>(
       `SELECT id, worktree_path FROM sessions

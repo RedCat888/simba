@@ -50,7 +50,7 @@
       --fg:#F2F0EA; --dim:#A9A69E; --faint:#7C7970;
       --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034;
       --ok:#5FAE83; --warn:#C99A3B; --err:#D97570; --info:#6BA3CC;
-      --ok-soft:#1F2E26; --warn-soft:#33291597; --err-soft:#33211F; --info-soft:#1E2A33;
+      --ok-soft:#1F2E26; --warn-soft:#332915; --err-soft:#33211F; --info-soft:#1E2A33;
       --shadow:0 1px 2px rgba(0,0,0,.28), 0 1px 3px rgba(0,0,0,.22);
     }
   }
@@ -169,10 +169,16 @@
   .thread{display:flex;flex-direction:column;height:100%;max-width:var(--read);margin:0 auto;width:100%}
   .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:10px}
   .msg{
-    border-radius:12px;padding:11px 14px;white-space:pre-wrap;word-break:break-word;
+    border-radius:12px;padding:11px 14px;white-space:pre-wrap;
     /* ch, not %. A percentage of the viewport is a phone measurement, and it is
        what made a two-word reply span an entire desktop window. */
     max-width:min(46rem,88%);font-size:14.5px;line-height:1.6;
+    /* overflow-wrap:anywhere, not word-break:break-word.
+       The latter is a deprecated alias that does not break an unbroken token,
+       and agent transcripts are full of them — file paths, uuids, stack frames.
+       The bubble stayed the right width while its text ran past the edge, so
+       the message column scrolled sideways with no element to blame for it. */
+    overflow-wrap:anywhere;
   }
   .msg.user{align-self:flex-end;background:var(--accent-soft);border:1px solid var(--accent-line)}
   .msg.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow)}
@@ -184,10 +190,39 @@
     display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
     color:var(--faint);font-weight:600;margin-bottom:5px;
   }
+  /* A tool call. One line, and it stays one line.
+     Dropped when this sheet was rewritten, so these fell back to unstyled and
+     set the message column scrolling sideways: the args are JSON full of
+     escaped Windows paths, which is exactly the string that never breaks. It is
+     a note about what the agent did, not something to read — truncate it. */
+  .tool{
+    align-self:flex-start;max-width:min(46rem,88%);
+    font-family:var(--mono);font-size:12px;color:var(--faint);
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:5px 10px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .tool.err{color:var(--err);background:var(--err-soft);border-color:transparent}
+
   .composer{display:flex;gap:9px;padding-top:12px;border-top:1px solid var(--line);align-items:flex-end}
   .composer textarea{resize:none;min-height:42px;max-height:180px}
 
   /* ── misc ───────────────────────────────────────────────────────────── */
+  /* The only way out of a detail view, and it had no rule at all — a bare span
+     that rendered as body text. Nothing said it was clickable except its
+     leading arrow. */
+  .back{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:13px;color:var(--dim);cursor:pointer;
+    padding:5px 10px 5px 8px;margin-bottom:12px;border-radius:8px;
+    border:1px solid transparent;user-select:none;
+  }
+  .back:hover{color:var(--fg);background:var(--panel2);border-color:var(--line)}
+
+  /* Debug lines are the bulk of the event log and the least interesting part
+     of it, so they recede rather than competing with warnings. */
+  .sev-debug{color:var(--faint)}
+
   .empty{
     color:var(--dim);text-align:center;padding:44px 20px;font-size:14px;
     max-width:52ch;margin:0 auto;
@@ -197,6 +232,18 @@
   .swap{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
   .sev-warn{color:var(--warn)} .sev-error{color:var(--err)} .sev-escalated{color:var(--err)}
   a{color:var(--accent);text-underline-offset:2px}
+
+  /* The two lines on the brief that are actually addressed to you. They were
+     set in the dimmest style on the screen, which is backwards: everything else
+     in that card is context for these. */
+  .needs,.stuck{
+    margin-top:11px;padding:9px 12px;border-radius:8px;font-size:13.5px;line-height:1.5;
+    display:flex;flex-direction:column;gap:2px;
+  }
+  .needs{background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .stuck{background:var(--warn-soft);color:var(--warn)}
+  .needs > span,.stuck > span{color:var(--fg);font-weight:400}
+  .needs{color:var(--accent)}
 
   /* Prose and search results read, so they get a measure. */
   .reading{max-width:var(--read);margin:0 auto}
@@ -215,7 +262,7 @@
 <body>
 
 <header>
-  <span class="brand">SIMBA</span>
+  <span class="brand">Simba</span>
   <div class="stats" id="stats"></div>
   <button class="danger" id="panic">Panic</button>
 </header>
@@ -260,10 +307,17 @@ const until = (t) => {
   if (s < 3600) return `${(s / 60) | 0}m`;
   return `${(s / 3600) | 0}h ${((s % 3600) / 60) | 0}m`;
 };
-const usd = (n) => '$' + Number(n || 0).toFixed(4);
+const usd = (n) => {
+  // Two decimals, and cents only when there are cents to show. Four decimals on
+  // every figure made a $25 budget read as $25.0000, which looks like a machine
+  // printing a float rather than a number a person set.
+  const v = Number(n || 0);
+  return '$' + (Number.isInteger(v) ? v.toFixed(0) : v.toFixed(2));
+};
 
 let tab = 'missions';
 let openSession = null;
+let sessionsExpanded = false;
 let live = { messages: [], sessionId: null };
 
 // ---------------------------------------------------------------------------
@@ -415,7 +469,17 @@ async function renderSessions() {
   const sessions = await api('/api/sessions');
   if (!sessions.length) { $('main').innerHTML = `<div class="empty">No sessions yet. Start an agent.</div>`; return; }
 
-  $('main').innerHTML = `<div class="grid">${sessions.map((s) => `
+  // Grouped, and the tail is folded away.
+  //
+  // This dumped all eighty-seven sessions as one flat grid, so the two that are
+  // actually running sat somewhere in the middle of eighty that finished weeks
+  // ago. The question this tab answers is "what is happening", and a list
+  // ordered only by time answers "what has ever happened" instead.
+  const live = sessions.filter((s) => ['running', 'idle', 'pending'].includes(s.status));
+  const rest = sessions.filter((s) => !['running', 'idle', 'pending'].includes(s.status));
+  const shown = sessionsExpanded ? rest : rest.slice(0, 12);
+
+  const card = (s) => `
     <div class="card" data-open="${s.id}" style="cursor:pointer">
       <div class="row">
         <h3>${esc(s.title ?? s.agent)}</h3>
@@ -424,16 +488,28 @@ async function renderSessions() {
       <div class="sub">${esc(s.description ?? s.cwd ?? '')}</div>
       <div class="meta">
         <span><b>${esc(s.agent)}</b></span>
-        <span>${esc(s.brain ?? '—')}</span>
+        ${s.brain ? `<span>${esc(s.brain)}</span>` : ''}
         ${s.swap_count > 0 ? `<span style="color:var(--accent)">⇄ ${s.swap_count} swap${s.swap_count > 1 ? 's' : ''}</span>` : ''}
         ${s.hydrated_from_session_id ? `<span style="color:var(--accent)">continued</span>` : ''}
         <span>${usd(s.total_cost_usd)}</span>
         <span>${ago(s.last_activity_at ?? s.created_at)}</span>
       </div>
-    </div>`).join('')}</div>`;
+    </div>`;
+
+  $('main').innerHTML = `
+    ${live.length
+      ? `<div class="sec">Live now<span>${live.length}</span></div><div class="grid">${live.map(card).join('')}</div>`
+      : `<div class="sec">Live now</div><div class="empty" style="padding:22px">Nothing running. Start an agent from Missions or Chat.</div>`}
+    <div class="sec">Finished<span>${rest.length} total</span></div>
+    <div class="grid">${shown.map(card).join('')}</div>
+    ${rest.length > shown.length
+      ? `<div style="text-align:center;margin-top:14px"><button id="moresess">Show all ${rest.length}</button></div>`
+      : ''}`;
 
   $('main').querySelectorAll('[data-open]').forEach((c) =>
     c.onclick = () => { openSession = c.dataset.open; render(); });
+  const more = $('moresess');
+  if (more) more.onclick = () => { sessionsExpanded = true; render(); };
 }
 
 async function renderThread() {
@@ -511,8 +587,8 @@ async function renderMissions() {
     <div class="card" style="margin-bottom:10px;border-color:${brief.needs_decision ? 'var(--accent)' : 'var(--line)'}">
       <div class="row"><h3>${esc(brief.headline)}</h3><span class="pill">${ago(brief.created_at)}</span></div>
       <div style="font-size:13px;color:var(--dim);margin-top:5px">${esc(brief.body)}</div>
-      ${brief.needs_decision ? `<div class="swap" style="margin-top:8px;text-align:left">Needs you: ${esc(brief.needs_decision)}</div>` : ''}
-      ${brief.stuck ? `<div style="margin-top:6px;font-size:12.5px;color:var(--warn)">Stuck: ${esc(brief.stuck)}</div>` : ''}
+      ${brief.needs_decision ? `<div class="needs">Needs you<span>${esc(brief.needs_decision)}</span></div>` : ''}
+      ${brief.stuck ? `<div class="stuck">Stuck<span>${esc(brief.stuck)}</span></div>` : ''}
     </div>` : '';
 
   $('main').innerHTML = `
@@ -527,7 +603,8 @@ async function renderMissions() {
       return `
       <div class="card" data-mission="${m.id}" style="cursor:pointer">
         <div class="row"><h3>${esc(m.title)}</h3><span class="pill ${m.status}">${esc(m.status)}</span></div>
-        <div class="sub">${m.current_step ? esc(m.current_step) : (m.blocked_reason ? esc(m.blocked_reason) : '—')}</div>
+        ${m.current_step ? `<div class="sub">${esc(m.current_step)}</div>`
+                          : m.blocked_reason ? `<div class="sub sev-warn">${esc(m.blocked_reason)}</div>` : ''}
         <div class="bar"><i style="width:${pct}%;background:${m.failed_steps ? 'var(--warn)' : 'var(--ok)'}"></i></div>
         <div class="meta">
           <span><b>${m.done_steps}/${m.total_steps}</b> steps</span>
@@ -935,7 +1012,7 @@ async function render() {
 document.querySelectorAll('nav button').forEach((b) =>
   b.onclick = () => {
     tab = b.dataset.tab;
-    if (tab !== 'sessions') openSession = null;
+    if (tab !== 'sessions') { openSession = null; sessionsExpanded = false; }
     if (tab !== 'missions') openMission = null;
     render();
   });

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "// note": "Attaches rather than launches. The gateway is already run by the SimbaGateway scheduled task through scripts/keepalive-gateway.ps1, and starting a second one would fight it for port 8787 — the keepalive explicitly backs off when something else holds the port.",
+      "name": "simba-gateway",
+      "url": "http://localhost:8787",
+      "port": 8787
+    }
+  ]
+}

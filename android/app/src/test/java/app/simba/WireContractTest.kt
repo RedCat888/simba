@@ -62,6 +62,46 @@ class WireContractTest {
         decodes<List<PendingAction>>("actions_pending")
         decodes<List<Capture>>("captures")
         decodes<ContextBudget>("context")
+
+        // The four added since this file was written. They were the only routes
+        // the app models and nothing pinned — which is the state every other
+        // entry here was in before it broke.
+        decodes<List<Request>>("requests")
+        decodes<List<Project>>("projects")
+        decodes<List<Found>>("find")
+        decodes<ReelFeed>("reels")
+    }
+
+    /**
+     * The find results really do span every kind, so the flat model has to hold.
+     *
+     * A fixture that happened to contain only requests would decode perfectly
+     * and prove nothing about the union — and the union is the entire design of
+     * that endpoint, since the point is not having to know what you are looking
+     * for before you look.
+     */
+    @Test
+    fun `find returns more than one kind of thing`() {
+        val kinds = decodes<List<Found>>("find").map { it.kind }.toSet()
+        assertTrue("fixture only contains $kinds — recapture it against real data", kinds.size > 1)
+    }
+
+    /**
+     * A project with no remote decodes as having no remote.
+     *
+     * This is the one field on that screen with a consequence: it is the
+     * difference between "unpushed" and "these commits exist nowhere else", and
+     * an empty string arriving where null was expected would quietly turn the
+     * second into the first.
+     */
+    @Test
+    fun `a missing git remote is falsey, not an empty string that reads as present`() {
+        val projects = decodes<List<Project>>("projects")
+        assertTrue("no project in the fixture lacks a remote", projects.any { !it.hasRemote })
+        assertTrue(
+            "hasRemote is true for a project whose remote is blank",
+            projects.none { it.hasRemote && it.gitRemote.isNullOrBlank() },
+        )
     }
 
     @Test

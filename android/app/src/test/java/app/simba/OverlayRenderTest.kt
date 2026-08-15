@@ -101,7 +101,7 @@ class OverlayRenderTest(
                 Bubble(NEEDS_YOU, true, {}, { _, _ -> }, {}, {})
             }),
             arrayOf<Any>("expanded-idle", @Composable {
-                Bubble(OverlayState(reachable = true, working = 3), true, {}, { _, _ -> }, {}, {})
+                Bubble(OverlayState(reachable = true, working = 3, exposed = 5), true, {}, { _, _ -> }, {}, {})
             }),
             arrayOf<Any>("expanded-offline", @Composable {
                 Bubble(OverlayState(reachable = false), true, {}, { _, _ -> }, {}, {})

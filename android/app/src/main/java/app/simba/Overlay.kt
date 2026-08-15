@@ -252,11 +252,16 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
             } else {
                 val pending = runCatching { api.pendingActions() }
                 val sessions = runCatching { api.sessions() }
+                // Failure here is not failure of the poll: the inventory is the
+                // least urgent thing on this surface, and losing it must not
+                // cost the approvals it sits beside.
+                val exposed = runCatching { api.projects() }.getOrNull()?.count { it.atRisk } ?: 0
                 state = if (pending.isSuccess && sessions.isSuccess) {
                     OverlayState(
                         reachable = true,
                         pending = pending.getOrDefault(emptyList()),
                         working = sessions.getOrDefault(emptyList()).count { it.status == "running" },
+                        exposed = exposed,
                     )
                 } else {
                     // The gateway is a home PC behind a tunnel; unreachable is a
@@ -357,6 +362,15 @@ data class OverlayState(
     val pending: List<PendingAction> = emptyList(),
     val working: Int = 0,
     val captured: Int = 0,
+    /**
+     * Projects holding work that exists nowhere else.
+     *
+     * Reported but deliberately never colours the dot. It is a standing
+     * condition, not an interruption — it has usually been true for days and
+     * will still be true tomorrow — and a bubble that is red for something you
+     * cannot act on in the next ten seconds is a bubble that gets turned off.
+     */
+    val exposed: Int = 0,
 )
 
 // ---------------------------------------------------------------------------
@@ -416,6 +430,19 @@ fun Bubble(
                     color = Dim,
                     style = type.bodySmall,
                     modifier = Modifier.padding(horizontal = space.gutter, vertical = space.snug),
+                )
+            }
+
+            // Last, quiet, and never in the dot's colour. This has usually been
+            // true for days and will still be true tomorrow — it belongs here so
+            // it is seen eventually, not so it interrupts.
+            if (state.exposed > 0 && state.reachable) {
+                Text(
+                    if (state.exposed == 1) "1 project holds work that's only on the PC"
+                    else "${state.exposed} projects hold work that's only on the PC",
+                    color = Faint,
+                    style = type.caption,
+                    modifier = Modifier.padding(horizontal = space.gutter, vertical = space.tight),
                 )
             }
         }

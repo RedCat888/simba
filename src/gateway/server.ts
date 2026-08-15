@@ -13,6 +13,7 @@ import { askDecisions } from '../knowledge/decisions.js';
 import { verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
+import { scanProjects } from '../inventory/scan.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -916,6 +917,45 @@ app.post('/api/captures/:id/:action', async (c) => {
     [c.req.param('id'), status],
   );
   return c.json({ ok: true, status });
+});
+
+// ---------------------------------------------------------------------------
+// Projects — what exists on this machine, ordered by what is at risk
+// ---------------------------------------------------------------------------
+
+app.get('/api/projects', async (c) => {
+  // Ordered by exposure, not by name. A list of forty repositories alphabetised
+  // is a list nobody opens twice; the same list with the three holding
+  // unpublished work at the top is worth checking.
+  const rows = await query(
+    `SELECT p.id, p.slug, p.name, p.kind, p.root_path, p.git_remote, p.branch,
+            p.dirty_files, p.unpushed, p.last_commit_at, p.last_scanned_at,
+            p.scan_error, p.archived,
+            (p.dirty_files > 0 OR p.unpushed > 0) AS at_risk,
+            a.slug AS owner
+       FROM projects p
+       LEFT JOIN agents a ON a.project_id = p.id
+      WHERE NOT p.archived
+      ORDER BY (p.dirty_files + p.unpushed) DESC, p.last_commit_at DESC NULLS LAST
+      LIMIT 200`,
+  );
+  return c.json(rows);
+});
+
+/**
+ * Rescan now.
+ *
+ * A POST because it walks the disk and runs git in every repository it finds —
+ * cheap enough to ask for, too expensive to do on every page load.
+ */
+app.post('/api/projects/scan', async (c) => {
+  const result = await scanProjects();
+  await recordEvent({
+    type: 'projects.scanned',
+    message: `${result.scanned} projects, ${result.atRisk} holding unpublished work`,
+    data: result,
+  });
+  return c.json(result);
 });
 
 // ---------------------------------------------------------------------------

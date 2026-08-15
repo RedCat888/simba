@@ -70,12 +70,28 @@ while ($true) {
     Write-Log "starting gateway"
     $started = Get-Date
     # npx on Windows is a shim script, so it goes through cmd rather than being
-    # executed directly. -Wait makes this loop the supervisor.
+    # executed directly.
     $p = Start-Process -FilePath 'cmd.exe' `
                        -ArgumentList '/c', "npx tsx src/gateway/server.ts" `
-                       -WorkingDirectory $root -WindowStyle Hidden -PassThru -Wait
+                       -WorkingDirectory $root -WindowStyle Hidden -PassThru
+
+    # Polled rather than -Wait, and this is not a style choice.
+    #
+    # With -Wait this script died alongside the gateway it was supervising:
+    # force-killing the child took the supervisor with it and the task ended
+    # 0xC000013A, which is the exact failure mode the keepalive exists to
+    # prevent, reproduced one level up. A supervisor that only survives its
+    # child's *graceful* exits is no supervisor at all, because graceful exits
+    # were never the problem.
+    while ($true) {
+        Start-Sleep -Seconds 5
+        $alive = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
+        if (-not $alive) { break }
+    }
+    $exit = try { $p.ExitCode } catch { $null }
     $ran = [int]((Get-Date) - $started).TotalSeconds
-    Write-Log "gateway exited after ${ran}s with 0x$('{0:X}' -f $p.ExitCode)"
+    Write-Log ("gateway exited after {0}s with {1}" -f $ran,
+               $(if ($null -ne $exit) { "0x$('{0:X}' -f $exit)" } else { 'unknown' }))
 
     # A process that survived a while was working; restart it promptly. One that
     # dies immediately is failing for a reason restarting will not fix, so back

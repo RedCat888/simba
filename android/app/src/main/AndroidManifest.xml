@@ -6,6 +6,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
+    <!--
+      The floating bubble. Drawing over other apps is granted only from the
+      Settings screen and never by a dialog, which is correct for a permission
+      this strong — so the app has to send you there and wait.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
     <application
         android:name=".SimbaApp"
         android:allowBackup="false"
@@ -58,6 +66,21 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!--
+          Simba over every other app: what is blocked, what is running, and a
+          box to throw a link into. `specialUse` because none of the catalogued
+          service types describe an always-available overlay, and stopSelf is
+          wired to the notification so it is always one tap to kill.
+        -->
+        <service
+            android:name=".OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent floating control for the owner's own agent system" />
+        </service>
 
     </application>
 </manifest>

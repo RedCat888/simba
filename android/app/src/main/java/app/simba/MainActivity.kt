@@ -1169,6 +1169,36 @@ private fun SystemScreen(
             onClick = onOpenReels,
         )
 
+        // The overlay is the one setting here that changes the app's behaviour
+        // outside the app, so it says what it will do rather than just naming
+        // itself — and it reads its real state each time this screen composes,
+        // because the permission can be revoked from Settings without the app
+        // ever being told.
+        var overlayOn by remember { mutableStateOf(OverlayService.running(ctx)) }
+        val overlayAllowed = OverlayService.permitted(ctx)
+        ItemRow(
+            title = "Floating bubble",
+            subtitle = when {
+                !overlayAllowed -> "Needs permission to draw over other apps — opens Settings"
+                overlayOn -> "Approvals and capture, over whatever you're doing"
+                else -> "Show approvals and capture over other apps"
+            },
+            badge = when {
+                !overlayAllowed -> ItemMeta("permission", Tone.Warn)
+                overlayOn -> ItemMeta("on", Tone.Good)
+                else -> null
+            },
+            onClick = {
+                if (!overlayAllowed) {
+                    ctx.startActivity(OverlayService.permissionIntent(ctx))
+                } else if (overlayOn) {
+                    OverlayService.stop(ctx); overlayOn = false
+                } else {
+                    OverlayService.start(ctx); overlayOn = true
+                }
+            },
+        )
+
         SectionHeading("Design") { Meta(BuildConfig.BUILD_STAMP, Accent) }
 
         // The picker is the one place the three designs are described rather

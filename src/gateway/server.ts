@@ -919,6 +919,86 @@ app.post('/api/captures/:id/:action', async (c) => {
   return c.json({ ok: true, status });
 });
 
+/**
+ * One box that finds anything operational.
+ *
+ * atlas — the control centre the operator built before Simba — had a command palette,
+ * and it is the piece of that brief Simba was furthest from. There were two
+ * searches here and they could not see each other: semantic recall over the
+ * personal corpus, and trigram matching over requests, reachable only by curl.
+ * Projects, sessions, missions and captures had none at all. So "that thing
+ * about the forecasting model" had four possible homes and no way to ask.
+ *
+ * Knowledge is deliberately not included. That search embeds the query before
+ * it can run, which is the right cost for "ask my own history a question" and
+ * the wrong one for a box that should answer while you are still typing. It
+ * keeps its own screen; this one stays SQL and stays instant.
+ *
+ * Everything here matches on words a person would actually remember — the
+ * verbatim ask, the title, the file path — and never on an id.
+ */
+app.get('/api/find', async (c) => {
+  const q = (c.req.query('q') ?? '').trim();
+  if (q.length < 2) return c.json([]);
+
+  // UNION ALL rather than several round trips: the phone is on a tunnel, and
+  // five sequential queries is five times the latency for one keystroke.
+  //
+  // `open` orders before `score` on purpose. Something still outstanding is
+  // almost always what is being looked for, even when a finished thing matches
+  // the words better — the question is nearly always "what happened to X".
+  const rows = await query(
+    `WITH hits AS (
+       SELECT 'request' AS kind, r.id::text, r.ask AS title,
+              coalesce(r.outcome, r.source) AS subtitle, r.status,
+              r.created_at AS when_at,
+              (r.status = 'open') AS live,
+              similarity(r.ask, $1) AS score
+         FROM requests r
+        WHERE r.ask ILIKE '%' || $1 || '%' OR similarity(r.ask, $1) > 0.15
+
+       UNION ALL
+       SELECT 'capture', c.id::text, coalesce(c.title, left(c.content, 120)),
+              coalesce(c.summary, c.url, c.source), c.status, c.created_at,
+              (c.status = 'pending'),
+              greatest(similarity(coalesce(c.title, ''), $1), similarity(left(c.content, 200), $1))
+         FROM captures c
+        WHERE c.content ILIKE '%' || $1 || '%' OR c.title ILIKE '%' || $1 || '%'
+           OR c.url ILIKE '%' || $1 || '%'
+
+       UNION ALL
+       SELECT 'project', p.id::text, p.name, p.root_path, p.kind, p.last_commit_at,
+              (p.dirty_files > 0 OR p.unpushed > 0),
+              greatest(similarity(p.name, $1), similarity(coalesce(p.root_path, ''), $1))
+         FROM projects p
+        WHERE NOT p.archived
+          AND (p.name ILIKE '%' || $1 || '%' OR p.root_path ILIKE '%' || $1 || '%'
+               OR p.slug ILIKE '%' || $1 || '%')
+
+       UNION ALL
+       SELECT 'session', s.id::text, coalesce(s.title, '(untitled session)'),
+              a.slug, s.status, s.started_at,
+              (s.status IN ('running', 'idle')),
+              similarity(coalesce(s.title, ''), $1)
+         FROM sessions s JOIN agents a ON a.id = s.agent_id
+        WHERE s.title ILIKE '%' || $1 || '%'
+
+       UNION ALL
+       SELECT 'mission', m.id::text, m.title, coalesce(m.objective, m.slug), m.status,
+              m.created_at,
+              (m.status IN ('running', 'blocked', 'pending')),
+              greatest(similarity(m.title, $1), similarity(coalesce(m.objective, ''), $1))
+         FROM missions m
+        WHERE m.title ILIKE '%' || $1 || '%' OR m.objective ILIKE '%' || $1 || '%'
+     )
+     SELECT * FROM hits
+      ORDER BY live DESC, score DESC NULLS LAST, when_at DESC NULLS LAST
+      LIMIT 40`,
+    [q],
+  );
+  return c.json(rows);
+});
+
 // ---------------------------------------------------------------------------
 // Projects — what exists on this machine, ordered by what is at risk
 // ---------------------------------------------------------------------------

@@ -120,6 +120,7 @@ private sealed interface Push {
     data object Knowledge : Push
     data object Reels : Push
     data object Projects : Push
+    data object Find : Push
     data class ReelDetail(val id: String) : Push
 }
 
@@ -211,6 +212,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     Push.Knowledge -> KnowledgeScreen(vm)
                     Push.Reels -> ReelsScreen(vm) { push = Push.ReelDetail(it) }
                     Push.Projects -> ProjectsScreen(vm)
+                    Push.Find -> FindScreen(vm)
                     is Push.ReelDetail -> ReelDetailScreen(vm, here.id) { push = Push.Reels }
                 }
 
@@ -229,6 +231,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                     Destination.System -> SystemScreen(
                         vm,
                         onOpenAgents = { push = Push.Agents },
+                        onOpenFind = { push = Push.Find },
                         onOpenKnowledge = { push = Push.Knowledge },
                         onOpenReels = { push = Push.Reels },
                         onOpenProjects = { push = Push.Projects },
@@ -1067,6 +1070,7 @@ private fun SystemScreen(
     onOpenKnowledge: () -> Unit = {},
     onOpenReels: () -> Unit = {},
     onOpenProjects: () -> Unit = {},
+    onOpenFind: () -> Unit = {},
     save: (String, String, String, String) -> Unit,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -1153,6 +1157,11 @@ private fun SystemScreen(
         // curation. They are still one tap away, and stating what is inside
         // them is what stops "System" becoming the drawer everything fell into.
         SectionHeading("Manage")
+        ItemRow(
+            title = "Find",
+            subtitle = "One box over requests, captures, projects, sessions and missions",
+            onClick = onOpenFind,
+        )
         ItemRow(
             title = "Agents",
             subtitle = "Who can run, what tier they think at, and what they have cost",

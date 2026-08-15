@@ -297,6 +297,41 @@ data class ReelDetail(
 )
 
 // ---------------------------------------------------------------------------
+// Find
+// ---------------------------------------------------------------------------
+
+/**
+ * One result from the one box.
+ *
+ * Deliberately flat and untyped-by-kind: the whole value of a command palette is
+ * that you do not have to know which of five things you are looking for before
+ * you start typing. Modelling five result shapes would push that decision back
+ * onto the caller and undo the point.
+ */
+@Serializable
+data class Found(
+    /** request | capture | project | session | mission */
+    val kind: String = "",
+    val id: String = "",
+    val title: String = "",
+    val subtitle: String? = null,
+    val status: String? = null,
+    @SerialName("when_at") val whenAt: String? = null,
+    /**
+     * Still outstanding — open, running, pending, or holding unpublished work.
+     *
+     * Sorts above a better textual match on purpose: the question behind a
+     * search here is nearly always "what happened to X", and a finished thing
+     * that matches the words more closely is rarely the answer.
+     */
+    val live: Boolean = false,
+    val score: Double? = null,
+)
+
+suspend fun SimbaApi.find(q: String): List<Found> =
+    get("/api/find?q=" + java.net.URLEncoder.encode(q, "UTF-8"))
+
+// ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
 

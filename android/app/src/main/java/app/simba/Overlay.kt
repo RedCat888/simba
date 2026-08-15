@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -279,13 +280,28 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
     private fun decide(id: String, approve: Boolean) = scope.launch {
         val api = applicationContext.api()
         runCatching { api.decideAction(id, approve) }
-            .onSuccess { state = state.copy(pending = state.pending.filterNot { it.id == id }) }
+            .onSuccess { state = state.copy(pending = state.pending.filterNot { it.id == id }, notice = null) }
+            // Previously this dropped the failure entirely, so a declined
+            // approval that never reached the PC left the row sitting there
+            // with nothing to say why tapping it did nothing. The row staying
+            // is right; saying nothing about it is not.
+            .onFailure { state = state.copy(notice = shortReason(it)) }
     }
 
-    private fun capture(text: String) = scope.launch {
-        val api = applicationContext.api()
-        runCatching { api.capture(text, "overlay") }
-            .onSuccess { state = state.copy(captured = state.captured + 1) }
+    /** Returns whether it actually landed, because the caller clears the box on it. */
+    private suspend fun capture(text: String): Boolean {
+        val api = runCatching { applicationContext.api() }.getOrNull() ?: return false
+        return runCatching { api.capture(text, "overlay") }
+            .onSuccess { state = state.copy(captured = state.captured + 1, notice = null) }
+            .onFailure { state = state.copy(notice = shortReason(it)) }
+            .isSuccess
+    }
+
+    /** A phone-sized reason. Stack traces are not an answer on a 300dp panel. */
+    private fun shortReason(e: Throwable): String = when {
+        e is SimbaApi.ApiException && e.isAuthFailure -> "Not authorised — check Access credentials"
+        e is SimbaApi.ApiException -> e.message?.take(80) ?: "Rejected by the PC"
+        else -> "Couldn't reach the PC"
     }
 
     private fun openApp() {
@@ -371,6 +387,14 @@ data class OverlayState(
      * cannot act on in the next ten seconds is a bubble that gets turned off.
      */
     val exposed: Int = 0,
+    /**
+     * The last thing that went wrong, in words.
+     *
+     * Cleared by the next success. Without it this panel had exactly one way to
+     * report a failure — doing nothing — which is indistinguishable from a tap
+     * that missed, on a surface small enough that missing is likely.
+     */
+    val notice: String? = null,
 )
 
 // ---------------------------------------------------------------------------
@@ -383,7 +407,7 @@ fun Bubble(
     expanded: Boolean,
     onToggle: () -> Unit,
     onDecide: (String, Boolean) -> Unit,
-    onCapture: (String) -> Unit,
+    onCapture: suspend (String) -> Boolean,
     onOpenApp: () -> Unit,
 ) {
     if (!expanded) {
@@ -445,6 +469,17 @@ fun Bubble(
                     modifier = Modifier.padding(horizontal = space.gutter, vertical = space.tight),
                 )
             }
+        }
+
+        // Above the capture box, because the most likely thing it explains is
+        // why the capture box did not clear.
+        state.notice?.let {
+            Text(
+                it,
+                color = Err,
+                style = type.caption,
+                modifier = Modifier.padding(horizontal = space.gutter, vertical = space.tight),
+            )
         }
 
         QuickCapture(onCapture)
@@ -547,9 +582,11 @@ private fun Approval(action: PendingAction, onDecide: (String, Boolean) -> Unit)
 }
 
 @Composable
-private fun QuickCapture(onCapture: (String) -> Unit) {
+private fun QuickCapture(onCapture: suspend (String) -> Boolean) {
     var text by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(sent) {
         if (sent) { delay(1400); sent = false }
@@ -568,9 +605,10 @@ private fun QuickCapture(onCapture: (String) -> Unit) {
                 .background(Inset)
                 .padding(horizontal = space.base, vertical = space.snug),
         ) {
-            if (text.isEmpty() && !sent) {
+            if (text.isEmpty() && !sent && !sending) {
                 Text("Capture a link or a thought", color = Faint, style = type.bodySmall)
             }
+            if (sending) Text("Sending…", color = Dim, style = type.bodySmall)
             if (sent) Text("Captured", color = Ok, style = type.bodySmall)
             BasicTextField(
                 value = text,
@@ -581,12 +619,26 @@ private fun QuickCapture(onCapture: (String) -> Unit) {
             )
         }
         Text(
-            "Send",
-            color = if (text.isBlank()) Faint else Accent,
+            if (sending) "…" else "Send",
+            color = if (text.isBlank() || sending) Faint else Accent,
             style = type.label,
             modifier = Modifier
-                .clickable(enabled = text.isNotBlank()) {
-                    onCapture(text.trim()); text = ""; sent = true
+                .clickable(enabled = text.isNotBlank() && !sending) {
+                    // The box clears only once the PC has actually taken it.
+                    //
+                    // It used to clear and say "Captured" the instant you tapped,
+                    // before the request had even been made — so with the PC
+                    // asleep the thought was erased and you were told it was
+                    // saved. On a surface whose whole promise is "throw it here
+                    // and stop thinking about it", that is the one bug that
+                    // makes the surface worse than not having it.
+                    val pending = text.trim()
+                    sending = true
+                    scope.launch {
+                        val ok = onCapture(pending)
+                        sending = false
+                        if (ok) { text = ""; sent = true }
+                    }
                 }
                 .tapTarget()
                 .padding(start = space.base),

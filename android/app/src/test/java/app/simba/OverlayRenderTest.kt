@@ -92,19 +92,31 @@ class OverlayRenderTest(
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
         fun cases(): List<Array<Any>> = listOf(
             arrayOf<Any>("collapsed-idle", @Composable {
-                Bubble(OverlayState(reachable = true), false, {}, { _, _ -> }, {}, {})
+                Bubble(OverlayState(reachable = true), false, {}, { _, _ -> }, { true }, {})
             }),
             arrayOf<Any>("collapsed-needsyou", @Composable {
-                Bubble(NEEDS_YOU, false, {}, { _, _ -> }, {}, {})
+                Bubble(NEEDS_YOU, false, {}, { _, _ -> }, { true }, {})
             }),
             arrayOf<Any>("expanded-needsyou", @Composable {
-                Bubble(NEEDS_YOU, true, {}, { _, _ -> }, {}, {})
+                Bubble(NEEDS_YOU, true, {}, { _, _ -> }, { true }, {})
             }),
             arrayOf<Any>("expanded-idle", @Composable {
-                Bubble(OverlayState(reachable = true, working = 3, exposed = 5), true, {}, { _, _ -> }, {}, {})
+                Bubble(OverlayState(reachable = true, working = 3, exposed = 5), true, {}, { _, _ -> }, { true }, {})
             }),
             arrayOf<Any>("expanded-offline", @Composable {
-                Bubble(OverlayState(reachable = false), true, {}, { _, _ -> }, {}, {})
+                Bubble(OverlayState(reachable = false), true, {}, { _, _ -> }, { true }, {})
+            }),
+            // The state that used to be unrepresentable: something was tried
+            // and did not work. Before this the panel's only way to report a
+            // failure was to do nothing.
+            arrayOf<Any>("expanded-failed", @Composable {
+                Bubble(
+                    OverlayState(
+                        reachable = true, working = 1,
+                        notice = "Not authorised — check Access credentials",
+                    ),
+                    true, {}, { _, _ -> }, { false }, {},
+                )
             }),
         )
     }

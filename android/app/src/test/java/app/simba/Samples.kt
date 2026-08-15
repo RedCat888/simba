@@ -207,6 +207,25 @@ fun NowBusyFixture() {
             Brain(slug = "codex", status = "available", enabled = true),
             Brain(slug = "opencode", status = "available", enabled = true),
         ),
+        // Asked for and not done. The real one is first, at the age it actually
+        // reached: attached as a note to a reel on 23 July, unfindable when he
+        // asked for progress days later, and still open three weeks on. It is
+        // here as a fixture because it is the case the section exists for — a
+        // promise old enough that nothing but the screen will remember it.
+        asks = listOf(
+            Request(
+                id = "r1", source = "reel:instagram", status = "open",
+                ask = "can you download and setup the project or code that lets wifi thru walls " +
+                    "work that would be cool",
+                captureUrl = "https://www.instagram.com/p/DbDnA_8kcjW/",
+                createdAt = "2026-07-23T05:41:00Z",
+            ),
+            Request(
+                id = "r2", source = "share", status = "open",
+                ask = "remind me to look at the kronos forecasting model after exams",
+                createdAt = "2026-08-11T19:04:00Z",
+            ),
+        ),
         // Shared in from other apps and not yet triaged. The share sheet has
         // worked since the beginning and what it produced had no surface.
         captures = listOf(

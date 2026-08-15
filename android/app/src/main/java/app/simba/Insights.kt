@@ -296,6 +296,41 @@ data class ReelDetail(
     val comments: String? = null,
 )
 
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+
+/**
+ * Something the operator asked for, kept until it is actually done.
+ *
+ * The distinction from a [Capture] is the one that went missing: a capture is
+ * "this arrived" and is finished when it has been read; a request is "you said
+ * you'd do this" and is finished when the thing exists. He attached "can you
+ * download and setup the project that lets wifi thru walls work" to a reel, the
+ * reel was processed and marked done, and the ask went with it — so when he
+ * asked for progress days later he was told no such project was tracked.
+ */
+@Serializable
+data class Request(
+    val id: String = "",
+    /** Verbatim, never a summary — he searches for it in his own words. */
+    val ask: String = "",
+    val source: String = "",
+    /** open | done | dropped */
+    val status: String = "open",
+    val outcome: String? = null,
+    @SerialName("capture_url") val captureUrl: String? = null,
+    val agent: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("closed_at") val closedAt: String? = null,
+)
+
+suspend fun SimbaApi.requests(): List<Request> = get("/api/requests")
+
+/** [action] is one of done, drop, reopen. */
+suspend fun SimbaApi.decideRequest(id: String, action: String): String =
+    call(req("/api/requests/$id/$action").post("{}".toRequestBody("application/json".toMediaType())).build())
+
 suspend fun SimbaApi.reels(): ReelFeed = get("/api/reels")
 
 suspend fun SimbaApi.reel(id: String): ReelDetail = get("/api/reels/$id")

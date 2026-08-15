@@ -63,6 +63,7 @@ fun NowScreen(
     var memory by remember { mutableStateOf<List<MemorySample>>(emptyList()) }
     var events by remember { mutableStateOf<List<SystemEvent>>(emptyList()) }
     var captures by remember { mutableStateOf<List<Capture>>(emptyList()) }
+    var asks by remember { mutableStateOf<List<Request>>(emptyList()) }
     var busy by remember { mutableStateOf<String?>(null) }
 
     suspend fun load() {
@@ -71,6 +72,7 @@ fun NowScreen(
         runCatching { api.memory(hours = 12) }.onSuccess { memory = it }
         runCatching { api.events() }.onSuccess { events = it }
         runCatching { api.captures() }.onSuccess { captures = it.filter { c -> c.status == "pending" } }
+        runCatching { api.requests() }.onSuccess { asks = it.filter { r -> r.status == "open" } }
     }
     LaunchedEffect(vm.api) { load() }
     // Slower than the session poll: these change on the scale of minutes, and a
@@ -94,11 +96,19 @@ fun NowScreen(
         brains = vm.brains,
         events = events,
         captures = captures,
+        asks = asks,
         notSetUp = !vm.configured,
         busyAction = busy,
         onOpenMission = onOpenMission,
         onOpenSession = onOpenSession,
         onOpenSystem = onOpenSystem,
+        onCloseAsk = { ask, action ->
+            vm.viewModelScope.launch {
+                runCatching { vm.api?.decideRequest(ask.id, action) }
+                    .onFailure { vm.error = it.message }
+                load()
+            }
+        },
         onResolveCapture = { capture, action ->
             vm.viewModelScope.launch {
                 runCatching { vm.api?.resolveCapture(capture.id, action) }
@@ -116,6 +126,22 @@ fun NowScreen(
             }
         },
     )
+}
+
+/**
+ * How much an unanswered ask should worry you.
+ *
+ * The only list on this screen where age is the signal rather than noise.
+ * Everything else here is recent by construction — a running session, a fresh
+ * capture — but an ask is a promise, and one made three weeks ago and never
+ * kept is the single most useful thing this screen can point at. The thresholds
+ * are deliberately forgiving: a day is nothing, a week is a nudge, a fortnight
+ * means it is not going to happen unless something changes.
+ */
+fun staleness(iso: String): Tone = when (minutesSince(iso)) {
+    in 0..(60 * 24 * 7) -> Tone.Neutral
+    in (60 * 24 * 7 + 1)..(60 * 24 * 14) -> Tone.Warn
+    else -> Tone.Bad
 }
 
 /**
@@ -142,6 +168,8 @@ fun NowBody(
     events: List<SystemEvent>,
     /** Shared into Simba from another app and not yet triaged. */
     captures: List<Capture> = emptyList(),
+    /** Asked for and not yet done — the only list here that ages badly. */
+    asks: List<Request> = emptyList(),
     /** No Access credentials have ever been entered on this install. */
     notSetUp: Boolean = false,
     busyAction: String? = null,
@@ -150,6 +178,7 @@ fun NowBody(
     onOpenSystem: () -> Unit = {},
     onDecide: (PendingAction, Boolean) -> Unit = { _, _ -> },
     onResolveCapture: (Capture, String) -> Unit = { _, _ -> },
+    onCloseAsk: (Request, String) -> Unit = { _, _ -> },
 ) {
     if (notSetUp) {
         NotSetUp(onOpenSystem)
@@ -170,6 +199,50 @@ fun NowBody(
                     action = action,
                     busy = busyAction == action.id,
                     onDecide = { approve -> onDecide(action, approve) },
+                )
+            }
+        }
+
+        // Things he asked for that haven't happened.
+        //
+        // Above captures deliberately: a capture is something that arrived and
+        // is finished once it has been read, but an open ask is something he
+        // was promised. It is the only list here that gets more important the
+        // older it gets, so the oldest sit at the top and carry their age.
+        if (asks.isNotEmpty()) {
+            item {
+                SectionHeading("You asked for") {
+                    Text("${asks.size} open", style = type.caption, color = Faint)
+                }
+            }
+            items(asks, key = { it.id }) { ask ->
+                ItemRow(
+                    // Verbatim and unabbreviated: he searches for these in his
+                    // own words, and a tidied version is one he cannot find.
+                    title = ask.ask,
+                    meta = buildList {
+                        add(ItemMeta(ask.source))
+                        ask.createdAt?.let { add(ItemMeta(ago(it), staleness(it))) }
+                    },
+                    expanded = {
+                        ask.captureUrl?.let {
+                            Text(it, color = Dim, style = type.caption, modifier = Modifier.padding(bottom = space.snug))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(space.gutter)) {
+                            Text(
+                                "Done",
+                                color = Ok,
+                                style = type.label,
+                                modifier = Modifier.clickable { onCloseAsk(ask, "done") }.tapTarget(),
+                            )
+                            Text(
+                                "Never mind",
+                                color = Dim,
+                                style = type.label,
+                                modifier = Modifier.clickable { onCloseAsk(ask, "drop") }.tapTarget(),
+                            )
+                        }
+                    },
                 )
             }
         }

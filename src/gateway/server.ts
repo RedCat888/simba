@@ -919,6 +919,100 @@ app.post('/api/captures/:id/:action', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Requests — things the operator asked for, kept until they are answered
+//
+// The gap these close: he attached "can you download and setup the project that
+// lets wifi thru walls work" to a reel, and days later asked an agent to check
+// progress on it. The agent searched everywhere it knew and reported that no
+// such project existed in his tracked work. The ask had been stored as a string
+// in a meta.json next to a video — a property of the reel rather than a thing
+// he was owed — so nothing could find it and nothing was keeping it open.
+// ---------------------------------------------------------------------------
+
+app.get('/api/requests', async (c) => {
+  // Open first and oldest first within that: a three-week-old ask is the one
+  // worth surfacing, and burying it under this morning's is how it stays lost.
+  const rows = await query(
+    `SELECT r.id, r.ask, r.source, r.status, r.outcome, r.created_at, r.closed_at,
+            r.capture_id, c.url AS capture_url, a.slug AS agent
+       FROM requests r
+       LEFT JOIN captures c ON c.id = r.capture_id
+       LEFT JOIN sessions s ON s.id = r.session_id
+       LEFT JOIN agents a ON a.id = s.agent_id
+      ORDER BY (r.status = 'open') DESC,
+               CASE WHEN r.status = 'open' THEN r.created_at END ASC,
+               r.closed_at DESC NULLS LAST
+      LIMIT 100`,
+  );
+  return c.json(rows);
+});
+
+/**
+ * "that thing I asked you about" — find it by any word he remembers.
+ *
+ * Trigram similarity rather than exact matching, because he will not reproduce
+ * his own phrasing: the ask said "wifi thru walls", the follow-up said "wifi
+ * thru walls project", and a system that needs those to match exactly is a
+ * system that answers "I can't find it" to a question it has the answer to.
+ */
+app.get('/api/requests/search', async (c) => {
+  const q = (c.req.query('q') ?? '').trim();
+  if (!q) return c.json([]);
+  const rows = await query(
+    `SELECT id, ask, source, status, outcome, created_at, closed_at,
+            similarity(ask, $1) AS score
+       FROM requests
+      WHERE ask ILIKE '%' || $1 || '%' OR similarity(ask, $1) > 0.15
+      ORDER BY (status = 'open') DESC, score DESC
+      LIMIT 20`,
+    [q],
+  );
+  return c.json(rows);
+});
+
+app.post('/api/requests', async (c) => {
+  const b = await c.req.json<{
+    ask: string; source?: string; captureId?: string | null;
+  }>();
+  if (!b.ask?.trim()) return c.json({ error: 'ask required' }, 400);
+
+  const row = await one<{ id: string }>(
+    `INSERT INTO requests (ask, source, capture_id) VALUES ($1, $2, $3) RETURNING id`,
+    [b.ask.trim(), b.source ?? 'unknown', b.captureId ?? null],
+  );
+  await recordEvent({
+    type: 'request.opened',
+    message: `asked: ${b.ask.trim().slice(0, 120)}`,
+    data: { requestId: row?.id, source: b.source ?? 'unknown' },
+  });
+  return c.json({ id: row?.id, status: 'open' });
+});
+
+app.post('/api/requests/:id/:action', async (c) => {
+  const action = c.req.param('action');
+  const map: Record<string, string> = { done: 'done', drop: 'dropped', reopen: 'open' };
+  const status = map[action];
+  if (!status) return c.json({ error: `unknown action: ${action}` }, 400);
+
+  const body = await c.req.json<{ outcome?: string }>().catch(() => ({ outcome: undefined }));
+  const row = await one<{ ask: string }>(
+    `UPDATE requests
+        SET status = $2,
+            outcome = COALESCE($3, outcome),
+            closed_at = CASE WHEN $2 = 'open' THEN NULL ELSE now() END
+      WHERE id = $1 RETURNING ask`,
+    [c.req.param('id'), status, body.outcome ?? null],
+  );
+  if (!row) return c.json({ error: 'no such request' }, 404);
+  await recordEvent({
+    type: `request.${status}`,
+    message: `${status}: ${row.ask.slice(0, 120)}`,
+    data: { requestId: c.req.param('id') },
+  });
+  return c.json({ ok: true, status });
+});
+
+// ---------------------------------------------------------------------------
 // Reels
 //
 // ReelAgent is a separate process with its own pipeline — Instagram DMs in,

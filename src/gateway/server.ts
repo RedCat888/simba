@@ -834,10 +834,14 @@ app.post('/api/sessions/:id/kill', async (c) => {
 
 app.post('/api/agents/:slug/model', async (c) => {
   const body = await c.req.json<{ modelTier: 'high' | 'mid' | 'cheap' }>();
-  await query(`UPDATE agents SET model_tier = $2, updated_at = now() WHERE slug = $1`, [
-    c.req.param('slug'),
-    body.modelTier,
-  ]);
+  const row = await one<{ slug: string }>(
+    `UPDATE agents SET model_tier = $2, updated_at = now() WHERE slug = $1 RETURNING slug`,
+    [c.req.param('slug'), body.modelTier],
+  );
+  // Mistyping a slug used to answer {ok:true}, so the app showed the new tier
+  // against an agent whose tier had not moved — and the next session ran on the
+  // old one with nothing to explain why.
+  if (!row) return c.json({ error: 'no such agent' }, 404);
   return c.json({ ok: true });
 });
 
@@ -1419,6 +1423,15 @@ app.post('/api/missions/:id/:action', async (c) => {
    * resurrecting a half-finished attempt.
    */
   if (action === 'pause' || action === 'cancel') {
+    // Checked before anything is killed. Without this, pausing a mission id
+    // that does not exist reported {ok:true, stoppedSteps:0} — which reads
+    // exactly like "paused a mission that happened to have no running steps",
+    // the single most common real case, so the lie was invisible.
+    const mission = await one<{ id: string }>(`SELECT id FROM missions WHERE id = $1`, [
+      c.req.param('id'),
+    ]);
+    if (!mission) return c.json({ error: 'no such mission' }, 404);
+
     const live = await query<{ id: string; session_id: string; seq: number }>(
       `SELECT id, session_id, seq FROM mission_steps
         WHERE mission_id = $1 AND status = 'running' AND session_id IS NOT NULL`,
@@ -1469,7 +1482,11 @@ app.get('/api/briefs/pending', async (c) => {
 });
 
 app.post('/api/briefs/:id/ack', async (c) => {
-  await query(`UPDATE briefs SET notified_at = now() WHERE id = $1`, [c.req.param('id')]);
+  const row = await one<{ id: string }>(
+    `UPDATE briefs SET notified_at = now() WHERE id = $1 RETURNING id`,
+    [c.req.param('id')],
+  );
+  if (!row) return c.json({ error: 'no such brief' }, 404);
   return c.json({ ok: true });
 });
 
@@ -1496,10 +1513,34 @@ app.post('/api/actions/:id/confirm', async (c) => {
     );
   }
   const body = await c.req.json<{ approve: boolean }>().catch(() => ({ approve: false }));
-  await query(
-    `UPDATE actions SET status = $2, lease_expires_at = NULL WHERE id = $1 AND status = 'needs_confirmation'`,
+  const decided = await one<{ id: string }>(
+    `UPDATE actions SET status = $2, lease_expires_at = NULL
+      WHERE id = $1 AND status = 'needs_confirmation' RETURNING id`,
     [c.req.param('id'), body.approve ? 'claimed' : 'abandoned'],
   );
+
+  // Answering {ok:true} when nothing was updated is the most expensive version
+  // of this bug in the whole gateway. An approval is the one thing on the phone
+  // that unblocks a stopped agent, and both the Now screen and the overlay drop
+  // the row from view when the call succeeds — so a confirmation that never
+  // landed would disappear from the only surface that was telling you an agent
+  // was waiting, and the agent would sit blocked with nothing anywhere saying so.
+  //
+  // The two ways to update nothing need different words. There is no such
+  // action, or there is one and it was already decided — the second is a race
+  // between the phone and the desktop, or a double tap, and "already handled"
+  // is a true and reassuring answer where "no such action" would look broken.
+  if (!decided) {
+    const existing = await one<{ status: string }>(
+      `SELECT status FROM actions WHERE id = $1`,
+      [c.req.param('id')],
+    );
+    if (!existing) return c.json({ error: 'no such action' }, 404);
+    return c.json(
+      { error: `already ${existing.status}`, status: existing.status, alreadyDecided: true },
+      409,
+    );
+  }
   return c.json({ ok: true, approved: body.approve });
 });
 

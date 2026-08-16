@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit
  */
 
 sealed interface StreamEvent {
-    data class Text(val sessionId: String, val role: String, val text: String) : StreamEvent
+    data class Text(val sessionId: String, val role: String, val text: String, val partial: Boolean = false) : StreamEvent
     data class ToolCall(val sessionId: String, val name: String, val args: String) : StreamEvent
     data class ToolResult(val sessionId: String, val text: String, val isError: Boolean) : StreamEvent
     data class TurnEnd(val sessionId: String) : StreamEvent
@@ -176,12 +176,12 @@ class SimbaStream(
                 val sid = str(root, "sessionId") ?: return null
                 val ev = runCatching { root["event"] as JsonObject }.getOrNull() ?: return null
                 when (str(ev, "kind")) {
-                    "text" -> {
-                        // Partial deltas are display-only and would double up
-                        // against the assembled message that follows.
-                        if (str(ev, "partial") == "true") null
-                        else StreamEvent.Text(sid, str(ev, "role") ?: "assistant", str(ev, "text").orEmpty())
-                    }
+                    "text" -> StreamEvent.Text(
+                        sid,
+                        str(ev, "role") ?: "assistant",
+                        str(ev, "text").orEmpty(),
+                        str(ev, "partial") == "true",
+                    )
                     "tool_call" -> StreamEvent.ToolCall(
                         sid,
                         str(ev, "name") ?: "tool",

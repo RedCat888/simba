@@ -1,6 +1,7 @@
 package com.operator.simba
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -68,6 +69,8 @@ class ChatState {
     var connected by mutableStateOf(false)
     var thinking by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    /** True while the last assistant row is still receiving token deltas. */
+    var streaming by mutableStateOf(false)
 }
 
 @Composable
@@ -119,7 +122,9 @@ fun ChatScreen(
             val tools = vm.api?.tools(sessionId).orEmpty()
             state.items.clear()
             state.items.addAll(
-                (msgs.filter { !it.content.isNullOrBlank() }
+                (msgs.filter {
+                    !it.content.isNullOrBlank() && it.role != "system" && it.role != "developer"
+                }
                     .map { ChatItem.Msg(it.role, it.content!!, it.at) } +
                     tools.map {
                         ChatItem.Tool(
@@ -154,16 +159,31 @@ fun ChatScreen(
                         state.items.add(ChatItem.Failure(reason, now))
                     }
                 }
-                is StreamEvent.Text -> if (ev.sessionId == sessionId && ev.text.isNotBlank()) {
+                is StreamEvent.Text -> if (ev.sessionId == sessionId && ev.text.isNotBlank() && ev.role != "system") {
                     state.thinking = false
-                    state.items.add(ChatItem.Msg(ev.role, ev.text, now))
+                    val last = state.items.lastOrNull()
+                    if (ev.partial && ev.role == "assistant") {
+                        if (state.streaming && last is ChatItem.Msg && last.role == "assistant") {
+                            state.items[state.items.lastIndex] = last.copy(text = last.text + ev.text)
+                        } else {
+                            state.streaming = true
+                            state.items.add(ChatItem.Msg(ev.role, ev.text, now))
+                        }
+                    } else if (state.streaming && ev.role == "assistant" && last is ChatItem.Msg && last.role == "assistant") {
+                        state.items[state.items.lastIndex] = last.copy(text = ev.text)
+                        state.streaming = false
+                    } else {
+                        state.streaming = false
+                        state.items.add(ChatItem.Msg(ev.role, ev.text, now))
+                    }
                 }
                 is StreamEvent.ToolCall -> if (ev.sessionId == sessionId) {
                     state.thinking = true
+                    state.streaming = false
                     state.items.add(ChatItem.Tool(ev.name, ev.args, false, now))
                 }
-                is StreamEvent.ToolResult -> if (ev.sessionId == sessionId) {
-                    state.items.add(ChatItem.Tool("↳", ev.text, ev.isError, now))
+                is StreamEvent.ToolResult -> if (ev.sessionId == sessionId && ev.isError) {
+                    state.items.add(ChatItem.Tool("↳", ev.text, true, now))
                 }
                 is StreamEvent.TurnEnd -> if (ev.sessionId == sessionId) state.thinking = false
                 is StreamEvent.RateLimit -> if (ev.sessionId == sessionId && ev.status != "allowed") {
@@ -696,6 +716,7 @@ private fun Composer(
                 .padding(horizontal = space.base, vertical = space.snug)
                 .clip(RoundedCornerShape(26.dp))
                 .background(Panel)
+                .border(1.dp, Line, RoundedCornerShape(26.dp))
                 .padding(start = space.gutter, end = space.tight, top = space.tight, bottom = space.tight),
             verticalAlignment = Alignment.Bottom,
         ) {
@@ -709,6 +730,8 @@ private fun Composer(
                     textStyle = type.body.copy(color = Fg),
                     cursorBrush = SolidColor(Accent),
                     maxLines = 6,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { if (enabled) onSend() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

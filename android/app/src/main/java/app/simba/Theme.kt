@@ -55,43 +55,42 @@ import androidx.compose.ui.unit.sp
 // button and the actual warnings is what destroyed its operational meaning.
 // Amber is now warning and only warning.
 private val SimbaDark = darkColorScheme(
-    // The action available now, and nothing else. See the note above on why it
-    // is no longer amber.
-    primary = Color(0xFF98A6FF),
-    onPrimary = Color(0xFF0B0D11),
-    primaryContainer = Color(0xFF2A3160),
-    onPrimaryContainer = Color(0xFFD9DEFF),
-    secondary = Color(0xFF5AA7BC),
-    onSecondary = Color(0xFF04161C),
-    secondaryContainer = Color(0xFF16313A),
+    // Same terracotta the desktop uses. Periwinkle on cool navy made the phone
+    // and the web two different products; Claude's warm coral is the house
+    // accent on both, with dark ink on the fill so the label clears WCAG AA.
+    primary = Color(0xFFD97757),
+    onPrimary = Color(0xFF1F1E1D),
+    primaryContainer = Color(0xFF3A2B24),
+    onPrimaryContainer = Color(0xFFF2F0EA),
+    secondary = Color(0xFF6BA3CC),
+    onSecondary = Color(0xFF1E2A33),
+    secondaryContainer = Color(0xFF1E2A33),
     onSecondaryContainer = Color(0xFFCDE7EF),
-    tertiary = Color(0xFF4FAE85),
-    onTertiary = Color(0xFF03190F),
+    tertiary = Color(0xFF5FAE83),
+    onTertiary = Color(0xFF1F2E26),
 
-    // The ladder. Each step is 1.15-1.22 against the one below it, which is the
-    // whole point: the previous values were 1.06 apart and therefore identical
-    // to the eye, so containment fell entirely to corner radius and every
-    // element on every screen read as a card.
-    background = Color(0xFF0B0D11),
-    onBackground = Color(0xFFF4F7FB),
-    surface = Color(0xFF171D27),
-    onSurface = Color(0xFFF4F7FB),
-    surfaceVariant = Color(0xFF202936),
-    onSurfaceVariant = Color(0xFFC2CAD6),
-    surfaceContainerLowest = Color(0xFF070910),
-    surfaceContainerLow = Color(0xFF11161E),
-    surfaceContainer = Color(0xFF171D27),
-    surfaceContainerHigh = Color(0xFF202936),
-    surfaceContainerHighest = Color(0xFF293544),
+    // Warm neutrals, ochre-biased, matching app/index.html. Cool navy next to
+    // coral reads as a terminal theme wearing a chat-app accent.
+    background = Color(0xFF232220),
+    onBackground = Color(0xFFF2F0EA),
+    surface = Color(0xFF2E2D2A),
+    onSurface = Color(0xFFF2F0EA),
+    surfaceVariant = Color(0xFF383632),
+    onSurfaceVariant = Color(0xFFA9A69E),
+    surfaceContainerLowest = Color(0xFF1A1917),
+    surfaceContainerLow = Color(0xFF232220),
+    surfaceContainer = Color(0xFF2E2D2A),
+    surfaceContainerHigh = Color(0xFF383632),
+    surfaceContainerHighest = Color(0xFF403E3A),
 
-    inverseSurface = Color(0xFFF4F7FB),
-    inverseOnSurface = Color(0xFF171D27),
-    outline = Color(0xFF929DAC),
-    outlineVariant = Color(0xFF293340),
-    error = Color(0xFFD4626C),
-    onError = Color(0xFF23060A),
-    errorContainer = Color(0xFF4A1A20),
-    onErrorContainer = Color(0xFFFFD9DC),
+    inverseSurface = Color(0xFFF2F0EA),
+    inverseOnSurface = Color(0xFF2E2D2A),
+    outline = Color(0xFF7C7970),
+    outlineVariant = Color(0xFF403E3A),
+    error = Color(0xFFD97570),
+    onError = Color(0xFF1F1E1D),
+    errorContainer = Color(0xFF33211F),
+    onErrorContainer = Color(0xFFF8E9E7),
     scrim = Color(0xFF000000),
 )
 
@@ -99,35 +98,38 @@ private val SimbaDark = darkColorScheme(
 // light mode, and it is the pre-API-31 fallback when dynamic colour is
 // unavailable. Every role the app reads is set explicitly.
 private val SimbaLight = lightColorScheme(
-    primary = Color(0xFF8A5300),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFFFDEA8),
-    onPrimaryContainer = Color(0xFF2C1A00),
-    secondary = Color(0xFF1B5FBE),
+    // Dark terracotta fill so cream labels clear 4.5:1. The brighter coral
+    // (#C4643C) is only ~4:1 on white and failed the same check the desktop
+    // Panic / Send buttons just failed.
+    primary = Color(0xFF7A341F),
+    onPrimary = Color(0xFFF5F4EF),
+    primaryContainer = Color(0xFFF6EAE3),
+    onPrimaryContainer = Color(0xFF7A341F),
+    secondary = Color(0xFF3A6E96),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFD6E3FF),
-    onSecondaryContainer = Color(0xFF001B3C),
-    tertiary = Color(0xFF08703F),
+    secondaryContainer = Color(0xFFE7EFF6),
+    onSecondaryContainer = Color(0xFF1E2A33),
+    tertiary = Color(0xFF3F7F5B),
     onTertiary = Color(0xFFFFFFFF),
-    background = Color(0xFFF7F8FA),
-    onBackground = Color(0xFF14181D),
+    background = Color(0xFFF5F4EF),
+    onBackground = Color(0xFF1F1E1D),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF14181D),
-    surfaceVariant = Color(0xFFEDF0F5),
-    onSurfaceVariant = Color(0xFF5A6472),
+    onSurface = Color(0xFF1F1E1D),
+    surfaceVariant = Color(0xFFF0EEE7),
+    onSurfaceVariant = Color(0xFF6B6A65),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF9FAFC),
-    surfaceContainer = Color(0xFFF2F4F8),
-    surfaceContainerHigh = Color(0xFFECEFF4),
-    surfaceContainerHighest = Color(0xFFE5E9F0),
-    inverseSurface = Color(0xFF2A2F36),
-    inverseOnSurface = Color(0xFFF2F4F8),
-    outline = Color(0xFF8B95A5),
-    outlineVariant = Color(0xFFD3D9E2),
-    error = Color(0xFFB3261E),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFF9DEDC),
-    onErrorContainer = Color(0xFF410E0B),
+    surfaceContainerLow = Color(0xFFF9F8F3),
+    surfaceContainer = Color(0xFFF0EEE7),
+    surfaceContainerHigh = Color(0xFFE8E5DC),
+    surfaceContainerHighest = Color(0xFFE3E0D8),
+    inverseSurface = Color(0xFF2E2D2A),
+    inverseOnSurface = Color(0xFFF2F0EA),
+    outline = Color(0xFF94928B),
+    outlineVariant = Color(0xFFE3E0D8),
+    error = Color(0xFF8A322C),
+    onError = Color(0xFFF5F4EF),
+    errorContainer = Color(0xFFF8E9E7),
+    onErrorContainer = Color(0xFF8A322C),
     scrim = Color(0xFF000000),
 )
 
@@ -300,7 +302,7 @@ private val ConsoleLight = lightColorScheme(
     onError = Color(0xFFFFFFFF),
 )
 
-/** Fluid is the house look: warmer ink, softer surfaces, the amber accent. */
+/** Fluid is the house look: warm paper, terracotta accent, same as the desktop. */
 private val FluidDark = SimbaDark
 
 @Composable

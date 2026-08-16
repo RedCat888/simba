@@ -39,6 +39,16 @@ class StreamParseTest {
         assertEquals("s1", t.sessionId)
         assertEquals("assistant", t.role)
         assertEquals("hello", t.text)
+        assertTrue(!t.partial)
+    }
+
+    @Test
+    fun `partial deltas are still text events`() {
+        val e = parse(
+            """{"type":"session_event","sessionId":"s1","event":{"kind":"text","role":"assistant","text":"Hel","partial":true}}""",
+        ) as StreamEvent.Text
+        assertEquals("Hel", e.text)
+        assertTrue(e.partial)
     }
 
     @Test

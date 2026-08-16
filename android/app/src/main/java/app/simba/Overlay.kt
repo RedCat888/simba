@@ -498,26 +498,25 @@ fun Bubble(
 
 @Composable
 private fun Collapsed(state: OverlayState, onToggle: () -> Unit) {
+    val waiting = state.pending.isNotEmpty()
     Box(
         Modifier
             .size(52.dp)
             .clip(CircleShape)
-            .background(Panel)
-            .border(1.dp, Line, CircleShape)
+            .background(if (waiting) Err else Panel)
+            .border(1.dp, if (waiting) Err else Line, CircleShape)
             .clickable(onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier.size(if (state.pending.isNotEmpty()) 14.dp else 10.dp)
-                .clip(CircleShape)
-                .background(dotColour(state)),
-        )
-        if (state.pending.size > 1) {
+        if (waiting) {
             Text(
-                "${state.pending.size}",
-                color = Bg,
-                style = type.micro,
-                modifier = Modifier.padding(start = 1.dp),
+                if (state.pending.size > 9) "9+" else "${state.pending.size}",
+                color = Color.White,
+                style = type.label,
+            )
+        } else {
+            Box(
+                Modifier.size(10.dp).clip(CircleShape).background(dotColour(state)),
             )
         }
     }

@@ -32,8 +32,14 @@
     /* Warm neutrals. The greys carry a slight ochre bias so they sit with the
        accent instead of fighting it — a pure grey next to coral reads cold. */
     --bg:#F5F4EF; --panel:#FFFFFF; --panel2:#F0EEE7; --line:#E3E0D8;
-    --fg:#1F1E1D; --dim:#6B6A65; --faint:#94928B;
-    --accent:#C4643C; --accent-soft:#F6EAE3; --accent-line:#E5C4B3;
+    --fg:#1F1E1D; --dim:#5E5D58; --faint:#78766F;
+    --accent:#C4643C; --accent-soft:#F6EAE3; --accent-line:#E5C4B3; --link:#A84A28;
+    /* Filled buttons need their own fill. The brand coral is ~4:1 on white,
+       which fails WCAG AA for the label on Send / Find / Panic — the most
+       prominent controls on the page. The fill is a darker terracotta so
+       cream text clears 4.5:1; the coral stays for links, pills, selection. */
+    --accent-fill:#7A341F; --on-accent:#F5F4EF;
+    --danger-fill:#8A322C; --on-danger:#F5F4EF;
     --ok:#3F7F5B; --warn:#9A6D18; --err:#B4453F; --info:#3A6E96;
     --ok-soft:#E7F1EA; --warn-soft:#F7EEDC; --err-soft:#F8E9E7; --info-soft:#E7EFF6;
     --shadow:0 1px 2px rgba(31,30,29,.05), 0 1px 3px rgba(31,30,29,.04);
@@ -47,18 +53,22 @@
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#232220; --panel:#2E2D2A; --panel2:#383632; --line:#403E3A;
-      --fg:#F2F0EA; --dim:#A9A69E; --faint:#7C7970;
-      --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034;
-      --ok:#5FAE83; --warn:#C99A3B; --err:#D97570; --info:#6BA3CC;
+      --fg:#F2F0EA; --dim:#BAB6AC; --faint:#9A968C;
+      --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034; --link:#E89476;
+      --accent-fill:#D97757; --on-accent:#1F1E1D;
+      --danger-fill:#D97570; --on-danger:#1F1E1D;
+      --ok:#5FAE83; --warn:#C99A3B; --err:#E58B84; --info:#6BA3CC;
       --ok-soft:#1F2E26; --warn-soft:#332915; --err-soft:#33211F; --info-soft:#1E2A33;
       --shadow:0 1px 2px rgba(0,0,0,.28), 0 1px 3px rgba(0,0,0,.22);
     }
   }
   :root[data-theme="dark"]{
     --bg:#232220; --panel:#2E2D2A; --panel2:#383632; --line:#403E3A;
-    --fg:#F2F0EA; --dim:#A9A69E; --faint:#7C7970;
-    --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034;
-    --ok:#5FAE83; --warn:#C99A3B; --err:#D97570; --info:#6BA3CC;
+    --fg:#F2F0EA; --dim:#BAB6AC; --faint:#9A968C;
+    --accent:#D97757; --accent-soft:#3A2B24; --accent-line:#5C4034; --link:#E89476;
+    --accent-fill:#D97757; --on-accent:#1F1E1D;
+    --danger-fill:#D97570; --on-danger:#1F1E1D;
+    --ok:#5FAE83; --warn:#C99A3B; --err:#E58B84; --info:#6BA3CC;
     --ok-soft:#1F2E26; --warn-soft:#332915; --err-soft:#33211F; --info-soft:#1E2A33;
     --shadow:0 1px 2px rgba(0,0,0,.28), 0 1px 3px rgba(0,0,0,.22);
   }
@@ -82,7 +92,7 @@
     font-family:var(--serif);font-size:19px;font-weight:600;letter-spacing:-.01em;
     color:var(--fg);text-transform:none;
   }
-  .stats{display:flex;gap:16px;font-size:12.5px;color:var(--dim);flex-wrap:wrap;flex:1;align-items:center}
+  .stats{display:flex;gap:16px;font-size:12.5px;color:var(--dim);flex-wrap:wrap;flex:1;align-items:center;min-width:0}
   .stats b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
   .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:1px}
   .dot.on{background:var(--ok)} .dot.off{background:var(--faint)}
@@ -117,9 +127,9 @@
   button:hover{background:var(--panel2)}
   button:active{transform:translateY(.5px)}
   button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
-  button.primary:hover{filter:brightness(1.06);background:var(--accent)}
-  button.danger{background:var(--err-soft);border-color:var(--err);color:var(--err);font-weight:600}
+  button.primary{background:var(--accent-fill);color:var(--on-accent);border-color:var(--accent-fill);font-weight:600}
+  button.primary:hover{filter:brightness(1.06);background:var(--accent-fill)}
+  button.danger{background:var(--danger-fill);color:var(--on-danger);border-color:var(--danger-fill);font-weight:600}
   input,textarea{
     font:inherit;font-size:14px;color:var(--fg);background:var(--panel);
     border:1px solid var(--line);border-radius:8px;padding:8px 11px;width:100%;
@@ -159,36 +169,49 @@
   .pill.idle{background:var(--panel2);color:var(--dim)}
   .pill.waiting_limit,.pill.limited,.pill.paused,.pill.blocked{background:var(--warn-soft);color:var(--warn)}
   .pill.failed,.pill.error,.pill.logged_out,.pill.cancelled{background:var(--err-soft);color:var(--err)}
-  .pill.t0{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+  .pill.t0{background:var(--accent-soft);color:var(--link);border-color:var(--accent-line)}
   .pill.high{color:var(--accent)} .pill.mid{color:var(--info)} .pill.cheap{color:var(--dim)}
 
   .bar{height:5px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:9px}
   .bar > i{display:block;height:100%;background:var(--info);border-radius:99px}
 
+  /* When a thread is open, main must stop being a second scroller. The
+     previous height:calc(100vh - 190px) fought main's own overflow and the
+     page scrolled while the composer drifted off-screen — that is "chat
+     sessions render weirdly" on a desktop window. */
+  body.thread-open main{
+    overflow:hidden;padding-bottom:16px;
+    display:flex;flex-direction:column;
+  }
   /* ── chat ───────────────────────────────────────────────────────────── */
-  .thread{display:flex;flex-direction:column;height:100%;max-width:var(--read);margin:0 auto;width:100%}
-  .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:10px}
+  .thread{
+    display:flex;flex-direction:column;flex:1;min-height:0;
+    max-width:var(--read);margin:0 auto;width:100%;
+  }
+  .msgs{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:10px}
   .msg{
-    border-radius:12px;padding:11px 14px;white-space:pre-wrap;
-    /* ch, not %. A percentage of the viewport is a phone measurement, and it is
-       what made a two-word reply span an entire desktop window. */
-    max-width:min(46rem,88%);font-size:14.5px;line-height:1.6;
-    /* overflow-wrap:anywhere, not word-break:break-word.
-       The latter is a deprecated alias that does not break an unbroken token,
-       and agent transcripts are full of them — file paths, uuids, stack frames.
-       The bubble stayed the right width while its text ran past the edge, so
-       the message column scrolled sideways with no element to blame for it. */
+    border-radius:18px 18px 6px 18px;padding:11px 14px;white-space:pre-wrap;
+    max-width:min(36rem,88%);font-size:15px;line-height:1.65;
     overflow-wrap:anywhere;
   }
   .msg.user{align-self:flex-end;background:var(--accent-soft);border:1px solid var(--accent-line)}
-  .msg.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .msg.assistant{
+    align-self:stretch;max-width:min(46rem,100%);
+    background:transparent;border:none;box-shadow:none;padding:4px 2px;
+    border-radius:0;white-space:normal;
+  }
+  .msg code{
+    font-family:var(--mono);font-size:.9em;background:var(--panel2);
+    padding:.12em .38em;border-radius:4px;
+  }
+  .msg pre.code{
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:13px;
+    line-height:1.45;margin:10px 0;white-space:pre-wrap;
+  }
   .msg.system{
     align-self:center;background:transparent;border:none;color:var(--faint);
     font-size:12.5px;max-width:56ch;text-align:center;padding:2px 0;
-  }
-  .msg .who{
-    display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
-    color:var(--faint);font-weight:600;margin-bottom:5px;
   }
   /* A tool call. One line, and it stays one line.
      Dropped when this sheet was rewritten, so these fell back to unstyled and
@@ -204,8 +227,17 @@
   }
   .tool.err{color:var(--err);background:var(--err-soft);border-color:transparent}
 
-  .composer{display:flex;gap:9px;padding-top:12px;border-top:1px solid var(--line);align-items:flex-end}
-  .composer textarea{resize:none;min-height:42px;max-height:180px}
+  .composer{
+    display:flex;gap:8px;align-items:flex-end;flex-shrink:0;
+    padding:8px 10px 8px 14px;margin-top:8px;
+    background:var(--panel);border:1px solid var(--line);border-radius:18px;
+    box-shadow:var(--shadow);
+  }
+  .composer textarea{
+    resize:none;min-height:42px;max-height:180px;border:none;background:transparent;
+    padding:8px 4px;box-shadow:none;
+  }
+  .composer textarea:focus{outline:none;border:none;box-shadow:none}
 
   /* ── misc ───────────────────────────────────────────────────────────── */
   /* The only way out of a detail view, and it had no rule at all — a bare span
@@ -231,7 +263,11 @@
   .scroll-x{overflow-x:auto;max-width:100%}
   .swap{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
   .sev-warn{color:var(--warn)} .sev-error{color:var(--err)} .sev-escalated{color:var(--err)}
-  a{color:var(--accent);text-underline-offset:2px}
+  /* Links get their own colour, not the brand coral.
+     The coral is 4.41:1 on a card — fine for a heading, under AA for the 12px
+     "source" link in a reel's metadata, which is the size links actually appear
+     at here. */
+  a{color:var(--link);text-underline-offset:2px}
 
   /* The two lines on the brief that are actually addressed to you. They were
      set in the dimmest style on the screen, which is backwards: everything else
@@ -256,6 +292,50 @@
   main > .card:not(.scroll-x){max-width:var(--read)}
   .card p{max-width:68ch}
 
+  .composer{flex-shrink:0}
+  #kill{color:var(--err);border-color:transparent;background:transparent}
+  #kill:hover{background:var(--err-soft);border-color:transparent}
+
+  /* Desktop: a rail, like Claude. Twelve top tabs is a phone pattern and it
+     is why the chrome felt like a dashboard dumped into a browser. */
+  @media (min-width: 960px){
+    body{
+      display:grid;
+      grid-template-columns:232px minmax(0,1fr);
+      grid-template-rows:auto minmax(0,1fr);
+    }
+    header{
+      grid-column:2;grid-row:1;
+      padding:11px 22px;
+    }
+    header .brand{display:none}
+    nav{
+      grid-column:1;grid-row:1 / -1;
+      flex-direction:column;align-items:stretch;
+      overflow-x:hidden;overflow-y:auto;
+      padding:18px 14px 20px;
+      border-bottom:none;border-right:1px solid var(--line);
+      gap:1px;
+    }
+    nav::before{
+      content:"Simba";
+      font-family:var(--serif);font-size:20px;font-weight:600;letter-spacing:-.01em;
+      color:var(--fg);padding:6px 12px 16px;
+    }
+    nav button{
+      text-align:left;border-radius:8px;border-bottom:none;padding:8px 12px;
+    }
+    nav button.sel{
+      background:var(--accent-soft);color:var(--fg);
+      border-bottom-color:transparent;
+    }
+    main{
+      grid-column:2;grid-row:2;
+      padding:22px 28px 40px;
+    }
+    body.thread-open main{padding-bottom:16px}
+  }
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -264,12 +344,13 @@
 <header>
   <span class="brand">Simba</span>
   <div class="stats" id="stats"></div>
+  <button id="theme" title="Switch theme">Theme</button>
   <button class="danger" id="panic">Panic</button>
 </header>
 
 <nav>
-  <button data-tab="find">Find</button>
-  <button data-tab="missions" class="sel">Missions</button>
+  <button data-tab="find" class="sel">Find</button>
+  <button data-tab="missions">Missions</button>
   <button data-tab="agents">Agents</button>
   <button data-tab="sessions">Sessions</button>
   <button data-tab="brains">Brains</button>
@@ -288,10 +369,37 @@
 const $ = (id) => document.getElementById(id);
 const api = async (p, opts) => {
   const r = await fetch(p, { headers: { 'content-type': 'application/json' }, ...opts });
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-  return r.status === 204 ? null : r.json();
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!r.ok) {
+    const msg = (data && (data.detail || data.error || data.message)) || text || `${r.status}`;
+    throw new Error(msg);
+  }
+  return r.status === 204 ? null : data;
 };
+
+const applyTheme = () => {
+  const t = localStorage.getItem('simba-theme') || 'system';
+  if (t === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+  const btn = $('theme');
+  if (btn) btn.textContent = t === 'dark' ? 'Light' : t === 'light' ? 'System' : 'Dark';
+};
+applyTheme();
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const md = (s) => {
+  const fences = [];
+  let h = esc(s).replace(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/g, (_, code) => {
+    fences.push(`<pre class="code"><code>${code.replace(/\n$/, '')}</code></pre>`);
+    return `\0${fences.length - 1}\0`;
+  });
+  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  h = h.replace(/\n/g, '<br>');
+  return h.replace(/\0(\d+)\0/g, (_, i) => fences[i]);
+};
 const ago = (t) => {
   if (!t) return 'never';
   const s = (Date.now() - new Date(t)) / 1000;
@@ -315,7 +423,7 @@ const usd = (n) => {
   return '$' + (Number.isInteger(v) ? v.toFixed(0) : v.toFixed(2));
 };
 
-let tab = 'missions';
+let tab = 'find';
 let openSession = null;
 let sessionsExpanded = false;
 let live = { messages: [], sessionId: null };
@@ -343,17 +451,47 @@ function appendLive(e) {
   const box = $('msgs');
   if (!box) return;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+
+  if (e.kind === 'text' && e.role === 'assistant' && e.partial && e.text) {
+    let stream = $('stream');
+    if (!stream) {
+      stream = document.createElement('div');
+      stream.className = 'msg assistant';
+      stream.id = 'stream';
+      box.appendChild(stream);
+    }
+    stream.textContent += e.text;
+    if (atBottom) box.scrollTop = box.scrollHeight;
+    return;
+  }
+
   const el = document.createElement('div');
 
   if (e.kind === 'text' && !e.partial && e.text?.trim()) {
-    el.className = `msg ${e.role}`;
-    el.innerHTML = `<div class="who">${e.role}</div>${esc(e.text)}`;
+    if (e.role === 'system') {
+      el.className = 'msg system';
+      el.textContent = e.text;
+    } else if (e.role === 'assistant') {
+      const stream = $('stream');
+      if (stream) {
+        stream.id = '';
+        stream.innerHTML = md(e.text);
+        if (atBottom) box.scrollTop = box.scrollHeight;
+        return;
+      }
+      el.className = 'msg assistant';
+      el.innerHTML = md(e.text);
+    } else {
+      el.className = `msg ${e.role}`;
+      el.textContent = e.text;
+    }
   } else if (e.kind === 'tool_call') {
     el.className = 'tool';
-    el.textContent = `▸ ${e.name}(${JSON.stringify(e.args ?? {}).slice(0, 220)})`;
+    el.textContent = `▸ ${e.name}`;
   } else if (e.kind === 'tool_result') {
-    el.className = 'tool' + (e.isError ? ' err' : '');
-    el.textContent = `${e.isError ? '✕' : '✓'} ${(e.resultText ?? '').slice(0, 300)}`;
+    if (!e.isError) return;
+    el.className = 'tool err';
+    el.textContent = `✕ ${(e.resultText ?? 'tool failed').slice(0, 180)}`;
   } else if (e.kind === 'rate_limit' && e.status !== 'allowed') {
     el.className = 'swap';
     el.textContent = `⚠ usage limit (${e.limitType ?? '?'}) — resets ${until(e.resetsAt)}`;
@@ -531,7 +669,7 @@ async function renderThread() {
   const cp = checkpoints[0];
 
   $('main').innerHTML = `
-    <div class="thread" style="height:calc(100vh - 190px)">
+    <div class="thread">
       <span class="back" id="back">← all sessions</span>
       ${brainsUsed.length > 1 ? `<div class="swap" style="margin-bottom:10px">This session ran across ${brainsUsed.length} brains: ${brainsUsed.join(' → ')}</div>` : ''}
       ${cp && cp.work_remaining ? `<div class="card" style="margin-bottom:10px">
@@ -540,17 +678,22 @@ async function renderThread() {
         ${cp.failures ? `<div style="font-size:12.5px;color:var(--warn);margin-top:5px"><b>Already failed:</b> ${esc(String(cp.failures).slice(0, 300))}</div>` : ''}
       </div>` : ''}
       <div class="msgs" id="msgs">
-        ${items.map((it) => it.kind === 'msg'
-          ? (it.d.content?.trim()
-              ? `<div class="msg ${it.d.role}"><div class="who">${it.d.role}</div>${esc(it.d.content)}</div>`
-              : '')
-          : `<div class="tool${it.d.is_error ? ' err' : ''}">${it.d.is_error ? '✕' : '▸'} ${esc(it.d.name)}(${esc(JSON.stringify(it.d.args ?? {}).slice(0, 200))})</div>`
-        ).join('')}
+        ${items.map((it) => {
+          if (it.kind === 'msg') {
+            const role = it.d.role;
+            const text = it.d.content?.trim();
+            if (!text || role === 'system' || role === 'developer') return '';
+            return role === 'assistant'
+              ? `<div class="msg assistant">${md(text)}</div>`
+              : `<div class="msg ${role}">${esc(text)}</div>`;
+          }
+          return `<div class="tool${it.d.is_error ? ' err' : ''}" title="${esc(it.d.name)}">${it.d.is_error ? '✕' : '▸'} ${esc(it.d.name)}</div>`;
+        }).join('')}
       </div>
       <div class="composer">
         <textarea id="input" placeholder="Message this agent…" rows="1"></textarea>
         <button class="primary" id="send">Send</button>
-        <button class="danger" id="kill">Kill</button>
+        <button id="kill">Kill</button>
       </div>
     </div>`;
 
@@ -568,7 +711,12 @@ async function renderThread() {
     catch (e) { appendLive({ kind: 'text', role: 'system', text: `send failed: ${e.message}`, partial: false }); }
   };
   $('send').onclick = send;
-  $('input').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+  const ta = $('input');
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+  ta.oninput = () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -694,6 +842,7 @@ async function renderMissionDetail() {
 // ---------------------------------------------------------------------------
 let memoryQuery = '';
 let memoryHits = null;
+let memorySeq = 0;
 
 async function renderMemory() {
   const sources = await api('/api/knowledge/sources');
@@ -724,26 +873,36 @@ async function renderMemory() {
   const go = async () => {
     memoryQuery = $('mq').value.trim();
     if (!memoryQuery) return;
+    const seq = ++memorySeq;
     $('mres').innerHTML = `<div class="empty">Searching…</div>`;
     try {
-      memoryHits = await api(`/api/knowledge/search?q=${encodeURIComponent(memoryQuery)}`);
+      const hits = await api(`/api/knowledge/search?q=${encodeURIComponent(memoryQuery)}`);
+      if (seq !== memorySeq) return;
+      memoryHits = hits;
       $('mres').innerHTML = renderHits(memoryHits);
-    } catch (e) { $('mres').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+    } catch (e) {
+      if (seq !== memorySeq) return;
+      $('mres').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
   };
   $('msearch').onclick = go;
   $('mq').onkeydown = (e) => { if (e.key === 'Enter') go(); };
 }
 
 function renderHits(hits) {
-  if (!hits.length) return `<div class="empty">No matches.</div>`;
-  return hits.map((h) => `
+  if (!Array.isArray(hits)) {
+    return `<div class="empty">${esc(hits?.detail || hits?.error || 'Search is unavailable.')}</div>`;
+  }
+  const usable = hits.filter((h) => (h.content || h.title || '').trim());
+  if (!usable.length) return `<div class="empty">No matches.</div>`;
+  return usable.map((h) => `
     <div class="card" style="margin-bottom:8px">
       <div class="row">
         <h3>${esc(h.title || 'untitled')}</h3>
-        <span class="pill">${(h.relevance * 100).toFixed(0)}%</span>
+        <span class="pill">${((h.relevance || 0) * 100).toFixed(0)}%</span>
       </div>
       <div class="sub">${esc(h.source)}</div>
-      <div style="font-size:12.5px;white-space:pre-wrap;color:var(--dim)">${esc(h.content.slice(0, 700))}</div>
+      <div class="reading" style="font-size:13.5px;white-space:pre-wrap;color:var(--dim);max-width:68ch">${esc((h.content || '').slice(0, 700))}</div>
     </div>`).join('');
 }
 
@@ -823,11 +982,12 @@ async function renderEvents() {
 
 let findQuery = '';
 let findHits = null;
+let findSeq = 0;
 
 async function renderFind() {
   $('main').innerHTML = `<div class="reading">
     <div class="row" style="gap:9px;margin-bottom:6px">
-      <input id="fq" placeholder="Anything you half-remember — a word is enough"
+      <input id="fq" placeholder="Anything you half-remember — Ctrl+K anytime"
              value="${esc(findQuery)}" autocomplete="off">
       <button class="primary" id="fgo">Find</button>
     </div>
@@ -837,21 +997,53 @@ async function renderFind() {
 
   const go = async () => {
     findQuery = $('fq').value.trim();
-    if (findQuery.length < 2) { $('fres').innerHTML = emptyFind(); return; }
+    const seq = ++findSeq;
+    if (findQuery.length < 2) { findHits = null; $('fres').innerHTML = emptyFind(); return; }
     $('fres').innerHTML = `<div class="empty">Searching…</div>`;
     try {
-      findHits = await api(`/api/find?q=${encodeURIComponent(findQuery)}`);
+      const hits = await api(`/api/find?q=${encodeURIComponent(findQuery)}`);
+      if (seq !== findSeq) return;
+      findHits = hits;
+      if (!Array.isArray(findHits)) throw new Error(findHits?.error || 'search returned nothing usable');
       $('fres').innerHTML = renderFound(findHits);
-    } catch (e) { $('fres').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+      bindFound();
+    } catch (e) {
+      if (seq !== findSeq) return;
+      $('fres').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
   };
   $('fgo').onclick = go;
   $('fq').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  let debounce;
+  $('fq').oninput = () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(go, 280);
+  };
   $('fq').focus();
+  if (findHits) bindFound();
 }
 
-const emptyFind = () => `<div class="empty">Type a word you remember. This searches
-  operational records — what you asked for, what you shared in, your projects, and
-  every session and mission by name. Notes and conversations live under Memory.</div>`;
+const emptyFind = () => `<div class="empty">This page is Simba on this PC.<br>
+  Type a word you remember — requests, captures, projects, sessions, missions.
+  Open a hit to go there. Notes and old chats live under Memory.
+  Missions is what is running; Panic in the header stops everything.</div>`;
+
+function openFound(h) {
+  if (h.kind === 'session') { tab = 'sessions'; openSession = h.id; render(); }
+  else if (h.kind === 'mission') { tab = 'missions'; openMission = h.id; render(); }
+  else if (h.kind === 'request') { tab = 'requests'; render(); }
+  else if (h.kind === 'project') { tab = 'projects'; render(); }
+  else if (h.kind === 'capture') { tab = 'reels'; render(); }
+}
+
+function bindFound() {
+  $('main').querySelectorAll('[data-found]').forEach((el) => {
+    el.onclick = () => {
+      const h = findHits.find((x) => x.id === el.dataset.found && x.kind === el.dataset.kind);
+      if (h) openFound(h);
+    };
+  });
+}
 
 function renderFound(hits) {
   if (!hits.length) return `<div class="empty">Nothing matches “${esc(findQuery)}”.</div>`;
@@ -859,7 +1051,7 @@ function renderFound(hits) {
   // "what happened to X".
   const open = hits.filter((h) => h.live);
   const rest = hits.filter((h) => !h.live);
-  const row = (h) => `<div class="card" style="margin-bottom:8px">
+  const row = (h) => `<div class="card" data-found="${esc(h.id)}" data-kind="${esc(h.kind)}" style="margin-bottom:8px;cursor:pointer">
     <div class="row"><h3>${esc(h.title ?? '')}</h3>
       <span class="pill ${esc(h.status ?? '')}">${esc(h.kind)}</span></div>
     ${h.subtitle ? `<div class="sub">${esc(h.subtitle)}</div>` : ''}
@@ -956,27 +1148,49 @@ async function renderProjects() {
 async function renderReels() {
   const feed = await api('/api/reels');
   const h = feed.health ?? {};
-  if (!feed.reachable) {
-    $('main').innerHTML = `<div class="empty">The reel agent isn’t running, so reels shared to
-      Instagram aren’t being picked up. Nothing is lost — they’re read from the DM history when
-      it starts again.</div>`;
+  let items = feed.items ?? [];
+  if (!feed.reachable && !items.length) {
+    try {
+      const caps = await api('/api/captures');
+      items = (caps ?? []).filter((c) => c.url || c.kind === 'reel' || c.kind === 'instagram').map((c) => ({
+        id: c.id,
+        title: c.title || (c.content || '').slice(0, 80) || 'Untitled',
+        summary: c.summary || c.content,
+        received: c.created_at,
+        done: c.status !== 'pending',
+        source_url: c.url,
+      }));
+    } catch { /* captures unavailable too */ }
+  }
+  const status = feed.reachable
+    ? `<span class="pill available">live</span>`
+    : `<span class="pill paused">agent off</span>`;
+  const headline = feed.reachable
+    ? (h.working > 0 ? 'Working' : 'Idle, waiting for reels')
+    : 'Reel agent is not running';
+  const sub = feed.reachable
+    ? `listening as @${esc(h.logged_in_as ?? '?')}`
+    : 'These are captures Simba already has. New Instagram DMs wait until the agent starts again.';
+
+  if (!items.length && !feed.reachable) {
+    $('main').innerHTML = `<div class="empty">${esc(sub)}</div>`;
     return;
   }
-  const items = feed.items ?? [];
+
   $('main').innerHTML = `<div class="reading">
     <div class="card" style="margin-bottom:14px">
       <div class="row">
-        <h3>${h.working > 0 ? 'Working' : 'Idle, waiting for reels'}</h3>
-        <span class="pill available">live</span>
+        <h3>${esc(headline)}</h3>
+        ${status}
       </div>
-      <div class="sub">listening as @${esc(h.logged_in_as ?? '?')}</div>
+      <div class="sub">${esc(sub)}</div>
       <div class="meta">
         ${h.working > 0 ? `<span>${h.working} in progress</span>` : ''}
         ${h.owed > 0 ? `<span class="sev-warn">${h.owed} queued</span>` : ''}
         <span>${items.length} written up</span>
       </div>
     </div>
-    <div class="sec">Processed</div>
+    ${items.length ? `<div class="sec">Processed</div>` : ''}
     ${items.map((r) => `<div class="card" style="margin-bottom:8px">
       <div class="row"><h3>${esc(r.title)}</h3>
         ${r.done ? '' : `<span class="pill paused">working</span>`}</div>
@@ -989,6 +1203,7 @@ async function renderReels() {
 }
 
 async function render() {
+  document.body.classList.toggle('thread-open', tab === 'sessions' && !!openSession);
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.tab === tab));
   try {
     if (tab === 'find') await renderFind();
@@ -1017,12 +1232,27 @@ document.querySelectorAll('nav button').forEach((b) =>
     render();
   });
 
+$('theme').onclick = () => {
+  const cur = localStorage.getItem('simba-theme') || 'system';
+  const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system';
+  localStorage.setItem('simba-theme', next);
+  applyTheme();
+};
+
 $('panic').onclick = async () => {
   if (!confirm('Stop every running agent immediately?')) return;
   const r = await api('/api/panic', { method: 'POST' });
   alert(`Stopped ${r.killed} sessions.`);
   render();
 };
+
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'k') return;
+  e.preventDefault();
+  tab = 'find';
+  openSession = null;
+  render().then(() => $('fq')?.focus());
+});
 
 connect();
 render();

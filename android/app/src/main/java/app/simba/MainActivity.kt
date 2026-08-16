@@ -261,6 +261,7 @@ fun SimbaRoot(vm: SimbaVm = viewModel()) {
                         onOpenSession = { id, title -> push = Push.SessionDetail(id, title) },
                         onOpenSystem = { dest = Destination.System },
                         onOpenProjects = { push = Push.Projects },
+                        onOpenFind = { push = Push.Find },
                     )
                     Destination.Chat -> ChatListScreen(vm) { sid, title -> openChat = sid to title }
                     Destination.Missions -> MissionsScreen(vm) { push = Push.MissionDetail(it) }

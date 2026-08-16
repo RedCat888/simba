@@ -59,6 +59,7 @@ fun NowScreen(
     onOpenSession: (String, String) -> Unit,
     onOpenSystem: () -> Unit,
     onOpenProjects: () -> Unit = {},
+    onOpenFind: () -> Unit = {},
 ) {
     var pending by remember { mutableStateOf<List<PendingAction>>(emptyList()) }
     var memory by remember { mutableStateOf<List<MemorySample>>(emptyList()) }
@@ -107,6 +108,7 @@ fun NowScreen(
         onOpenSession = onOpenSession,
         onOpenSystem = onOpenSystem,
         onOpenProjects = onOpenProjects,
+        onOpenFind = onOpenFind,
         onCloseAsk = { ask, action ->
             vm.viewModelScope.launch {
                 runCatching { vm.api?.decideRequest(ask.id, action) }
@@ -187,6 +189,7 @@ fun NowBody(
     onResolveCapture: (Capture, String) -> Unit = { _, _ -> },
     onCloseAsk: (Request, String) -> Unit = { _, _ -> },
     onOpenProjects: () -> Unit = {},
+    onOpenFind: () -> Unit = {},
 ) {
     if (notSetUp) {
         NotSetUp(onOpenSystem)
@@ -198,6 +201,14 @@ fun NowBody(
         contentPadding = PaddingValues(bottom = space.page),
     ) {
         item { Headline(needsYou, runningMissions, liveSessions, connected) }
+
+        item {
+            ItemRow(
+                title = "Find",
+                subtitle = "A word you remember — requests, projects, sessions, missions",
+                onClick = onOpenFind,
+            )
+        }
 
         // -------------------------------------------------------------- act
         if (pending.isNotEmpty()) {

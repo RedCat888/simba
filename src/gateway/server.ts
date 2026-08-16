@@ -1231,6 +1231,35 @@ async function reelFetch(path: string, init?: RequestInit) {
   });
 }
 
+async function capturesAsReels() {
+  const rows = await query<{
+    id: string;
+    title: string | null;
+    summary: string | null;
+    url: string | null;
+    content: string | null;
+    status: string;
+    created_at: Date;
+  }>(
+    `SELECT id::text, title, summary, url, left(content, 280) AS content, status, created_at
+       FROM captures
+      WHERE url IS NOT NULL OR kind IN ('reel', 'instagram', 'share')
+      ORDER BY created_at DESC
+      LIMIT 80`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title || (r.content ? r.content.slice(0, 80) : 'Untitled reel'),
+    received: r.created_at.toISOString(),
+    done: r.status !== 'pending',
+    summary: r.summary || r.content,
+    has_notes: Boolean(r.summary),
+    has_media: false,
+    frames: 0,
+    source_url: r.url,
+  }));
+}
+
 app.get('/api/reels', async (c) => {
   try {
     const [items, health] = await Promise.all([
@@ -1241,7 +1270,15 @@ app.get('/api/reels', async (c) => {
   } catch (err) {
     // A dead ReelAgent is a normal state to render, not an error to throw at
     // the phone — the app shows "not running" and offers to say why.
-    return c.json({ items: [], reachable: false, error: String(err) });
+    //
+    // The list still has somewhere to come from: captures. ReelAgent writes
+    // every arrival there, so an empty items array while the pipeline is off
+    // was lying — it looked like nothing had ever been shared.
+    return c.json({
+      items: await capturesAsReels(),
+      reachable: false,
+      error: String(err),
+    });
   }
 });
 

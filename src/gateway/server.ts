@@ -15,6 +15,7 @@ import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
 import { scanProjects } from '../inventory/scan.js';
 import { allowedRoots, confine, listDir, readTextFile } from '../inventory/files.js';
+import { transcribe, speak, classify, voiceAvailable } from '../voice/index.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -1027,6 +1028,119 @@ app.get('/api/find', async (c) => {
     [q],
   );
   return c.json(rows);
+});
+
+// ---------------------------------------------------------------------------
+// Voice — the piece the vision names as missing
+//
+// "Speak a command, it routes to the right capability, the answer comes back
+// aloud", and from the phone rather than only a desktop key. See the
+// simba-vision document. Everything under here is local: faster-whisper for
+// hearing, Windows SAPI for speaking, audio never leaving the machine.
+// ---------------------------------------------------------------------------
+
+app.get('/api/voice', async (c) => {
+  // So a client can tell "voice is off" from "voice failed", which is the
+  // distinction this codebase keeps having to learn.
+  return c.json(voiceAvailable());
+});
+
+/** Audio in, transcript out. Separate from /ask so the phone can show what it heard. */
+app.post('/api/voice/hear', async (c) => {
+  const audio = Buffer.from(await c.req.arrayBuffer());
+  if (audio.length === 0) return c.json({ error: 'no audio' }, 400);
+  try {
+    return c.json(await transcribe(audio, c.req.query('ext') ?? 'm4a'));
+  } catch (err) {
+    return c.json({ error: `could not transcribe: ${err}` }, 500);
+  }
+});
+
+/** Text in, wav out. */
+app.post('/api/voice/speak', async (c) => {
+  const b = await c.req.json<{ text?: string }>();
+  if (!b.text?.trim()) return c.json({ error: 'text required' }, 400);
+  try {
+    const wav = await speak(b.text);
+    return new Response(new Uint8Array(wav), {
+      headers: { 'content-type': 'audio/wav', 'content-length': String(wav.length) },
+    });
+  } catch (err) {
+    return c.json({ error: `could not speak: ${err}` }, 500);
+  }
+});
+
+/**
+ * The whole loop: hear it, work out what it was, answer it.
+ *
+ * Answers the cheap intents from Postgres directly. Asking "what needs me"
+ * should not cost a model call and thirty seconds to read back a number the
+ * database already holds — and a voice assistant that takes half a minute to
+ * say "nothing" is one you stop talking to.
+ */
+app.post('/api/voice/ask', async (c) => {
+  const audio = Buffer.from(await c.req.arrayBuffer());
+  if (audio.length === 0) return c.json({ error: 'no audio' }, 400);
+
+  let heard;
+  try {
+    heard = await transcribe(audio, c.req.query('ext') ?? 'm4a');
+  } catch (err) {
+    return c.json({ error: `could not transcribe: ${err}` }, 500);
+  }
+  if (!heard.text.trim()) {
+    return c.json({ heard: '', reply: "I didn't catch that.", intent: 'silence' });
+  }
+
+  const intent = classify(heard.text);
+  let reply: string;
+
+  switch (intent.kind) {
+    case 'status': {
+      const [stats] = await query<{ active: number; brains: number; spend: number }>(
+        `SELECT (SELECT count(*)::int FROM sessions WHERE status IN ('running','idle')) AS active,
+                (SELECT count(*)::int FROM brain_accounts WHERE enabled AND status = 'available') AS brains,
+                (SELECT coalesce(sum(total_cost_usd),0) FROM sessions) AS spend`,
+      );
+      reply = `${stats?.active ?? 0} sessions running, ${stats?.brains ?? 0} brains available, ` +
+              `$${Number(stats?.spend ?? 0).toFixed(2)} spent in total.`;
+      break;
+    }
+    case 'needs_me': {
+      const [n] = await query<{ actions: number; blocked: number; asks: number }>(
+        `SELECT (SELECT count(*)::int FROM actions WHERE status = 'needs_confirmation') AS actions,
+                (SELECT count(*)::int FROM missions WHERE status = 'blocked') AS blocked,
+                (SELECT count(*)::int FROM requests WHERE status = 'open') AS asks`,
+      );
+      const bits: string[] = [];
+      if (n?.actions) bits.push(`${n.actions} approval${n.actions > 1 ? 's' : ''} waiting`);
+      if (n?.blocked) bits.push(`${n.blocked} mission${n.blocked > 1 ? 's' : ''} blocked`);
+      if (n?.asks) bits.push(`${n.asks} thing${n.asks > 1 ? 's' : ''} you asked for still open`);
+      reply = bits.length ? bits.join(', ') + '.' : 'Nothing needs you.';
+      break;
+    }
+    case 'capture': {
+      const row = await one<{ id: string }>(
+        `INSERT INTO captures (source, content, origin_surface_id)
+         VALUES ('voice', $1, (SELECT id FROM surfaces WHERE slug = 'automation')) RETURNING id`,
+        [intent.text],
+      );
+      await recordEvent({ type: 'capture.received', message: `captured by voice: ${intent.text.slice(0, 90)}`,
+                          data: { captureId: row?.id } });
+      reply = 'Noted.';
+      break;
+    }
+    default: {
+      // Anything genuinely open-ended goes to the agent, and the caller decides
+      // whether to wait — a real answer can take minutes, which is a bad thing
+      // to hold a phone's microphone open for.
+      reply = intent.text;
+      return c.json({ heard: heard.text, intent: 'ask', reply: null,
+                      forward: { agent: 'simba', prompt: intent.text } });
+    }
+  }
+
+  return c.json({ heard: heard.text, intent: intent.kind, reply });
 });
 
 // ---------------------------------------------------------------------------

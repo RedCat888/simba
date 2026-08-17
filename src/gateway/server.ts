@@ -15,7 +15,7 @@ import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
 import { scanProjects } from '../inventory/scan.js';
 import { allowedRoots, confine, listDir, readTextFile } from '../inventory/files.js';
-import { transcribe, speak, classify, voiceAvailable } from '../voice/index.js';
+import { transcribe, speak, classify, voiceAvailable, workerStatus } from '../voice/index.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -1040,9 +1040,10 @@ app.get('/api/find', async (c) => {
 // ---------------------------------------------------------------------------
 
 app.get('/api/voice', async (c) => {
-  // So a client can tell "voice is off" from "voice failed", which is the
-  // distinction this codebase keeps having to learn.
-  return c.json(voiceAvailable());
+  // So a client can tell "voice is off" from "voice failed" from "voice is
+  // warming up" — three states that feel identical from the outside and need
+  // completely different words.
+  return c.json({ ...voiceAvailable(), worker: await workerStatus() });
 });
 
 /** Audio in, transcript out. Separate from /ask so the phone can show what it heard. */

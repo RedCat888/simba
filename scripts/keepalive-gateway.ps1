@@ -76,6 +76,28 @@ if (Test-Path $ollama) {
     Write-Log 'ollama not installed — knowledge search will report unavailable'
 }
 
+# The voice worker: Whisper held warm on the 3070.
+#
+# Without it every spoken sentence pays an interpreter start and a full model
+# load — measured at two seconds for four words, of which the transcription
+# itself is a small fraction. With it, 0.16s. That gap is the difference between
+# talking to Simba and submitting requests to it.
+#
+# It borrows ReelAgent's interpreter because that is where faster-whisper and
+# its downloaded model already live; a second virtualenv would be a second copy
+# of a 2GB dependency to keep in step.
+$voiceWorker = Join-Path $root 'src\voice\worker.py'
+$reelPython  = Join-Path $env:USERPROFILE 'ReelAgent\.venv\Scripts\python.exe'
+if ((Test-Path $voiceWorker) -and (Test-Path $reelPython)) {
+    $voiceUp = Get-NetTCPConnection -LocalPort 4878 -State Listen -ErrorAction SilentlyContinue
+    if (-not $voiceUp) {
+        Write-Log 'starting the voice worker (whisper, held warm)'
+        Start-Process -FilePath $reelPython -ArgumentList $voiceWorker -WindowStyle Hidden
+    }
+} else {
+    Write-Log 'voice worker not startable — speech falls back to the slow per-request path'
+}
+
 $backoff = 2
 while ($true) {
     # Something else already holding the port means a manual run is in progress.

@@ -64,6 +64,44 @@ export function voiceAvailable(): { stt: boolean; tts: boolean; reason: string |
  * not the route's.
  */
 export async function transcribe(audio: Buffer, ext = 'm4a'): Promise<Heard> {
+  // The warm worker first. It holds Whisper in memory on the 3070 and answers
+  // a short utterance in about 0.16s; the fallback below spawns an interpreter
+  // and loads the model per request, which measured 2s for the same four words.
+  // Two seconds is the difference between talking to something and submitting
+  // to it, so this path is the feature and the fallback is only insurance.
+  try {
+    const res = await fetch(`${WORKER}/stt`, {
+      method: 'POST',
+      body: new Uint8Array(audio),
+      headers: { 'content-type': 'application/octet-stream' },
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (res.ok) {
+      const r = (await res.json()) as Heard & { device?: string };
+      if (r.text !== undefined) return r;
+    }
+  } catch {
+    // Worker down or still loading. Fall through rather than fail: a slow
+    // answer beats none, and this is exactly when you want the assistant most.
+  }
+  return transcribeColdStart(audio, ext);
+}
+
+const WORKER = process.env.SIMBA_VOICE_WORKER ?? 'http://127.0.0.1:4878';
+
+/** Is the warm worker up, and has it finished loading? */
+export async function workerStatus(): Promise<{ up: boolean; loaded: boolean; device: string | null }> {
+  try {
+    const res = await fetch(`${WORKER}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return { up: false, loaded: false, device: null };
+    const r = (await res.json()) as { loaded?: boolean; device?: string };
+    return { up: true, loaded: Boolean(r.loaded), device: r.device ?? null };
+  } catch {
+    return { up: false, loaded: false, device: null };
+  }
+}
+
+async function transcribeColdStart(audio: Buffer, ext = 'm4a'): Promise<Heard> {
   const dir = await mkdtemp(join(tmpdir(), 'simba-voice-'));
   const src = join(dir, `clip.${ext}`);
   try {

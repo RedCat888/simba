@@ -16,6 +16,7 @@ import { unreapedWorktrees } from '../session/worktree.js';
 import { scanProjects } from '../inventory/scan.js';
 import { allowedRoots, confine, listDir, readTextFile } from '../inventory/files.js';
 import { transcribe, speak, classify, voiceAvailable, workerStatus } from '../voice/index.js';
+import { getHomeSessionId, sayToSimba, loadToday } from '../ops/simba-home.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -681,7 +682,9 @@ app.get('/api/system/memory', async (c) => {
             round(avg(simba_mb))::int          AS simba_mb,
             round(avg(ollama_mb))::int         AS ollama_mb,
             round(avg(postgres_mb))::int       AS postgres_mb,
-            round(avg(process_count))::int     AS process_count
+            round(avg(process_count))::int     AS process_count,
+            round(avg(commit_used_mb))::int    AS commit_used_mb,
+            max(commit_limit_mb)::int          AS commit_limit_mb
        FROM (
          SELECT to_timestamp(floor(extract(epoch FROM ts) / 600) * 600) AS bucket, *
            FROM system_samples
@@ -1132,12 +1135,42 @@ app.post('/api/voice/ask', async (c) => {
       break;
     }
     default: {
-      // Anything genuinely open-ended goes to the agent, and the caller decides
-      // whether to wait — a real answer can take minutes, which is a bad thing
-      // to hold a phone's microphone open for.
-      reply = intent.text;
-      return c.json({ heard: heard.text, intent: 'ask', reply: null,
-                      forward: { agent: 'simba', prompt: intent.text } });
+      // Open-ended speech continues the one Simba thread, on every surface.
+      // Returning `forward` and hoping a client would start a session is how
+      // every "Talk to Simba" tap became a new conversation.
+      //
+      // Same reach check as /api/simba/say, and for the same reason. This route
+      // used to only *suggest* a forward, so the gate lived wherever the client
+      // went next. Now that it drives the session itself, skipping the check
+      // would make audio the way around it: a surface that is denied `simba`,
+      // or is already at its session ceiling, could talk to it anyway just by
+      // posting a recording instead of text.
+      const surface = surfaceOf(c);
+      const reach = await canReachAgent(surface, 'simba');
+      if (!reach.allowed) {
+        await logDenial(surface, 'simba.say', reach.reason ?? '');
+        return c.json({ heard: heard.text, intent: 'ask', reply: reach.reason,
+                        error: reach.reason }, 403);
+      }
+      const sent = await sayToSimba(manager, {
+        text: intent.text,
+        surfaceId: surface.id,
+      });
+      if ('error' in sent) {
+        return c.json({
+          heard: heard.text,
+          intent: 'ask',
+          reply: sent.error,
+          error: sent.error,
+        }, 409);
+      }
+      return c.json({
+        heard: heard.text,
+        intent: 'ask',
+        reply: null,
+        sessionId: sent.sessionId,
+        started: sent.started,
+      });
     }
   }
 
@@ -1789,6 +1822,44 @@ app.post('/api/panic', async (c) => {
  * the remote surface to JSON + WebSocket is a meaningfully smaller thing to
  * defend.
  */
+/**
+ * Today — what needs you, what's running, what came in overnight.
+ * One payload so the home screen is not five client fetches that drift.
+ */
+app.get('/api/today', async (c) => {
+  return c.json(await loadToday());
+});
+
+/**
+ * The one conversation with Simba. Phone and desktop share it.
+ * Talking here does not go through mayDriveSession: this thread is the
+ * product, not a coding session someone else started.
+ */
+app.get('/api/simba', async (c) => {
+  const sessionId = await getHomeSessionId();
+  return c.json({ sessionId });
+});
+
+app.post('/api/simba/say', async (c) => {
+  const body = await c.req.json<{ text?: string }>();
+  const surface = surfaceOf(c);
+  const reach = await canReachAgent(surface, 'simba');
+  if (!reach.allowed) {
+    await logDenial(surface, 'simba.say', reach.reason ?? '');
+    return c.json({ error: reach.reason }, 403);
+  }
+  try {
+    const result = await sayToSimba(manager, {
+      text: body.text ?? '',
+      surfaceId: surface.id,
+    });
+    if ('error' in result) return c.json(result, 409);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+  }
+});
+
 app.get('/', async (c) => {
   if (c.get('channel') === 'tunnel') return c.notFound();
   const html = await readFile(join(config.root, 'app', 'index.html'), 'utf8');

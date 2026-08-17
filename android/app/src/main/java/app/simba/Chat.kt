@@ -227,13 +227,23 @@ fun ChatScreen(
         state.sending = true
         state.thinking = true
         scope.launch {
-            runCatching { vm.api?.send(sessionId, text) }
-                .onSuccess { r ->
+            runCatching {
+                val api = vm.api ?: error("not connected")
+                val home = runCatching { api.simba().sessionId }.getOrNull()
+                if (home == sessionId) {
+                    val r = api.saySimba(text)
+                    if (r.error != null) error(r.error)
+                    r.sessionId
+                } else {
+                    api.send(sessionId, text).movedTo
+                }
+            }
+                .onSuccess { moved ->
                     // The work may have moved: reviving a dead session or a
                     // brain swap starts a new one. Without following it the
                     // stream filter watches an id that will never speak again,
                     // and the reply simply never appears.
-                    r?.movedTo?.takeIf { it.isNotBlank() && it != sessionId }?.let { moved ->
+                    moved?.takeIf { it.isNotBlank() && it != sessionId }?.let { next ->
                         state.items.add(
                             ChatItem.Notice(
                                 "Continued in a new session after a restart or brain swap.",
@@ -241,7 +251,7 @@ fun ChatScreen(
                                 System.currentTimeMillis(),
                             ),
                         )
-                        onMoved(moved)
+                        onMoved(next)
                     }
                 }
                 .onFailure {

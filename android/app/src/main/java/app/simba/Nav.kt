@@ -72,7 +72,7 @@ enum class Destination(
     /** Fluid draws its own, in one stroke weight on one grid. See [SimbaIcons]. */
     val fluid: ImageVector,
 ) {
-    Now("Now", "now", "!", Icons.Rounded.Bolt, Icons.Outlined.Bolt, SimbaIcons.Missions),
+    Now("Today", "today", "!", Icons.Rounded.Bolt, Icons.Outlined.Bolt, SimbaIcons.Missions),
     Chat("Chat", "chat", ">", Icons.Rounded.Forum, Icons.Outlined.Forum, SimbaIcons.Chat),
     Missions("Missions", "missions", "*", Icons.Rounded.Insights, Icons.Outlined.Insights, SimbaIcons.Knowledge),
     System("System", "sys", "#", Icons.Rounded.Terminal, Icons.Outlined.Terminal, SimbaIcons.System),
@@ -85,6 +85,7 @@ enum class Destination(
             // The two destinations that stopped being tabs are still typable,
             // because Console's whole argument is that you get anywhere by
             // naming it, and removing a tab should not remove a word.
+            if (q in setOf("now", "home")) return Now
             if (q in setOf("agents", "agent", "brains", "know", "knowledge", "skills", "memory")) {
                 return System
             }

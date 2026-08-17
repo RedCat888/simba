@@ -484,6 +484,36 @@ data class StartResult(
     val note: String? = null,
 )
 
+@Serializable
+data class SimbaHome(
+    val sessionId: String? = null,
+)
+
+@Serializable
+data class SimbaSayResult(
+    val sessionId: String? = null,
+    val started: Boolean = false,
+    val error: String? = null,
+)
+
+@Serializable
+data class TodayItem(
+    val kind: String = "",
+    val id: String = "",
+    val title: String = "",
+    val detail: String? = null,
+    val status: String? = null,
+    val at: String? = null,
+)
+
+@Serializable
+data class Today(
+    val needsMe: List<TodayItem> = emptyList(),
+    val running: List<TodayItem> = emptyList(),
+    val overnight: List<TodayItem> = emptyList(),
+    val simba: SimbaHome = SimbaHome(),
+)
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -661,6 +691,21 @@ class SimbaApi(
      */
     suspend fun failoverSession(sessionId: String): String =
         call(req("/api/sessions/$sessionId/failover").post("{}".toRequestBody("application/json".toMediaType())).build())
+
+    suspend fun today(): Today = get("/api/today")
+
+    suspend fun simba(): SimbaHome = get("/api/simba")
+
+    suspend fun saySimba(text: String): SimbaSayResult =
+        post(
+            "/api/simba/say",
+            json.encodeToString(
+                kotlinx.serialization.json.JsonObject.serializer(),
+                kotlinx.serialization.json.buildJsonObject {
+                    put("text", kotlinx.serialization.json.JsonPrimitive(text))
+                },
+            ),
+        )
 
     suspend fun startAgent(slug: String, prompt: String): StartResult =
         post(

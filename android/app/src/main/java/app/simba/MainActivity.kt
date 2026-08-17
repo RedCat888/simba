@@ -815,8 +815,15 @@ private fun ChatListScreen(vm: SimbaVm, open: (String, String) -> Unit) {
         if (starting || simba == null) return
         starting = true
         scope.launch {
+            val api = vm.api
+            val home = runCatching { api?.simba() }.getOrNull()
+            if (home?.sessionId != null) {
+                starting = false
+                open(home.sessionId, simba.name)
+                return@launch
+            }
             val r = runCatching {
-                vm.api?.startAgent(simba.slug, "Hey — what's going on with the system right now?")
+                api?.saySimba("Hey — what's going on with the system right now?")
             }.getOrNull()
             starting = false
             vm.refresh()

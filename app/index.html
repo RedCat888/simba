@@ -73,6 +73,7 @@
     --shadow:0 1px 2px rgba(0,0,0,.28), 0 1px 3px rgba(0,0,0,.22);
   }
 
+  nav .nav-label{display:none}
   html,body{height:100%}
   body{
     background:var(--bg);color:var(--fg);
@@ -281,6 +282,63 @@
   .needs > span,.stuck > span{color:var(--fg);font-weight:400}
   .needs{color:var(--accent)}
 
+  /* ── dialogs, toasts, rendered markdown ───────────────────────────────
+     Added with their markup rather than after it, because the last time a
+     stylesheet here referenced classes that did not exist the result was tool
+     rows scrolling the page sideways. */
+  .modal-wrap{
+    position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:20px;
+    background:rgba(15,14,13,.55);backdrop-filter:blur(3px);
+  }
+  .modal{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:22px 24px;width:min(560px,100%);max-height:86vh;overflow-y:auto;
+    box-shadow:0 12px 40px rgba(0,0,0,.28);
+  }
+  .modal.narrow{width:min(440px,100%)}
+  .modal h2{font-size:19px;font-weight:650;letter-spacing:-.01em;margin-bottom:6px}
+  .modal-intro{color:var(--dim);font-size:14px;margin-bottom:16px;max-width:60ch}
+  .modal label{display:block;margin-bottom:14px}
+  .modal label > span{
+    display:block;font-size:13px;font-weight:600;margin-bottom:5px;
+  }
+  .modal label > span i{color:var(--faint);font-weight:400;font-style:normal;font-size:12px}
+  .modal label small{display:block;color:var(--faint);font-size:12px;margin-top:5px;max-width:58ch}
+  .modal-actions{display:flex;gap:9px;justify-content:flex-end;margin-top:20px}
+
+  #toasts{position:fixed;right:18px;bottom:18px;z-index:120;display:flex;flex-direction:column;gap:8px}
+  .toast{
+    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--info);
+    border-radius:9px;padding:10px 14px;font-size:13.5px;max-width:min(420px,80vw);
+    box-shadow:0 6px 20px rgba(0,0,0,.22);
+  }
+  .toast.ok{border-left-color:var(--ok)}
+  .toast.err{border-left-color:var(--err)}
+
+  /* An assistant's reply is markdown, so it renders as markdown. Constrained to
+     the bubble's measure — headings inside a chat message are structure, not a
+     reason to break out of the column. */
+  .msg h1,.msg h2,.msg h3,.msg h4,.msg h5,.msg h6{
+    font-size:15px;font-weight:650;margin:14px 0 4px;letter-spacing:-.005em;
+  }
+  .msg h1:first-child,.msg h2:first-child,.msg h3:first-child{margin-top:0}
+  .msg p{margin:0 0 10px;max-width:none}
+  .msg p:last-child{margin-bottom:0}
+  .msg ul,.msg ol{margin:0 0 10px;padding-left:22px}
+  .msg li{margin-bottom:3px}
+  .msg li::marker{color:var(--faint)}
+  .msg code{
+    font-family:var(--mono);font-size:.88em;background:var(--panel2);
+    padding:1px 5px;border-radius:4px;
+  }
+  .msg pre.code{
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:11px 13px;margin:0 0 10px;overflow-x:auto;
+  }
+  .msg pre.code code{background:none;padding:0;font-size:12.5px;line-height:1.5}
+  .msg strong{font-weight:650}
+  .msg a{color:var(--link)}
+
   /* Prose and search results read, so they get a measure. */
   .reading{max-width:var(--read);margin:0 auto}
 
@@ -322,6 +380,10 @@
       font-family:var(--serif);font-size:20px;font-weight:600;letter-spacing:-.01em;
       color:var(--fg);padding:6px 12px 16px;
     }
+    nav .nav-label{
+      display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+      color:var(--faint);padding:16px 12px 6px;
+    }
     nav button{
       text-align:left;border-radius:8px;border-bottom:none;padding:8px 12px;
     }
@@ -349,10 +411,14 @@
 </header>
 
 <nav>
-  <button data-tab="find" class="sel">Find</button>
-  <button data-tab="missions">Missions</button>
-  <button data-tab="agents">Agents</button>
+  <button data-tab="today" class="sel">Today</button>
+  <button data-tab="talk">Talk</button>
+  <button data-tab="inbox">Inbox</button>
+  <button data-tab="missions">Work</button>
+  <span class="nav-label">Find &amp; operator</span>
+  <button data-tab="find">Find</button>
   <button data-tab="sessions">Sessions</button>
+  <button data-tab="agents">Agents</button>
   <button data-tab="brains">Brains</button>
   <button data-tab="requests">Requests</button>
   <button data-tab="projects">Projects</button>
@@ -388,18 +454,199 @@ const applyTheme = () => {
 };
 applyTheme();
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const md = (s) => {
-  const fences = [];
-  let h = esc(s).replace(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/g, (_, code) => {
-    fences.push(`<pre class="code"><code>${code.replace(/\n$/, '')}</code></pre>`);
-    return `\0${fences.length - 1}\0`;
+/* ---------------------------------------------------------------------------
+   Three things a dashboard needs that this one was borrowing from the browser.
+
+   `prompt()` was creating a mission: four modal browser dialogs in a row, each
+   one a single unlabelled line, no way to see what you had already typed, no
+   way back, and Chrome offering to suppress them by the third. That is not a
+   form, it is an interrogation.
+
+   The back button closed the page, because nothing ever touched history. In a
+   single-page app that is the browser doing exactly what it was told — there
+   was only ever one entry.
+
+   And agent output is markdown. Rendering it as plain text means every reply
+   arrives full of asterisks and backticks, which is the format's punctuation
+   showing through because nothing interpreted it.
+   --------------------------------------------------------------------------- */
+
+// ── markdown ────────────────────────────────────────────────────────────────
+
+/**
+ * Enough markdown for what an agent actually writes.
+ *
+ * Escapes first, then adds tags — never the other way round. Model output is
+ * attacker-influenceable text (a reel caption, a README, a page it fetched),
+ * so it is treated as data that gets decorated, not as markup to be trusted.
+ *
+ * Deliberately not a full CommonMark implementation. Tables and footnotes cost
+ * far more than they earn in a chat transcript, and every construct added here
+ * is another place to get the escaping wrong.
+ */
+function md(src) {
+  if (!src) return '';
+  let s = esc(src);
+
+  // Fenced code comes out first: everything inside it has to survive the inline
+  // rules below untouched. The placeholder is NUL-delimited rather than
+  // space-delimited — a " 0 " placeholder matches any space-digit-space in
+  // ordinary prose, so "completed step 3 done" turned into a code block.
+  // U+E000 is a private-use codepoint: it cannot appear in the escaped text,
+  // so it cannot collide. A raw NUL would work too, but not in a file that
+  // gets served as HTML, diffed and grepped.
+  const blocks = [];
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    blocks.push('<pre class="code"><code>' + code.replace(/\n$/, '') + '</code></pre>');
+    return '\uE000' + (blocks.length - 1) + '\uE000';
   });
-  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  h = h.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  h = h.replace(/\n/g, '<br>');
-  return h.replace(/\0(\d+)\0/g, (_, i) => fences[i]);
-};
+
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  s = s.replace(/^###### (.*)$/gm, '<h6>$1</h6>')
+       .replace(/^##### (.*)$/gm, '<h5>$1</h5>')
+       .replace(/^#### (.*)$/gm, '<h4>$1</h4>')
+       .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+       .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+       .replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+       .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  // http(s) only. A markdown link is a destination somebody else chose, and
+  // javascript: in an href is the whole of that attack.
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+                '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+
+  // Runs of bullets become one list, not one list per line.
+  s = s.replace(/(?:^[-*+] .*(?:\n|$))+/gm, (run) => {
+    const items = run.trim().split('\n')
+      .map((l) => '<li>' + l.replace(/^[-*+] /, '') + '</li>').join('');
+    return '<ul>' + items + '</ul>\n';
+  });
+  s = s.replace(/(?:^\d+\. .*(?:\n|$))+/gm, (run) => {
+    const items = run.trim().split('\n')
+      .map((l) => '<li>' + l.replace(/^\d+\. /, '') + '</li>').join('');
+    return '<ol>' + items + '</ol>\n';
+  });
+
+  // Restore code fences before paragraphs are decided, padded with blank lines
+  // so each one becomes its own chunk. A fence written on the line after a
+  // sentence would otherwise land inside that sentence's paragraph — a <pre>
+  // inside a <p>, which is invalid and renders with stray breaks around it.
+  s = s.replace(/\uE000(\d+)\uE000/g, (_, i) => '\n\n' + blocks[+i] + '\n\n');
+
+  // Paragraphs are decided per chunk, rather than wrapping everything and then
+  // unwrapping whatever turned out to be a block. That earlier approach left a
+  // dangling </p> whenever only the opening tag matched, and needed <br>s
+  // stripped back off every block edge afterwards. A chunk that already starts
+  // with a block tag is a block; everything else is a paragraph.
+  const startsBlock = /^<(?:h[1-6]|ul|ol|pre)[\s>]/;
+  return s
+    .split(/\n{2,}/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => (startsBlock.test(chunk)
+      ? chunk
+      : '<p>' + chunk.replace(/\n/g, '<br>') + '</p>'))
+    .join('');
+}
+
+// ── dialogs ─────────────────────────────────────────────────────────────────
+
+/**
+ * A real form, in the page.
+ *
+ * Fields is [{name, label, placeholder, type, required, hint}]. Resolves with
+ * the values, or null if dismissed — so a caller reads like the prompt() it
+ * replaces without inheriting any of prompt()'s behaviour.
+ */
+function askForm({ title, intro, fields, confirmLabel = 'Create' }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    wrap.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+        <h2>${esc(title)}</h2>
+        ${intro ? `<p class="modal-intro">${esc(intro)}</p>` : ''}
+        <form>
+          ${fields.map((f) => `
+            <label>
+              <span>${esc(f.label)}${f.required ? '' : ' <i>optional</i>'}</span>
+              ${f.type === 'textarea'
+                ? `<textarea name="${esc(f.name)}" rows="3" placeholder="${esc(f.placeholder ?? '')}"
+                     ${f.required ? 'required' : ''}></textarea>`
+                : `<input name="${esc(f.name)}" type="text" placeholder="${esc(f.placeholder ?? '')}"
+                     ${f.required ? 'required' : ''}>`}
+              ${f.hint ? `<small>${esc(f.hint)}</small>` : ''}
+            </label>`).join('')}
+          <div class="modal-actions">
+            <button type="button" data-cancel>Cancel</button>
+            <button type="submit" class="primary">${esc(confirmLabel)}</button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(wrap);
+
+    const close = (value) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(value); };
+    const onKey = (e) => { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', onKey);
+    wrap.querySelector('[data-cancel]').onclick = () => close(null);
+    // Clicking the backdrop dismisses; clicking the panel must not.
+    wrap.onclick = (e) => { if (e.target === wrap) close(null); };
+    wrap.querySelector('form').onsubmit = (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      close(data);
+    };
+    wrap.querySelector('input, textarea')?.focus();
+  });
+}
+
+/** Yes or no, with the consequence spelled out rather than implied. */
+function askConfirm({ title, body, confirmLabel = 'Confirm', danger = false }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    wrap.innerHTML = `
+      <div class="modal narrow" role="alertdialog" aria-modal="true">
+        <h2>${esc(title)}</h2>
+        <p class="modal-intro">${esc(body)}</p>
+        <div class="modal-actions">
+          <button type="button" data-cancel>Cancel</button>
+          <button type="button" class="${danger ? 'danger' : 'primary'}" data-ok>${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const close = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    document.addEventListener('keydown', onKey);
+    wrap.querySelector('[data-cancel]').onclick = () => close(false);
+    wrap.querySelector('[data-ok]').onclick = () => close(true);
+    wrap.onclick = (e) => { if (e.target === wrap) close(false); };
+    wrap.querySelector('[data-ok]').focus();
+  });
+}
+
+/**
+ * A message that does not stop the world.
+ *
+ * alert() blocks the page and has to be dismissed before anything can continue,
+ * which for "saved" is theatre and for an error means you cannot look at the
+ * thing the error is about while reading it.
+ */
+function toast(message, tone = 'info') {
+  let host = document.getElementById('toasts');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toasts';
+    document.body.appendChild(host);
+  }
+  const el = document.createElement('div');
+  el.className = `toast ${tone}`;
+  el.textContent = String(message).slice(0, 300);
+  host.appendChild(el);
+  // Errors linger: they are read, and often copied.
+  setTimeout(() => el.remove(), tone === 'err' ? 9000 : 4000);
+}
+
 const ago = (t) => {
   if (!t) return 'never';
   const s = (Date.now() - new Date(t)) / 1000;
@@ -423,7 +670,7 @@ const usd = (n) => {
   return '$' + (Number.isInteger(v) ? v.toFixed(0) : v.toFixed(2));
 };
 
-let tab = 'find';
+let tab = 'today';
 let openSession = null;
 let sessionsExpanded = false;
 let live = { messages: [], sessionId: null };
@@ -560,14 +807,21 @@ async function renderAgents() {
   $('main').querySelectorAll('[data-start]').forEach((b) =>
     b.onclick = async () => {
       const slug = b.dataset.start;
-      const prompt = window.prompt(`What should ${slug} do?`);
+      const form = await askForm({
+        title: `Start ${slug}`,
+        intro: 'A one-off session. For something that should run repeatedly, make it a mission instead.',
+        confirmLabel: 'Start',
+        fields: [{ name: 'prompt', label: 'What should it do?', required: true, type: 'textarea',
+                   placeholder: 'Check which scheduled tasks failed overnight and why.' }],
+      });
+      const prompt = form?.prompt?.trim();
       if (!prompt) return;
       b.disabled = true; b.textContent = '…';
       try {
         const r = await api(`/api/agents/${slug}/start`, { method: 'POST', body: JSON.stringify({ prompt }) });
         if (r.sessionId) { tab = 'sessions'; openSession = r.sessionId; render(); }
-        else alert(r.error + (r.sleepUntil ? `\nSleeping until ${new Date(r.sleepUntil).toLocaleString()}` : ''));
-      } catch (e) { alert(e.message); }
+        else toast(r.error + (r.sleepUntil ? ` — sleeping until ${new Date(r.sleepUntil).toLocaleString()}` : ''), 'err');
+      } catch (e) { toast(e.message, 'err'); }
       finally { b.disabled = false; b.textContent = 'Start'; }
     });
 
@@ -645,7 +899,7 @@ async function renderSessions() {
       : ''}`;
 
   $('main').querySelectorAll('[data-open]').forEach((c) =>
-    c.onclick = () => { openSession = c.dataset.open; render(); });
+    c.onclick = () => { openSession = c.dataset.open; pushRoute(); render(); });
   const more = $('moresess');
   if (more) more.onclick = () => { sessionsExpanded = true; render(); };
 }
@@ -670,7 +924,7 @@ async function renderThread() {
 
   $('main').innerHTML = `
     <div class="thread">
-      <span class="back" id="back">← all sessions</span>
+      <span class="back" id="back">${tab === 'talk' ? '← Today' : '← all sessions'}</span>
       ${brainsUsed.length > 1 ? `<div class="swap" style="margin-bottom:10px">This session ran across ${brainsUsed.length} brains: ${brainsUsed.join(' → ')}</div>` : ''}
       ${cp && cp.work_remaining ? `<div class="card" style="margin-bottom:10px">
         <div class="sub" style="margin:0 0 5px">Latest checkpoint — ${esc(cp.reason)}</div>
@@ -691,7 +945,7 @@ async function renderThread() {
         }).join('')}
       </div>
       <div class="composer">
-        <textarea id="input" placeholder="Message this agent…" rows="1"></textarea>
+        <textarea id="input" placeholder="${tab === 'talk' ? 'Message Simba…' : 'Message this agent…'}" rows="1"></textarea>
         <button class="primary" id="send">Send</button>
         <button id="kill">Kill</button>
       </div>
@@ -699,7 +953,11 @@ async function renderThread() {
 
   const box = $('msgs');
   box.scrollTop = box.scrollHeight;
-  $('back').onclick = () => { openSession = null; render(); };
+  $('back').onclick = () => {
+    openSession = null;
+    if (tab === 'talk') tab = 'today';
+    render();
+  };
   $('kill').onclick = async () => { await api(`/api/sessions/${id}/kill`, { method: 'POST' }); render(); };
 
   const send = async () => {
@@ -707,7 +965,11 @@ async function renderThread() {
     if (!t) return;
     $('input').value = '';
     appendLive({ kind: 'text', role: 'user', text: t, partial: false });
-    try { await api(`/api/sessions/${id}/send`, { method: 'POST', body: JSON.stringify({ text: t }) }); }
+    try {
+      const path = tab === 'talk' ? '/api/simba/say' : `/api/sessions/${id}/send`;
+      const r = await api(path, { method: 'POST', body: JSON.stringify({ text: t }) });
+      if (r.sessionId && r.sessionId !== id) { openSession = r.sessionId; render(); }
+    }
     catch (e) { appendLive({ kind: 'text', role: 'system', text: `send failed: ${e.message}`, partial: false }); }
   };
   $('send').onclick = send;
@@ -765,19 +1027,43 @@ async function renderMissions() {
     }).join('')}</div>`;
 
   $('main').querySelectorAll('[data-mission]').forEach((el) =>
-    el.onclick = () => { openMission = el.dataset.mission; render(); });
+    el.onclick = () => { openMission = el.dataset.mission; pushRoute(); render(); });
 
   $('newmission').onclick = async () => {
-    const title = prompt('Mission title?');
-    if (!title) return;
-    const objective = prompt('What exactly should it accomplish? Be specific — this is stored verbatim and is the contract.');
-    if (!objective) return;
-    const acceptanceCriteria = prompt('How will we know it is done? (optional)') || undefined;
-    const workingDir = prompt('Working directory? (optional)') || undefined;
+    // One form, all of it visible at once. This was four window.prompt() calls
+    // in sequence: each a single unlabelled line, no way to see what you had
+    // already typed, no way back, and Chrome offering to block them by the
+    // third. The objective is stored verbatim and is the contract, so it needs
+    // room and it needs to be re-readable before you commit to it.
+    const form = await askForm({
+      title: 'New mission',
+      intro: 'An objective Simba pursues on its own across as many sessions as it needs.',
+      confirmLabel: 'Create mission',
+      fields: [
+        { name: 'title', label: 'Title', required: true, placeholder: 'Tidy the downloads folder' },
+        { name: 'objective', label: 'Objective', required: true, type: 'textarea',
+          placeholder: 'Sort C:/workspace/Downloads by type. Delete nothing.',
+          hint: 'Stored verbatim. This is the contract the agent works to.' },
+        { name: 'acceptanceCriteria', label: 'How will we know it is done?', type: 'textarea',
+          placeholder: 'Every file is in a dated folder and nothing is left loose.' },
+        { name: 'workingDir', label: 'Working directory',
+          placeholder: 'C:/workspace/simba' },
+        { name: 'schedule', label: 'Schedule',
+          placeholder: 'every morning', hint: 'Plain English. "weekdays at 9", "every 30 minutes".' },
+      ],
+    });
+    if (!form || !form.title?.trim() || !form.objective?.trim()) return;
     try {
-      await api('/api/missions', { method: 'POST', body: JSON.stringify({ title, objective, acceptanceCriteria, workingDir }) });
+      await api('/api/missions', { method: 'POST', body: JSON.stringify({
+        title: form.title.trim(),
+        objective: form.objective.trim(),
+        acceptanceCriteria: form.acceptanceCriteria?.trim() || undefined,
+        workingDir: form.workingDir?.trim() || undefined,
+        schedule: form.schedule?.trim() || undefined,
+      }) });
+      toast('Mission created', 'ok');
       render();
-    } catch (e) { alert(e.message); }
+    } catch (e) { toast(e.message, 'err'); }
   };
 }
 
@@ -827,7 +1113,7 @@ async function renderMissionDetail() {
         <td class="mono">${ago(l.ts)}</td><td>${esc(l.message)}</td></tr>`).join('')}</table>
     </div>`;
 
-  $('back').onclick = () => { openMission = null; render(); };
+  $('back').onclick = () => history.back();
   for (const a of ['pause', 'resume', 'retry', 'cancel']) {
     $(`m-${a}`).onclick = async () => {
       await api(`/api/missions/${openMission}/${a}`, { method: 'POST' });
@@ -1091,7 +1377,7 @@ async function renderRequests() {
     b.onclick = async () => {
       b.disabled = true;
       try { await api(`/api/requests/${b.dataset.req}/${b.dataset.act}`, { method: 'POST' }); render(); }
-      catch (e) { b.disabled = false; alert(e.message); }
+      catch (e) { b.disabled = false; toast(e.message, 'err'); }
     };
   });
 }
@@ -1141,7 +1427,7 @@ async function renderProjects() {
   $('rescan').onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = 'Scanning…';
     try { await api('/api/projects/scan', { method: 'POST' }); render(); }
-    catch (err) { e.target.disabled = false; e.target.textContent = 'Rescan now'; alert(err.message); }
+    catch (err) { e.target.disabled = false; e.target.textContent = 'Rescan now'; toast(err.message, 'err'); }
   };
 }
 
@@ -1202,11 +1488,151 @@ async function renderReels() {
   </div>`;
 }
 
+function todayRow(item, go) {
+  return `<div class="card" style="margin-bottom:8px;cursor:pointer" data-go="${esc(go || '')}" data-id="${esc(item.id)}">
+    <div class="row"><h3>${esc(item.title)}</h3>
+      ${item.status ? `<span class="pill">${esc(item.status)}</span>` : ''}</div>
+    ${item.detail ? `<div class="sub">${esc(item.detail)}</div>` : ''}
+  </div>`;
+}
+
+async function renderToday() {
+  const t = await api('/api/today');
+  const section = (title, items, empty, go) => `
+    <div class="sec">${esc(title)}</div>
+    ${items.length ? items.map((i) => todayRow(i, go)).join('') : `<div class="empty" style="padding:20px">${esc(empty)}</div>`}`;
+  $('main').innerHTML = `<div class="reading">
+    <h2 style="font-family:var(--serif);font-weight:600;margin:0 0 18px">Today</h2>
+    ${section('Needs you', t.needsMe, 'Nothing waiting on you.', 'need')}
+    ${section('Running', t.running, 'Nothing is running.', 'run')}
+    ${section('Overnight', t.overnight, 'Quiet night.', 'night')}
+    <div class="composer" style="margin-top:22px">
+      <textarea id="today-say" rows="1" placeholder="Talk to Simba — same thread on the phone"></textarea>
+      <button class="primary" id="today-send">Send</button>
+    </div>
+  </div>`;
+  const send = async () => {
+    const text = $('today-say')?.value?.trim();
+    if (!text) return;
+    const r = await api('/api/simba/say', { method: 'POST', body: JSON.stringify({ text }) });
+    openSession = r.sessionId;
+    tab = 'talk';
+    render();
+  };
+  $('today-send').onclick = send;
+  $('today-say').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  $('main').querySelectorAll('[data-go]').forEach((el) => {
+    el.onclick = () => {
+      const kind = el.dataset.go;
+      const id = el.dataset.id;
+      if (kind === 'run' && id) { openSession = id; tab = 'talk'; render(); }
+      else if (kind === 'need') { tab = 'inbox'; render(); }
+    };
+  });
+}
+
+async function renderTalk() {
+  const home = await api('/api/simba');
+  if (home.sessionId) {
+    openSession = home.sessionId;
+    await renderSessions();
+    return;
+  }
+  $('main').innerHTML = `<div class="reading">
+    <h2 style="font-family:var(--serif);font-weight:600;margin:0 0 8px">Talk</h2>
+    <p class="sub" style="margin-bottom:18px">One thread. Phone and this PC continue the same conversation.</p>
+    <div class="composer">
+      <textarea id="talk-say" rows="2" placeholder="What do you need?"></textarea>
+      <button class="primary" id="talk-send">Send</button>
+    </div>
+  </div>`;
+  const send = async () => {
+    const text = $('talk-say')?.value?.trim();
+    if (!text) return;
+    const r = await api('/api/simba/say', { method: 'POST', body: JSON.stringify({ text }) });
+    openSession = r.sessionId;
+    await renderSessions();
+  };
+  $('talk-send').onclick = send;
+  $('talk-say').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+}
+
+async function renderInbox() {
+  const [captures, asks, reels] = await Promise.all([
+    api('/api/captures').catch(() => []),
+    api('/api/requests').catch(() => []),
+    api('/api/reels').catch(() => ({ items: [] })),
+  ]);
+  const reelItems = reels.items || reels || [];
+  const cap = (captures || []).slice(0, 30);
+  const reqs = (asks || []).filter((r) => r.status === 'open').slice(0, 30);
+  $('main').innerHTML = `<div class="reading">
+    <h2 style="font-family:var(--serif);font-weight:600;margin:0 0 18px">Inbox</h2>
+    <div class="sec">Open asks</div>
+    ${reqs.length ? reqs.map((r) => `<div class="card" style="margin-bottom:8px">
+      <h3>${esc(r.ask || r.text || 'Ask')}</h3>
+      <div class="meta"><span>${esc(r.source || '')}</span><span>${esc(r.status)}</span></div>
+    </div>`).join('') : `<div class="empty" style="padding:20px">Nothing owed.</div>`}
+    <div class="sec">Inbound</div>
+    ${cap.length ? cap.map((c) => `<div class="card" style="margin-bottom:8px">
+      <h3>${esc(c.title || (c.content || '').slice(0, 80) || c.source)}</h3>
+      <div class="meta"><span>${esc(c.source || '')}</span><span>${esc(c.status)}</span></div>
+    </div>`).join('') : `<div class="empty" style="padding:20px">No captures waiting.</div>`}
+    <div class="sec">Reels</div>
+    ${reelItems.length ? reelItems.slice(0, 12).map((r) => `<div class="card" style="margin-bottom:8px">
+      <h3>${esc(r.title || 'Reel')}</h3>
+      ${r.summary ? `<div class="sub">${esc(r.summary)}</div>` : ''}
+    </div>`).join('') : `<div class="empty" style="padding:20px">No reels yet.</div>`}
+  </div>`;
+}
+
+/* ---------------------------------------------------------------------------
+   Back should go back.
+
+   Nothing ever touched history, so the app had exactly one entry and a back
+   press did the only thing the browser could do with that: leave the page. In a
+   single-page app it reads as the app closing itself.
+
+   The URL now carries where you are, which also makes a view linkable and a
+   refresh land where you were rather than back on Missions.
+   --------------------------------------------------------------------------- */
+function routeHash() {
+  if (openSession) return '#/sessions/' + openSession;
+  if (openMission) return '#/missions/' + openMission;
+  return '#/' + tab;
+}
+
+/** Push only when the destination differs, or Back walks through duplicates. */
+function pushRoute() {
+  const want = routeHash();
+  if (location.hash !== want) history.pushState({ tab, openSession, openMission }, '', want);
+}
+
+function applyHash() {
+  const raw = (location.hash || '#/missions').replace(/^#\//, '');
+  const [where, id] = raw.split('/');
+  openSession = null;
+  openMission = null;
+  if (where === 'sessions' && id) { tab = 'sessions'; openSession = id; }
+  else if (where === 'missions' && id) { tab = 'missions'; openMission = id; }
+  else if (where) { tab = where; }
+  render();
+}
+
+window.addEventListener('popstate', applyHash);
+
 async function render() {
-  document.body.classList.toggle('thread-open', tab === 'sessions' && !!openSession);
+  document.body.classList.toggle('thread-open', (tab === 'sessions' || tab === 'talk') && !!openSession);
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.tab === tab));
   try {
-    if (tab === 'find') await renderFind();
+    if (tab === 'today') await renderToday();
+    else if (tab === 'talk') await renderTalk();
+    else if (tab === 'inbox') await renderInbox();
+    else if (tab === 'find') await renderFind();
     else if (tab === 'requests') await renderRequests();
     else if (tab === 'projects') await renderProjects();
     else if (tab === 'reels') await renderReels();
@@ -1227,7 +1653,7 @@ async function render() {
 document.querySelectorAll('nav button').forEach((b) =>
   b.onclick = () => {
     tab = b.dataset.tab;
-    if (tab !== 'sessions') { openSession = null; sessionsExpanded = false; }
+    if (tab !== 'sessions' && tab !== 'talk') { openSession = null; sessionsExpanded = false; }
     if (tab !== 'missions') openMission = null;
     render();
   });
@@ -1240,9 +1666,16 @@ $('theme').onclick = () => {
 };
 
 $('panic').onclick = async () => {
-  if (!confirm('Stop every running agent immediately?')) return;
+  const sure = await askConfirm({
+    title: 'Stop everything?',
+    body: 'Every running session is killed immediately. Work in progress is not saved, ' +
+          'and nothing resumes on its own — each one has to be restarted by hand.',
+    confirmLabel: 'Stop everything',
+    danger: true,
+  });
+  if (!sure) return;
   const r = await api('/api/panic', { method: 'POST' });
-  alert(`Stopped ${r.killed} sessions.`);
+  toast(`Stopped ${r.killed} sessions.`, 'ok');
   render();
 };
 
@@ -1260,7 +1693,7 @@ render();
 // results and an open document, and silently re-rendering them under the user
 // would discard what they were reading.
 setInterval(() => {
-  const liveTabs = ['missions', 'agents', 'sessions', 'brains', 'router', 'events'];
+  const liveTabs = ['today', 'talk', 'inbox', 'missions', 'agents', 'sessions', 'brains', 'router', 'events'];
   if (!openSession && liveTabs.includes(tab)) render();
   else refreshStats();
 }, 8000);

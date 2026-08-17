@@ -110,11 +110,31 @@ while ($true) {
 
     Write-Log "starting gateway"
     $started = Get-Date
+
+    # Capture the gateway's own output, because until now there was none.
+    #
+    # On 17 August the log recorded "gateway exited after 5s with 0x1" and that
+    # was the entire record of the failure. Started hidden through cmd, stdout
+    # and stderr went to a console nobody would ever see, so the one thing that
+    # would have named the cause — a stack trace, or EADDRINUSE — was discarded
+    # at the moment it was produced. An exit code alone cannot distinguish a
+    # port collision from a bad migration from a syntax error.
+    #
+    # The previous run is rolled to .1 rather than appended to: Start-Process
+    # truncates its redirect targets, and the interesting output is almost
+    # always from the run that just died, not the one about to start.
+    $outLog = Join-Path $LogDir 'gateway-out.log'
+    $errLog = Join-Path $LogDir 'gateway-err.log'
+    foreach ($f in @($outLog, $errLog)) {
+        if (Test-Path $f) { Move-Item -Path $f -Destination "$f.1" -Force -ErrorAction SilentlyContinue }
+    }
+
     # npx on Windows is a shim script, so it goes through cmd rather than being
     # executed directly.
     $p = Start-Process -FilePath 'cmd.exe' `
                        -ArgumentList '/c', "npx tsx src/gateway/server.ts" `
-                       -WorkingDirectory $root -WindowStyle Hidden -PassThru
+                       -WorkingDirectory $root -WindowStyle Hidden -PassThru `
+                       -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
     # Polled rather than -Wait, and this is not a style choice.
     #
@@ -133,6 +153,16 @@ while ($true) {
     $ran = [int]((Get-Date) - $started).TotalSeconds
     Write-Log ("gateway exited after {0}s with {1}" -f $ran,
                $(if ($null -ne $exit) { "0x$('{0:X}' -f $exit)" } else { 'unknown' }))
+
+    # The last few lines of stderr, inline. Whoever reads this log is asking
+    # "why did it stop", and making them open a second file to find out is the
+    # difference between a diagnosis and a shrug. Only on a non-zero exit, so a
+    # clean shutdown does not drag noise in behind it.
+    if ($exit -ne 0 -and (Test-Path $errLog)) {
+        $tail = Get-Content $errLog -Tail 12 -ErrorAction SilentlyContinue |
+                Where-Object { $_.Trim() }
+        foreach ($line in $tail) { Write-Log "  | $line" }
+    }
 
     # A process that survived a while was working; restart it promptly. One that
     # dies immediately is failing for a reason restarting will not fix, so back

@@ -1,4 +1,4 @@
-# Applies migrations/*.sql in filename order, once each, inside a transaction.
+﻿# Applies migrations/*.sql in filename order, once each, inside a transaction.
 # Idempotent: already-applied versions are skipped via schema_migrations.
 param(
     [string]$Database = 'simba',

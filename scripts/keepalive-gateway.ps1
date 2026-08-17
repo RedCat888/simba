@@ -1,4 +1,4 @@
-# Keeps the gateway alive, without depending on Task Scheduler to notice it died.
+﻿# Keeps the gateway alive, without depending on Task Scheduler to notice it died.
 #
 # The task was registered with RestartCount 999 and a one-minute interval, and
 # the comment beside it said that covered a crash. It did not. On 13 August the

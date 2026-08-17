@@ -1,4 +1,4 @@
-# Final activation for remote phone access.
+﻿# Final activation for remote phone access.
 #
 # Everything up to this point is inert: the ingress rule exists but no DNS
 # record points at it, cloudflared is not running, and the gateway's tunnel

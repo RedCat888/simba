@@ -400,6 +400,18 @@ export class SessionEngine extends EventEmitter {
           }
         }
 
+        // Cache tokens are input tokens, and leaving them out made the totals
+        // contradict the cost sitting beside them.
+        //
+        // A live test sent "reply with the word ACKNOWLEDGED" to the home
+        // thread. The session recorded total_input_tokens = 2 and
+        // total_cost_usd = 1.7758, which reads as a billing fault. It was not:
+        // reviving that thread wrote 177,547 tokens of cache, and cache
+        // creation is billed and was being counted nowhere. The usage row had
+        // the truth all along; the session summary that the CLI, the UI and
+        // mission cost roll-ups all read did not.
+        const inputTotal =
+          (u?.inputTokens ?? 0) + (u?.cacheCreationTokens ?? 0) + (u?.cacheReadTokens ?? 0);
         await query(
           `UPDATE sessions
               SET total_cost_usd = total_cost_usd + $2,
@@ -408,7 +420,7 @@ export class SessionEngine extends EventEmitter {
                   status = CASE WHEN status = 'running' THEN 'idle' ELSE status END,
                   last_activity_at = now()
             WHERE id = $1`,
-          [this.sessionId, turnCost, u?.inputTokens ?? 0, u?.outputTokens ?? 0],
+          [this.sessionId, turnCost, inputTotal, u?.outputTokens ?? 0],
         );
 
         const turnId = this.currentTurnId;

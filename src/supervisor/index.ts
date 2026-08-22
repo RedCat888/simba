@@ -284,6 +284,63 @@ export class Supervisor {
   /** Keep partitions ahead of the clock so inserts never land in DEFAULT. */
   private async maintain(): Promise<void> {
     await query(`SELECT ensure_partitions(3)`);
+    await this.sweepOrphanedEmbeddings();
+  }
+
+  /**
+   * Deletes vectors whose subject no longer exists.
+   *
+   * `embeddings` points at its owner through an (owner_kind, owner_id) pair
+   * rather than a foreign key, because the owner can be a knowledge chunk, a
+   * decision, a summary, a document revision or a checkpoint. Postgres cannot
+   * enforce a polymorphic reference, so deleting any of those leaves the vector
+   * behind and nothing notices.
+   *
+   * An orphan is not inert. recall() finds it by distance like any other
+   * vector, every LEFT JOIN misses, and it renders as an empty string with a
+   * null title - the same blank row the unjoined decisions produced, arriving
+   * by a different route. It also takes a slot in a limited result set, so one
+   * orphan costs a real answer.
+   *
+   * Found eight of them: two left by deleting a test ingest, and six created by
+   * this repository's own handoff retention pruning revisions that had already
+   * been embedded. That second source is ongoing, which is why this is a sweep
+   * rather than a one-off cleanup.
+   *
+   * Deliberately unlimited and unbatched: there are single digits of these in
+   * practice, and a partial sweep that leaves some behind is the failure this
+   * exists to prevent.
+   */
+  private async sweepOrphanedEmbeddings(): Promise<void> {
+    const removed = await query<{ owner_kind: string }>(
+      `DELETE FROM embeddings e
+        WHERE (e.owner_kind = 'knowledge_chunk'
+                 AND NOT EXISTS (SELECT 1 FROM knowledge_chunks kc WHERE kc.id = e.owner_id))
+           OR (e.owner_kind = 'decision'
+                 AND NOT EXISTS (SELECT 1 FROM decisions d WHERE d.id = e.owner_id))
+           OR (e.owner_kind = 'summary'
+                 AND NOT EXISTS (SELECT 1 FROM summaries s WHERE s.id = e.owner_id))
+           OR (e.owner_kind = 'document_revision'
+                 AND NOT EXISTS (SELECT 1 FROM document_revisions dr WHERE dr.id = e.owner_id))
+           OR (e.owner_kind = 'checkpoint'
+                 AND NOT EXISTS (SELECT 1 FROM checkpoints c WHERE c.id = e.owner_id))
+        RETURNING owner_kind`,
+    );
+    if (removed.length === 0) return;
+
+    const byKind = removed.reduce<Record<string, number>>((acc, r) => {
+      acc[r.owner_kind] = (acc[r.owner_kind] ?? 0) + 1;
+      return acc;
+    }, {});
+    await recordEvent({
+      type: 'embeddings.swept',
+      severity: 'debug',
+      message:
+        `removed ${removed.length} orphaned embedding(s): ` +
+        Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(', ') +
+        '. Each would have returned an empty search hit.',
+      data: byKind,
+    }).catch(() => {});
   }
 
   /**

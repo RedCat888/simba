@@ -48,8 +48,14 @@ $env:SIMBA_GATEWAY_PORT = "$Port"
 
 Write-Log "keepalive starting (port $Port, pid $PID)"
 
-# Postgres is a service and usually wins the race at boot, but "usually" is what
-# produced a two-day outage. Nothing here is worth starting without a database.
+# Wait for Postgres before starting anything, because nothing here is worth
+# starting without a database.
+#
+# This comment used to say Postgres "is a service and usually wins the race at
+# boot". It is not a service on this machine - elevate-setup.ps1 registers one
+# but needs elevation and has never been run here, so Postgres is hand-started
+# and nothing restarts it. Ensure-Dependencies below now does, on every pass;
+# this wait only covers the boot race.
 foreach ($i in 1..60) {
     $ok = Test-NetConnection -ComputerName '127.0.0.1' -Port 5432 -InformationLevel Quiet -WarningAction SilentlyContinue
     if ($ok) { break }
@@ -86,6 +92,46 @@ function Should-Start([string]$name, [int]$cooldownSeconds = 90) {
 }
 
 function Ensure-Dependencies {
+    # Postgres first, because nothing else restarts it and everything needs it.
+    #
+    # On 22 August it shut down cleanly at 04:08 and stayed down until 12:18 -
+    # eight hours in which the gateway crash-looped on ECONNREFUSED, backed off
+    # to its 300s maximum, and every surface was dead. The loop waited for
+    # Postgres once before starting and never looked again, so a database that
+    # goes away after boot takes the whole system with it until a person
+    # notices. That is the same mistake ollama and the voice worker had, left in
+    # the one place where the cost is total.
+    #
+    # It is meant to run as a registered service - see elevate-setup.ps1, whose
+    # own comment says a service "starts it before anyone logs in, which also
+    # means Simba survives an unattended restart". That registration needs
+    # elevation and has never happened here, so this covers the gap without
+    # requiring it. If the service does exist, start that rather than a second
+    # hand-started server: two postmasters on one data directory is worse than
+    # none.
+    $pgUp = Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue
+    if (-not $pgUp -and (Should-Start 'postgres' 180)) {
+        $svc = Get-Service -Name 'PostgreSQL' -ErrorAction SilentlyContinue
+        if ($svc) {
+            Write-Log 'postgres not listening - starting the PostgreSQL service'
+            Start-Service -Name 'PostgreSQL' -ErrorAction SilentlyContinue
+        } else {
+            $pgCtl  = 'C:\Users\operator\scoop\apps\postgresql\current\bin\pg_ctl.exe'
+            $pgData = 'C:\Users\operator\scoop\persist\postgresql\data'
+            if (Test-Path $pgCtl) {
+                Write-Log 'postgres not listening and no service registered - starting it directly'
+                $pgLog = Join-Path $root 'var\logs\pg.log'
+                New-Item -ItemType Directory -Force -Path (Split-Path $pgLog) | Out-Null
+                Start-Process -FilePath $pgCtl `
+                              -ArgumentList '-D', $pgData, '-l', $pgLog, '-w', 'start' `
+                              -WindowStyle Hidden
+            } elseif (-not $script:warnedPg) {
+                $script:warnedPg = $true
+                Write-Log 'postgres is down and pg_ctl was not found - cannot restart it'
+            }
+        }
+    }
+
     $ollama = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
     if (Test-Path $ollama) {
         if (-not (Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue) -and (Should-Start 'ollama')) {

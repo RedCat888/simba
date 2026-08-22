@@ -109,8 +109,21 @@ export async function verifyAccessJwt(token: string | undefined): Promise<Princi
 
 /** Surface slug an authenticated principal maps to. */
 export function surfaceForPrincipal(p: Principal): string {
+  // An unrecognised service token gets the least authority available, not the
+  // most convenient one.
+  //
+  // This used to fall back to 'phone', trust 60. A service token is a machine
+  // caller, and 'automation' exists at trust 20 for exactly that - so an
+  // unmapped token was being handed more authority than the surface named after
+  // what it is. mayDriveSession compares trust levels, so the difference is
+  // concretely the ability to drive sessions that originated on the phone.
+  //
+  // Access has still verified the token by the time this runs, so this is not
+  // about untrusted callers; it is about not inferring authority from silence.
+  // A token that should have phone authority says so in
+  // SIMBA_ACCESS_SERVICE_TOKENS, which is where that decision belongs.
   return p.kind === 'service'
-    ? (config.access.serviceTokens[p.commonName] ?? 'phone')
+    ? (config.access.serviceTokens[p.commonName] ?? 'automation')
     : 'phone';
 }
 

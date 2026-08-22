@@ -18,6 +18,8 @@ import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
 import { chunkText } from '../src/ingest/chunk.js';
 import { pressureLevel } from '../src/ops/commit-charge.js';
+import { surfaceForPrincipal, describePrincipal } from '../src/policy/access.js';
+import { config } from '../src/config.js';
 import {
   isAuthFailureMessage,
   mergeBrainChains,
@@ -559,5 +561,37 @@ describe('the memory alarm that could not see the outage', () => {
 
   test('a nonsense commit limit is ignored rather than dividing by zero', () => {
     assert.equal(pressureLevel(16 * GB, 32 * GB, { usedMb: 5, limitMb: 0 }).level, 'ok');
+  });
+});
+
+describe('which surface a verified caller becomes', () => {
+  // Access has already verified identity by the time these run. The question
+  // here is narrower and easier to get wrong: how much authority to infer when
+  // the configuration does not say.
+
+  test('an unmapped service token gets the least authority, not the most convenient', () => {
+    // Was 'phone' (trust 60). 'automation' is trust 20 and is the surface named
+    // for machine callers, which is what a service token is. mayDriveSession
+    // compares trust, so the gap was concretely the ability to drive sessions
+    // that originated on the phone.
+    assert.equal(surfaceForPrincipal({ kind: 'service', commonName: 'not-in-the-map' }), 'automation');
+  });
+
+  test('a mapped service token gets exactly what the configuration says', () => {
+    // The mapping is the place that decision belongs, and it still wins.
+    const mapped = Object.keys(config.access.serviceTokens)[0];
+    if (!mapped) return; // nothing configured on this machine; nothing to assert
+    assert.equal(surfaceForPrincipal({ kind: 'service', commonName: mapped }),
+                 config.access.serviceTokens[mapped]);
+  });
+
+  test('a verified human is the phone, because that is who is holding it', () => {
+    assert.equal(surfaceForPrincipal({ kind: 'user', email: 'sample-account@gmail.com' }), 'phone');
+  });
+
+  test('principals describe themselves distinguishably in the audit log', () => {
+    // A denial that says only "denied" is not worth writing down.
+    assert.equal(describePrincipal({ kind: 'service', commonName: 'reelagent' }), 'service:reelagent');
+    assert.equal(describePrincipal({ kind: 'user', email: 'a@b.c' }), 'user:a@b.c');
   });
 });

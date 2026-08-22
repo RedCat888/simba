@@ -99,7 +99,9 @@ export const config = {
         .filter(Boolean)
         .map((p) => {
           const [cn, surface] = p.split('=');
-          return [(cn ?? '').trim(), (surface ?? 'phone').trim()];
+          // Same reasoning as surfaceForPrincipal: an entry that does not name a
+          // surface is not asking for phone authority, it is not saying.
+          return [(cn ?? '').trim(), (surface ?? 'automation').trim()];
         }),
     ) as Record<string, string>,
   },

@@ -288,9 +288,41 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
       const res = await fetch(`${config.embedding.endpoint}/api/tags`, {
         signal: AbortSignal.timeout(5000),
       });
+      if (!res.ok) {
+        return { ok: false, detail: `HTTP ${res.status}`, ms: Date.now() - started, model };
+      }
+
+      // The model, not just the server - which is what the comment above this
+      // function already required, and this branch was the one place ignoring
+      // it. It computed `model` and then reported ok purely because /api/tags
+      // answered.
+      //
+      // ollama is the floor of the failover chain: the rung that exists so a
+      // total subscription outage still has somewhere to go. On 22 August it
+      // was enabled and available with its configured model absent from the
+      // model store, so the chain would have fallen through every paid brain
+      // and landed on one that 404s - failing at precisely the moment the
+      // floor exists for.
+      if (model) {
+        const show = await fetch(`${config.embedding.endpoint}/api/show`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ model }),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!show.ok) {
+          return {
+            ok: false,
+            detail: `server up, but model "${model}" is not installed (ollama pull ${model})`,
+            ms: Date.now() - started,
+            model,
+          };
+        }
+      }
+
       return {
-        ok: res.ok,
-        detail: res.ok ? 'local server responding' : `HTTP ${res.status}`,
+        ok: true,
+        detail: model ? `local server serving ${model}` : 'local server responding',
         ms: Date.now() - started,
         model,
       };

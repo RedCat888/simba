@@ -57,9 +57,13 @@ if ($el.Count -gt 0) { Write-Host ("  desktop app            stopped {0} window(
 
 if ($IncludeOllama) {
     $ol = @(Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue)
-    foreach ($p in $ol) { $freedMb += [int]($p.WorkingSet64 / 1MB) }
+    # Its own share, not the running total. The first version printed $freedMb
+    # here, so ollama was credited with everything stopped before it too.
+    $ollamaMb = 0
+    foreach ($p in $ol) { $ollamaMb += [int]($p.WorkingSet64 / 1MB) }
+    $freedMb += $ollamaMb
     $ol | Stop-Process -Force -ErrorAction SilentlyContinue
-    if ($ol.Count -gt 0) { Write-Host ("  ollama                 stopped ({0} MB)" -f $freedMb) -ForegroundColor Green }
+    if ($ol.Count -gt 0) { Write-Host ("  ollama                 stopped {0} process(es), {1} MB" -f $ol.Count, $ollamaMb) -ForegroundColor Green }
 } else {
     Write-Host '  ollama                 left running (-IncludeOllama to stop)'
 }

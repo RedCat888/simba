@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rm, readdir } from 'node:fs/promises';
+import { mkdir, rm, readdir, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { config } from '../config.js';
 import { query, recordEvent } from '../db/index.js';
+import { confine } from '../inventory/files.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -315,6 +316,36 @@ export async function releaseWorktree(
       data: { path, branch: state.branch, dirty: state.dirty, ahead: state.ahead },
     });
     return { removed: false, reason };
+  }
+
+  // Everything past this point is irreversible, and the path came from a
+  // database column.
+  //
+  // Today the only writer is createWorktree, which builds the path itself under
+  // config.paths.worktrees, so nothing can currently reach here with anything
+  // else. That is an argument about the current callers rather than about this
+  // function, and the failure it protects against is losing a repository:
+  // inspectWorktree accepts any directory that is its own git toplevel, which
+  // includes a main checkout, so a worktree_path of C:\Users\operator\simba would
+  // pass every check above and then be handed to rm -rf.
+  //
+  // confine() resolves symlinks before comparing, which a prefix test on the
+  // raw string does not - a symlink under var/worktrees pointing at the repo
+  // would otherwise satisfy it.
+  const confined = await confine(path, [config.paths.worktrees]);
+  const rootReal = await realpath(config.paths.worktrees).catch(() => null);
+  if (!confined || (rootReal && confined === rootReal)) {
+    await recordEvent({
+      type: 'worktree.refused',
+      severity: 'warn',
+      sessionId,
+      message:
+        `Refusing to delete ${path}: it is not inside ${config.paths.worktrees}. ` +
+        `The session row was cleared, but nothing on disk was touched.`,
+      data: { path, worktreesRoot: config.paths.worktrees },
+    });
+    await query(`UPDATE sessions SET worktree_path = NULL WHERE id = $1`, [sessionId]);
+    return { removed: false, reason: 'outside the worktrees root - refused' };
   }
 
   const root = (await gitQuiet(path, ['rev-parse', '--path-format=absolute', '--git-common-dir']))

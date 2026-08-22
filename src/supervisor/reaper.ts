@@ -1,4 +1,5 @@
 import { query, recordEvent } from '../db/index.js';
+import { sampleCommit, pressureLevel } from '../ops/commit-charge.js';
 import type { SessionManager } from '../session/manager.js';
 
 /**
@@ -25,6 +26,10 @@ export class Reaper {
     /** Idle this long with nobody talking to it, and it is just holding memory. */
     private readonly idleMinutes = Number(process.env.SIMBA_REAP_IDLE_MINUTES ?? 20),
   ) {}
+
+  /** When the last pressure event was written, and at what severity. */
+  private lastPressureAt = 0;
+  private lastPressureLevel: 'ok' | 'warn' | 'critical' = 'ok';
 
   async tick(): Promise<ReapStats> {
     const stats: ReapStats = { idleReaped: 0, freedEstimateMb: 0 };
@@ -78,22 +83,46 @@ export class Reaper {
 
   /**
    * Reports memory pressure so it lands in the audit log and the brief rather
-   * than being discovered when something fails to allocate. Deliberately does
-   * not act on it: the correct response to genuine pressure is to reap idle
-   * sessions, which the tick above already does on its own schedule.
+   * than being discovered when something fails to allocate.
+   *
+   * This used to watch os.freemem() alone, which cannot see the pressure that
+   * actually happens here. During the 17 August incident - Gradle unable to
+   * start a JVM, taskkill timing out - physical memory was 40% free, three
+   * times above this threshold, while commit sat at 99.99%. The alarm was
+   * silent for the entire outage because by its measure nothing was wrong.
+   *
+   * Still deliberately does not act. The right response to real pressure is to
+   * reap idle sessions, which tick() already does on its own schedule, and
+   * killing sessions from inside a memory alarm is how a bad reading turns into
+   * lost work.
    */
   async checkPressure(): Promise<{ freeMb: number; totalMb: number } | null> {
     const os = await import('node:os');
     const freeMb = Math.round(os.freemem() / 1024 / 1024);
     const totalMb = Math.round(os.totalmem() / 1024 / 1024);
-    const freePct = (freeMb / totalMb) * 100;
+    const commit = await sampleCommit();
+    const pressure = pressureLevel(freeMb, totalMb, commit);
 
-    if (freePct < 12) {
+    // Throttled, because this runs on every supervisor tick - every fifteen
+    // seconds. Unthrottled it produced nineteen near-identical events in one
+    // hour on 11 August and eleven on 19 August, into the same feed Today reads
+    // for things that need attention. A condition repeated four times a minute
+    // stops being a signal.
+    //
+    // Escalation is exempt: warn becoming critical is new information and
+    // should not wait out a window opened by the warning.
+    const escalated = pressure.level === 'critical' && this.lastPressureLevel !== 'critical';
+    const throttled = Date.now() - this.lastPressureAt < 60 * 60_000;
+    if (pressure.level === 'ok') this.lastPressureLevel = 'ok';
+
+    if (pressure.level !== 'ok' && (escalated || !throttled)) {
+      this.lastPressureAt = Date.now();
+      this.lastPressureLevel = pressure.level;
       await recordEvent({
         type: 'system.memory_pressure',
-        severity: 'warn',
-        message: `only ${freeMb} MB free of ${totalMb} MB (${freePct.toFixed(0)}%)`,
-        data: { freeMb, totalMb },
+        severity: pressure.level === 'critical' ? 'critical' : 'warn',
+        message: pressure.reason ?? 'memory pressure',
+        data: { freeMb, totalMb, commitUsedMb: commit?.usedMb ?? null, commitLimitMb: commit?.limitMb ?? null },
       });
     }
     return { freeMb, totalMb };

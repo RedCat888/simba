@@ -17,6 +17,7 @@ import { parseSchedule } from '../src/missions/schedule.js';
 import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
 import { chunkText } from '../src/ingest/chunk.js';
+import { pressureLevel } from '../src/ops/commit-charge.js';
 import {
   isAuthFailureMessage,
   mergeBrainChains,
@@ -513,5 +514,50 @@ describe('chunking, which decides what is findable later', () => {
     const body = headingDoc(20, 150);
     assert.deepEqual(chunkText(body.replace(/\n/g, '\r\n')).map((c) => c.content),
                      chunkText(body).map((c) => c.content));
+  });
+});
+
+describe('the memory alarm that could not see the outage', () => {
+  // On 17 August this machine could not start a JVM or run taskkill. Physical
+  // memory was 40% free - three times above the 12% threshold - while commit
+  // sat at 99.99%. The alarm watched free RAM alone and was silent throughout.
+  const GB = 1024;
+
+  test('the 17 August reading is critical, not fine', () => {
+    const p = pressureLevel(13057, 32530, { usedMb: 40328, limitMb: 40722 });
+    assert.equal(p.level, 'critical');
+    assert.match(p.reason ?? '', /commit/i);
+  });
+
+  test('the old rule alone would have called that healthy', () => {
+    // Same reading, commit unavailable: 40% free RAM reads as ok, which is
+    // exactly the blind spot.
+    assert.equal(pressureLevel(13057, 32530, null).level, 'ok');
+  });
+
+  test('plenty of commit and plenty of RAM is ok', () => {
+    assert.deepEqual(pressureLevel(16 * GB, 32 * GB, { usedMb: 20 * GB, limitMb: 64 * GB }),
+                     { level: 'ok', reason: null });
+  });
+
+  test('commit warns before it is fatal, so there is time to act', () => {
+    const p = pressureLevel(16 * GB, 32 * GB, { usedMb: 90, limitMb: 100 });
+    assert.equal(p.level, 'warn');
+  });
+
+  test('low RAM still warns when commit is comfortable', () => {
+    const p = pressureLevel(1 * GB, 32 * GB, { usedMb: 10, limitMb: 100 });
+    assert.equal(p.level, 'warn');
+    assert.match(p.reason ?? '', /free of/);
+  });
+
+  test('a missing commit reading never reads as healthy on its own', () => {
+    // typeperf can fail. Falling back to RAM is right; treating the absence as
+    // proof of health would be the same silence in a new place.
+    assert.equal(pressureLevel(1 * GB, 32 * GB, null).level, 'warn');
+  });
+
+  test('a nonsense commit limit is ignored rather than dividing by zero', () => {
+    assert.equal(pressureLevel(16 * GB, 32 * GB, { usedMb: 5, limitMb: 0 }).level, 'ok');
   });
 });

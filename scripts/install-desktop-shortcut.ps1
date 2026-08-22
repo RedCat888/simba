@@ -1,4 +1,4 @@
-﻿# Puts a Simba shortcut on the desktop that opens the app window.
+# Puts a Simba shortcut on the desktop that opens the app window.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $launch = Join-Path $root 'scripts\launch-desktop.ps1'

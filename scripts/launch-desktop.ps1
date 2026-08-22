@@ -1,4 +1,4 @@
-﻿# Opens the Simba desktop app (Electron) — its own windows, tray, and overlay.
+# Opens the Simba desktop app (Electron) — its own windows, tray, and overlay.
 # Not a browser pointed at localhost.
 param(
     [int]$Port = 8787,

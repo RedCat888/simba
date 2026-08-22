@@ -5,6 +5,7 @@ import {
   readSupabaseKnowledge,
   readChatGptExport,
   readClaudeExport,
+  readDiscordExport,
 } from './sources.js';
 import { closePool, one } from '../db/index.js';
 
@@ -87,12 +88,17 @@ async function run(): Promise<void> {
       report('claude', await ingestSource('claude-export', readClaudeExport(pathArg)));
       break;
     }
+    case 'discord-export': {
+      if (!pathArg) throw new Error('usage: ingest discord-export <path>');
+      report('discord', await ingestSource('discord-export', readDiscordExport(pathArg)));
+      break;
+    }
     case 'all':
       await doObsidian();
       await doKnowledgeApi();
       break;
     default:
-      console.log('usage: ingest <obsidian|knowledge-api|chatgpt-export|claude-export|all> [path]');
+      console.log('usage: ingest <obsidian|knowledge-api|chatgpt-export|claude-export|discord-export|all> [path]');
   }
 }
 

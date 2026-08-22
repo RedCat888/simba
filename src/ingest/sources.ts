@@ -405,3 +405,131 @@ async function* readClaudeProjects(dir: string): AsyncGenerator<IngestItem> {
     };
   }
 }
+
+/**
+ * Discord data export: Settings > Privacy & Safety > Request all my Data.
+ *
+ * This is the only legitimate route to DM history. A bot token cannot see
+ * direct messages at all, and reading them live from a user account is the
+ * specific thing Discord's terms prohibit - so the archive, which Discord
+ * hands over on request, is the whole of what is available.
+ *
+ * Layout is `messages/c<channel_id>/` per channel, each holding a
+ * `channel.json` describing it and a `messages.json` (older exports ship
+ * `messages.csv` instead). A conversation is one item rather than one per
+ * message, for the same reason the chat exports are: retrieval wants the
+ * exchange, not a line of it.
+ *
+ * DM channels have no name, so the recipient list becomes the title. Server
+ * channels carry `guild`, which is worth keeping - "what did I say in the
+ * #rust channel of that server" is a different question from "what did I say
+ * to Alex".
+ */
+export async function* readDiscordExport(path: string): AsyncGenerator<IngestItem> {
+  if (!existsSync(path)) return;
+
+  const root = (await stat(path)).isDirectory() ? path : join(path, '..');
+  const messagesDir = existsSync(join(root, 'messages')) ? join(root, 'messages') : root;
+  if (!existsSync(messagesDir)) return;
+
+  let channels: string[];
+  try {
+    channels = (await readdir(messagesDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return;
+  }
+
+  for (const dir of channels) {
+    const channelDir = join(messagesDir, dir);
+    const metaPath = join(channelDir, 'channel.json');
+    const jsonPath = join(channelDir, 'messages.json');
+    const csvPath = join(channelDir, 'messages.csv');
+
+    let meta: Record<string, unknown> = {};
+    if (existsSync(metaPath)) {
+      try { meta = JSON.parse(await readFile(metaPath, 'utf8')) as Record<string, unknown>; } catch { /* keep going */ }
+    }
+
+    let rows: Array<Record<string, unknown>> = [];
+    if (existsSync(jsonPath)) {
+      try { rows = JSON.parse(await readFile(jsonPath, 'utf8')) as Array<Record<string, unknown>>; } catch { continue; }
+    } else if (existsSync(csvPath)) {
+      rows = parseDiscordCsv(await readFile(csvPath, 'utf8'));
+    } else {
+      continue;
+    }
+    if (rows.length === 0) continue;
+
+    const guild = (meta.guild as { name?: string } | undefined)?.name ?? null;
+    const recipients = Array.isArray(meta.recipients) ? (meta.recipients as string[]) : [];
+    const name = (meta.name as string | undefined)
+      ?? (guild ? `#${String(meta.id ?? dir)}` : null)
+      ?? (recipients.length > 0 ? `DM with ${recipients.join(', ')}` : `Channel ${dir.replace(/^c/, '')}`);
+    const title = guild ? `${guild} — ${name}` : name;
+
+    const lines: string[] = [];
+    let first: Date | null = null;
+    for (const m of rows) {
+      const text = String(m.Contents ?? m.contents ?? '').trim();
+      if (!text) continue;                       // attachment-only messages carry no searchable text
+      const when = String(m.Timestamp ?? m.timestamp ?? '');
+      if (!first && when) {
+        const d = new Date(when);
+        if (!Number.isNaN(d.getTime())) first = d;
+      }
+      lines.push(`[${when.slice(0, 16)}] ${text}`);
+    }
+    if (lines.length === 0) continue;
+
+    yield {
+      externalId: `discord-export:${dir}`,
+      title,
+      content: lines.join('\n'),
+      category: 'personal',
+      tags: guild ? ['discord', 'server'] : ['discord', 'dm'],
+      metadata: { channelId: String(meta.id ?? dir).slice(0, 40), guild, messages: lines.length },
+      sourceCreatedAt: first,
+    };
+  }
+}
+
+/**
+ * Older exports ship CSV, and the message text is the one field that reliably
+ * contains commas, quotes and newlines - so it cannot be split naively.
+ */
+function parseDiscordCsv(raw: string): Array<Record<string, unknown>> {
+  const rows: Array<Record<string, unknown>> = [];
+  const fields: string[] = [];
+  let cur = '';
+  let quoted = false;
+  let header: string[] | null = null;
+
+  const endField = () => { fields.push(cur); cur = ''; };
+  const endRow = () => {
+    endField();
+    const values = fields.splice(0, fields.length);
+    if (!header) { header = values.map((h) => h.trim()); return; }
+    if (values.length === 1 && values[0]?.trim() === '') return;
+    const row: Record<string, unknown> = {};
+    header.forEach((h, i) => { row[h] = values[i] ?? ''; });
+    rows.push(row);
+  };
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i];
+    if (quoted) {
+      if (c === '"' && raw[i + 1] === '"') { cur += '"'; i += 1; }
+      else if (c === '"') quoted = false;
+      else cur += c;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === ',') endField();
+    else if (c === '\n') endRow();
+    else if (c !== '\r') cur += c;
+  }
+  if (cur !== '' || fields.length > 0) endRow();
+  return rows;
+}

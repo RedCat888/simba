@@ -11,6 +11,6 @@ $lnk.TargetPath = 'powershell.exe'
 $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$launch`""
 $lnk.WorkingDirectory = $root
 $lnk.WindowStyle = 7
-$lnk.Description = 'Simba — Today'
+$lnk.Description = 'Simba desktop'
 $lnk.Save()
 Write-Output $lnkPath

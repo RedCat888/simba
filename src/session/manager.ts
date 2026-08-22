@@ -16,6 +16,8 @@ import {
   type AgentRow,
   type BrainRow,
 } from '../db/repo.js';
+import { FAILOVER_CONTINUE_PROMPT, isFloorBrainSlug } from '../policy/brains.js';
+import { refreshPaidBrainStatuses } from '../runner/verify.js';
 import { ClaudeRunner, findTranscript, readTranscript } from '../runner/claude.js';
 import { CodexRunner } from '../runner/codex.js';
 import { CursorRunner } from '../runner/cursor.js';
@@ -118,7 +120,7 @@ export class SessionManager extends EventEmitter {
       });
     }
 
-    const chain = await resolveBrainChain(agent, Object.keys(runners));
+    const chain = await this.chainForLaunch(agent);
     if (chain.length === 0) {
       const sleepUntil = await nextChainResetAt(agent);
       await recordEvent({
@@ -142,6 +144,28 @@ export class SessionManager extends EventEmitter {
       surfaceId: opts.surfaceId ?? null,
       isolate: opts.isolate ?? false,
     });
+  }
+
+  /**
+   * Ordered usable brains, after re-asking paid subscriptions if the next
+   * hop would otherwise be OpenCode or Ollama.
+   *
+   * DB status is a claim about whenever something last changed it. That is
+   * how Cursor stayed "available" through a team cap until August 22, and
+   * how both Claudes can look dead while one of them would still answer.
+   */
+  private async chainForLaunch(agent: AgentRow, skipIds: Set<string> = new Set()): Promise<BrainRow[]> {
+    const usable = async () =>
+      (await resolveBrainChain(agent, Object.keys(runners))).filter((b) => !skipIds.has(b.id));
+
+    let chain = await usable();
+    const first = chain[0];
+    if (!first || isFloorBrainSlug(first.slug)) {
+      const liveIds = [...this.live.values()].map((s) => s.brainId);
+      await refreshPaidBrainStatuses({ skipIds: [...skipIds, ...liveIds] });
+      chain = await usable();
+    }
+    return chain;
   }
 
   private async launch(
@@ -301,7 +325,16 @@ export class SessionManager extends EventEmitter {
     engine.on('limitReached', (info) => void this.onLimitReached(liveEntry, info.resetsAt));
     engine.on('authFailure', () => void this.onAuthFailure(liveEntry));
     engine.on('turnEnd', () => void this.onTurnEnd(liveEntry));
-    engine.on('exit', () => this.live.delete(sessionId));
+    engine.on('exit', (info) => {
+      this.live.delete(sessionId);
+      // A process that dies while we are already swapping is the swap itself.
+      // A process that dies on its own has to advance the chain — otherwise
+      // "OAuth expired" with a non-matching stderr string ends the job.
+      if (liveEntry.swapping) return;
+      if (info?.code != null && info.code !== 0) {
+        void this.failover(liveEntry, 'crash');
+      }
+    });
 
     await engine.beginTurn(brain.tier_models?.[opts.modelTier] ?? null, opts.modelTier);
     void engine.consume();
@@ -370,7 +403,7 @@ export class SessionManager extends EventEmitter {
    * executing tool calls cannot be spliced onto another brain, so the current
    * turn is allowed to finish (or die) and the handover happens after it.
    */
-  async failover(live: LiveSession, cause: 'limit' | 'auth' | 'manual'): Promise<void> {
+  async failover(live: LiveSession, cause: 'limit' | 'auth' | 'manual' | 'crash'): Promise<void> {
     if (live.swapping) return;
     live.swapping = true;
 
@@ -390,80 +423,86 @@ export class SessionManager extends EventEmitter {
       this.live.delete(live.sessionId);
       await setSessionStatus(live.sessionId, 'superseded');
 
-      const chain = await resolveBrainChain(agent, Object.keys(runners));
-      const next = chain.find((b) => b.id !== live.brainId);
+      const used = await this.brainsUsedInLineage(live.sessionId);
+      used.add(live.brainId);
+      const nativeId = await this.nativeSessionIdOf(live.sessionId);
+      const swapCount = (await this.swapCountOf(live.sessionId)) + 1;
+      const surfaceId = await this.surfaceOf(live.sessionId);
 
-      if (!next) {
-        const sleepUntil = await nextChainResetAt(agent);
-        await query(
-          `UPDATE sessions SET status = 'waiting_limit' WHERE id = $1`,
-          [live.sessionId],
-        );
-        await query(`UPDATE agents SET status = 'waiting_limit' WHERE id = $1`, [agent.id]);
+      while (true) {
+        const remaining = await this.chainForLaunch(agent, used);
+        const next = remaining[0];
+        if (!next) break;
+        used.add(next.id);
+
+        const sameFamily = Boolean(fromBrain && next.cli === fromBrain.cli);
+        let mode: 'resume' | 'rehydrate' = 'rehydrate';
+        let resumeNativeId: string | undefined;
+
+        if (sameFamily && nativeId && fromBrain?.config_dir && next.config_dir) {
+          const copied = await copyTranscript(fromBrain.config_dir, next.config_dir, nativeId);
+          if (copied) {
+            mode = 'resume';
+            resumeNativeId = nativeId;
+          }
+        }
+
         await recordEvent({
-          type: 'session.sleeping_until_reset',
+          type: 'brain.swap',
+          sessionId: live.sessionId,
+          agentId: agent.id,
+          brainAccountId: next.id,
+          message: `swapped ${fromBrain?.slug ?? '?'} -> ${next.slug} via ${mode === 'resume' ? 'transcript resume (lossless)' : 'rehydration (lossy)'}`,
+          data: { mode, cause },
+        });
+
+        const result = await this.launch(agent, next, {
+          cwd: live.cwd,
+          projectId: agent.project_id,
+          continuingSessionId: live.sessionId,
+          resumeNativeId,
+          modelTier: live.modelTier,
+          swapCount,
+          surfaceId,
+          // Resume used to launch with no prompt. The CLI replayed the last
+          // turn, went idle, and twenty minutes later the reaper killed it —
+          // Cursor and Codex never ran. A swap that does not tell the new
+          // brain to keep working is not a failover.
+          prompt: FAILOVER_CONTINUE_PROMPT,
+        });
+
+        if ('sessionId' in result) {
+          this.emit('swapped', { from: live.sessionId, to: result, mode });
+          return;
+        }
+
+        await recordEvent({
+          type: 'brain.swap_failed',
           severity: 'warn',
           sessionId: live.sessionId,
           agentId: agent.id,
-          message: sleepUntil
-            ? `every brain exhausted; sleeping until ${sleepUntil.toISOString()}`
-            : 'every brain exhausted; no reset time known',
-          data: { sleepUntil },
+          brainAccountId: next.id,
+          message: `could not start ${next.slug}: ${result.error}`,
         });
-        this.emit('exhausted', { sessionId: live.sessionId, agentId: agent.id, sleepUntil });
-        return;
       }
 
-      const nativeId = await this.nativeSessionIdOf(live.sessionId);
-      const sameFamily = fromBrain && next.cli === fromBrain.cli;
-
-      // --- Path 1: same CLI. Copy the transcript, resume under the new login.
-      if (sameFamily && nativeId && fromBrain?.config_dir && next.config_dir) {
-        const copied = await copyTranscript(fromBrain.config_dir, next.config_dir, nativeId);
-        if (copied) {
-          await recordEvent({
-            type: 'brain.swap',
-            sessionId: live.sessionId,
-            agentId: agent.id,
-            brainAccountId: next.id,
-            message: `swapped ${fromBrain.slug} -> ${next.slug} via transcript resume (lossless)`,
-            data: { mode: 'resume', transcript: copied },
-          });
-
-          const result = await this.launch(agent, next, {
-            cwd: live.cwd,
-            projectId: agent.project_id,
-            continuingSessionId: live.sessionId,
-            resumeNativeId: nativeId,
-            modelTier: live.modelTier,
-            swapCount: (await this.swapCountOf(live.sessionId)) + 1,
-            surfaceId: await this.surfaceOf(live.sessionId),
-          });
-          this.emit('swapped', { from: live.sessionId, to: result, mode: 'resume' });
-          return;
-        }
-      }
-
-      // --- Path 2: cross-tool. Fresh session seeded with the hydration bundle.
+      const sleepUntil = await nextChainResetAt(agent);
+      await query(
+        `UPDATE sessions SET status = 'waiting_limit' WHERE id = $1`,
+        [live.sessionId],
+      );
+      await query(`UPDATE agents SET status = 'waiting_limit' WHERE id = $1`, [agent.id]);
       await recordEvent({
-        type: 'brain.swap',
+        type: 'session.sleeping_until_reset',
+        severity: 'warn',
         sessionId: live.sessionId,
         agentId: agent.id,
-        brainAccountId: next.id,
-        message: `swapped ${fromBrain?.slug ?? '?'} -> ${next.slug} via rehydration (lossy)`,
-        data: { mode: 'rehydrate' },
+        message: sleepUntil
+          ? `every brain exhausted; sleeping until ${sleepUntil.toISOString()}`
+          : 'every brain exhausted; no reset time known',
+        data: { sleepUntil, cause },
       });
-
-      const result = await this.launch(agent, next, {
-        cwd: live.cwd,
-        projectId: agent.project_id,
-        continuingSessionId: live.sessionId,
-        modelTier: live.modelTier,
-        swapCount: (await this.swapCountOf(live.sessionId)) + 1,
-        surfaceId: await this.surfaceOf(live.sessionId),
-        prompt: 'Continue the work described in your brief. Report what you are picking up first.',
-      });
-      this.emit('swapped', { from: live.sessionId, to: result, mode: 'rehydrate' });
+      this.emit('exhausted', { sessionId: live.sessionId, agentId: agent.id, sleepUntil });
     } finally {
       live.swapping = false;
     }
@@ -530,7 +569,7 @@ export class SessionManager extends EventEmitter {
     const agent = await getAgent(row.agent_id);
     if (!agent) return { error: 'agent no longer exists' };
 
-    const chain = await resolveBrainChain(agent, Object.keys(runners));
+    const chain = await this.chainForLaunch(agent);
     if (chain.length === 0) {
       const sleepUntil = await nextChainResetAt(agent);
       return {
@@ -620,6 +659,25 @@ export class SessionManager extends EventEmitter {
       message: `panic stop: killed ${ids.length} live sessions`,
     });
     return ids.length;
+  }
+
+  private async brainsUsedInLineage(sessionId: string): Promise<Set<string>> {
+    const ids = new Set<string>();
+    let id: string | null = sessionId;
+    for (let i = 0; i < 12 && id; i++) {
+      type LineageRow = {
+        brain_account_id: string | null;
+        hydrated_from_session_id: string | null;
+      };
+      const row: LineageRow | null = await one<LineageRow>(
+        `SELECT brain_account_id, hydrated_from_session_id FROM sessions WHERE id = $1`,
+        [id],
+      );
+      if (!row) break;
+      if (row.brain_account_id) ids.add(row.brain_account_id);
+      id = row.hydrated_from_session_id;
+    }
+    return ids;
   }
 
   private async nativeSessionIdOf(sessionId: string): Promise<string | null> {

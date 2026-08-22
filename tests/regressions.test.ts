@@ -14,6 +14,14 @@ import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js
 import { samePath } from '../src/session/worktree.js';
 import { maskSecrets } from '../src/inventory/files.js';
 import { parseSchedule } from '../src/missions/schedule.js';
+import {
+  isAuthFailureMessage,
+  mergeBrainChains,
+  nextBrainInChain,
+  parseUsageResetAt,
+  isFloorBrainSlug,
+  isRateLimitedMessage,
+} from '../src/policy/brains.js';
 
 /**
  * Regressions for bugs that actually shipped.
@@ -156,6 +164,7 @@ describe('local channel trust', () => {
   test('a browser origin from elsewhere is refused on the local channel', () => {
     assert.equal(originAllowed('local', 'https://evil.example.com'), false);
     assert.equal(originAllowed('local', undefined), true, 'native clients send no Origin');
+    assert.equal(originAllowed('local', 'file://'), true, 'the desktop app loads UI from disk');
   });
 
   test('channel comes from the listening port, which a client cannot set', () => {
@@ -207,6 +216,7 @@ describe('why a brain said no', () => {
     assert.equal(classifyFailure('Invalid API key · Not logged in'), 'auth');
     assert.equal(classifyFailure('403 Forbidden'), 'auth');
     assert.equal(classifyFailure('GitHub Copilot: not licensed'), 'auth');
+    assert.equal(classifyFailure('OAuth session expired and could not be refreshed'), 'auth');
   });
 
   // Both signals in one body. Retrying forever against an account that will
@@ -326,5 +336,68 @@ describe('env assignments, the shape the quoted pattern missed', () => {
     const { text, masked } = maskSecrets(env);
     assert.equal(masked, 0, 'a masker that fires on every config line makes it unreadable');
     assert.equal(text, env);
+  });
+});
+
+describe('brain failover classification', () => {
+  test('treats OAuth expiry as an auth failure, not a mysterious crash', () => {
+    // The claude-a hop this morning died with "OAuth Expired". The old regex
+    // only matched "not logged in" / "/login" / "unauthor", so the chain never
+    // advanced to Cursor or Codex.
+    assert.equal(isAuthFailureMessage('OAuth Expired'), true);
+    assert.equal(isAuthFailureMessage('OAuth token expired'), true);
+    assert.equal(isAuthFailureMessage('Please run /login to continue'), true);
+    assert.equal(isAuthFailureMessage('not logged in'), true);
+    assert.equal(isAuthFailureMessage('authentication_error: invalid token'), true);
+  });
+
+  test('does not treat ordinary model errors as logout', () => {
+    assert.equal(isAuthFailureMessage('rate limit exceeded'), false);
+    assert.equal(isAuthFailureMessage('tool timed out'), false);
+  });
+
+  test('Cursor team usage is a limit with a calendar reset, not a logout', () => {
+    const cursor =
+      'The team has reached its usage limit. Please return on 8/22/2026 or reach out to an admin to enable on-demand usage.';
+    assert.equal(classifyFailure(cursor), 'limited');
+    assert.equal(isRateLimitedMessage(cursor), true);
+    assert.equal(parseUsageResetAt(cursor)?.toISOString(), '2026-08-22T00:00:00.000Z');
+  });
+
+  test('a 403 that is also a usage cap is limited, not logged out', () => {
+    assert.equal(
+      classifyFailure('403: team usage limit reached, return on 8/22/2026'),
+      'limited',
+    );
+  });
+
+  test('Claude five-hour windows keep their ISO reset', () => {
+    const msg = 'Claude AI usage limit reached · resets 2026-08-19T19:10:00.000Z';
+    assert.equal(classifyFailure(msg), 'limited');
+    assert.equal(parseUsageResetAt(msg)?.toISOString(), '2026-08-19T19:10:00.000Z');
+  });
+
+  test('OpenCode and Ollama are the floor, not paid rungs', () => {
+    assert.equal(isFloorBrainSlug('opencode'), true);
+    assert.equal(isFloorBrainSlug('ollama'), true);
+    assert.equal(isFloorBrainSlug('cursor'), false);
+    assert.equal(isFloorBrainSlug('claude-a'), false);
+  });
+
+  test('appends policy rungs the agent chain omitted', () => {
+    const agent = ['claude-a', 'claude-b', 'codex'];
+    const policy = ['claude-b', 'claude-a', 'cursor', 'codex'];
+    assert.deepEqual(mergeBrainChains(agent, policy), [
+      'claude-a',
+      'claude-b',
+      'codex',
+      'cursor',
+    ]);
+  });
+
+  test('skips the current brain and keeps declared order', () => {
+    const chain = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    assert.equal(nextBrainInChain(chain, 'a')?.id, 'b');
+    assert.equal(nextBrainInChain(chain, 'c')?.id, 'a');
   });
 });

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { query, one, recordEvent } from '../db/index.js';
 import { markBrainLimited, markBrainStatus, setSessionStatus } from '../db/repo.js';
+import { isAuthFailureMessage, isHardAuthFailure, isRateLimitedMessage, parseUsageResetAt } from '../policy/brains.js';
 import type { RunnerEvent, RunnerSession } from '../runner/types.js';
 
 /**
@@ -312,7 +313,12 @@ export class SessionEngine extends EventEmitter {
         if (exhausted) {
           // The literal status string is preserved in the event log rather than
           // mapped onto an enum, so an unfamiliar value stays diagnosable.
-          await markBrainLimited(this.brainAccountId, e.resetsAt);
+          await markBrainLimited(
+            this.brainAccountId,
+            e.resetsAt,
+            'limited',
+            `rate limit status=${e.status} type=${e.limitType ?? 'n/a'}`,
+          );
           this.emit('limitReached', {
             resetsAt: e.resetsAt,
             limitType: e.limitType,
@@ -413,17 +419,28 @@ export class SessionEngine extends EventEmitter {
       }
 
       case 'error': {
+        const msg = e.message ?? '';
+        const limited = isRateLimitedMessage(msg) && !isHardAuthFailure(msg);
+        const authFailure = !limited && Boolean(e.authFailure || isAuthFailureMessage(msg));
         await recordEvent({
-          type: e.authFailure ? 'brain.auth_failure' : 'session.error',
+          type: authFailure ? 'brain.auth_failure' : limited ? 'brain.rate_limit' : 'session.error',
           severity: 'error',
           sessionId: this.sessionId,
           agentId: this.agentId,
           brainAccountId: this.brainAccountId,
           message: e.message.slice(0, 2000),
         });
-        if (e.authFailure) {
+        if (authFailure) {
           await markBrainStatus(this.brainAccountId, 'logged_out', e.message.slice(0, 500));
           this.emit('authFailure', { message: e.message });
+        } else if (limited) {
+          const resetsAt = parseUsageResetAt(msg);
+          await markBrainLimited(this.brainAccountId, resetsAt, 'limited', e.message.slice(0, 500));
+          this.emit('limitReached', {
+            resetsAt,
+            limitType: null,
+            status: 'exhausted',
+          });
         }
         return;
       }

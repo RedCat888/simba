@@ -177,6 +177,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                         onToggle = { showPanel(!expanded) },
                         onDecide = ::decide,
                         onCapture = ::capture,
+                        onSay = ::sayToSimba,
                         onOpenApp = ::openApp,
                     )
                 }
@@ -286,6 +287,14 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
             // with nothing to say why tapping it did nothing. The row staying
             // is right; saying nothing about it is not.
             .onFailure { state = state.copy(notice = shortReason(it)) }
+    }
+
+    private suspend fun sayToSimba(text: String): Boolean {
+        val api = runCatching { applicationContext.api() }.getOrNull() ?: return false
+        return runCatching { api.saySimba(text) }
+            .onSuccess { state = state.copy(notice = null) }
+            .onFailure { state = state.copy(notice = shortReason(it)) }
+            .isSuccess
     }
 
     /** Returns whether it actually landed, because the caller clears the box on it. */
@@ -409,6 +418,7 @@ fun Bubble(
     onDecide: (String, Boolean) -> Unit,
     onCapture: suspend (String) -> Boolean,
     onOpenApp: () -> Unit,
+    onSay: (suspend (String) -> Boolean)? = null,
 ) {
     if (!expanded) {
         Collapsed(state, onToggle)
@@ -483,6 +493,7 @@ fun Bubble(
         }
 
         QuickCapture(onCapture)
+        if (onSay != null) QuickTalk(onSay)
 
         Text(
             "Open Simba",
@@ -635,6 +646,63 @@ private fun QuickCapture(onCapture: suspend (String) -> Boolean) {
                     sending = true
                     scope.launch {
                         val ok = onCapture(pending)
+                        sending = false
+                        if (ok) { text = ""; sent = true }
+                    }
+                }
+                .tapTarget()
+                .padding(start = space.base),
+        )
+    }
+}
+
+@Composable
+private fun QuickTalk(onSay: suspend (String) -> Boolean) {
+    var text by remember { mutableStateOf("") }
+    var sent by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(sent) {
+        if (sent) { delay(1400); sent = false }
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = space.gutter, vertical = space.snug),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(radius.small))
+                .background(Inset)
+                .padding(horizontal = space.base, vertical = space.snug),
+        ) {
+            if (text.isEmpty() && !sent && !sending) {
+                Text("Tell Simba…", color = Faint, style = type.bodySmall)
+            }
+            if (sending) Text("Sending…", color = Dim, style = type.bodySmall)
+            if (sent) Text("Sent", color = Ok, style = type.bodySmall)
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                textStyle = TextStyle(color = Fg, fontSize = type.bodySmall.fontSize),
+                cursorBrush = SolidColor(Accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Text(
+            if (sending) "…" else "Talk",
+            color = if (text.isBlank() || sending) Faint else Accent,
+            style = type.label,
+            modifier = Modifier
+                .clickable(enabled = text.isNotBlank() && !sending) {
+                    val pending = text.trim()
+                    sending = true
+                    scope.launch {
+                        val ok = onSay(pending)
                         sending = false
                         if (ok) { text = ""; sent = true }
                     }

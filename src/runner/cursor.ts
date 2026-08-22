@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import { AsyncQueue } from './queue.js';
 import { resolveExecutor, buildSpawn } from './discovery.js';
 import { denyNotice } from './boundary.js';
+import { isAuthFailureMessage, isRateLimitedMessage, parseUsageResetAt } from '../policy/brains.js';
 import type {
   BrainAccount,
   LaunchSpec,
@@ -148,18 +149,33 @@ class CursorSession implements RunnerSession {
       this.proc = null;
 
       if (code !== 0 && stderr.trim()) {
+        const message = stderr.trim().slice(0, 4000);
+        const limited = isRateLimitedMessage(message);
+        const authFailure =
+          !limited &&
+          (isAuthFailureMessage(message) || /no models available/i.test(message));
         this.emit({
           kind: 'error',
           sessionId: this.sessionId,
           raw: { stderr, code },
           at: new Date(),
-          message: stderr.trim().slice(0, 4000),
-          // "No models available for this account" is an entitlement failure,
-          // not a credential one, but it is equally unrecoverable by retrying —
-          // so it is reported as an auth failure to take the brain out of the
-          // chain. The recorded note distinguishes the two for a human reader.
-          authFailure: /not logged in|unauthor|no models available|401/i.test(stderr),
+          message,
+          authFailure,
         });
+        if (limited) {
+          this.emit({
+            kind: 'rate_limit',
+            sessionId: this.sessionId,
+            raw: { stderr },
+            at: new Date(),
+            status: 'exhausted',
+            limitType: 'team_usage',
+            resetsAt: parseUsageResetAt(message),
+            overageStatus: null,
+            overageResetsAt: null,
+            isUsingOverage: false,
+          });
+        }
       }
 
       const next = this.pending.shift();

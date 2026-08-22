@@ -1,6 +1,7 @@
 import { query, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
+import { FAILOVER_CONTINUE_PROMPT } from '../policy/brains.js';
 import { releaseWorktree } from '../session/worktree.js';
 import { scanProjects } from '../inventory/scan.js';
 import { learn } from '../knowledge/learn.js';
@@ -12,6 +13,7 @@ import { generateBrief } from './brief.js';
 import { Reaper } from './reaper.js';
 import { Telemetry } from './telemetry.js';
 import { saveHandoff } from '../tools/handoff.js';
+import { pollIntakes } from '../ops/intakes.js';
 
 /**
  * The supervisor.
@@ -38,6 +40,7 @@ export class Supervisor {
   private readonly reaper: Reaper;
   private readonly telemetry = new Telemetry();
   private lastHandoff = 0;
+  private lastIntakePoll = 0;
   private readonly briefIntervalMinutes = Number(process.env.SIMBA_BRIEF_MINUTES ?? 30);
 
   constructor(private readonly manager: SessionManager) {
@@ -119,6 +122,7 @@ export class Supervisor {
       }
       await this.rollUpMissionCost();
       await generateBrief(this.briefIntervalMinutes);
+      await this.pullIntakes();
     } catch (err) {
       console.error('[supervisor] tick failed', err);
     } finally {
@@ -191,7 +195,7 @@ export class Supervisor {
         // phone-originated task could hit a usage limit and be auto-resumed by
         // the supervisor with unbounded action authority.
         surfaceId: p.origin_surface_id,
-        prompt: 'Your previous session was paused because every brain hit its usage limit. Resume from your brief.',
+        prompt: FAILOVER_CONTINUE_PROMPT,
       });
 
       if ('sessionId' in result) {
@@ -215,14 +219,17 @@ export class Supervisor {
       const live = this.manager.getLive(s.id);
       if (live) continue; // still attached; slow, not stalled
 
-      await query(`UPDATE sessions SET status = 'failed', error = 'stalled' WHERE id = $1`, [s.id]);
-      await query(`UPDATE agents SET status = 'idle' WHERE id = $1`, [s.agent_id]);
+      await query(
+        `UPDATE sessions SET status = 'waiting_limit', error = 'stalled' WHERE id = $1`,
+        [s.id],
+      );
+      await query(`UPDATE agents SET status = 'waiting_limit' WHERE id = $1`, [s.agent_id]);
       await recordEvent({
         type: 'session.stalled',
         severity: 'warn',
         sessionId: s.id,
         agentId: s.agent_id,
-        message: `no activity since ${s.last_activity_at?.toISOString?.() ?? 'unknown'}; marked failed`,
+        message: `no activity since ${s.last_activity_at?.toISOString?.() ?? 'unknown'}; parked for failover`,
       });
     }
   }
@@ -327,6 +334,27 @@ export class Supervisor {
    * must not take down the tick that also resumes limited brains and reclaims
    * worktrees.
    */
+  /**
+   * Mail, chat, GitHub, Instagram — into captures, then Today.
+   *
+   * Five minutes, not every tick: these are network calls to other people's
+   * APIs, and a 15-second poll is how you get rate-limited and then blamed
+   * for a quiet inbox. Missing a mention by a few minutes is fine; missing
+   * it until someone opens a website is the failure this exists to close.
+   */
+  private async pullIntakes(): Promise<void> {
+    if (Date.now() - this.lastIntakePoll < 5 * 60_000) return;
+    this.lastIntakePoll = Date.now();
+    try {
+      const result = await pollIntakes();
+      if (result.ingested > 0) {
+        console.log(`[intakes] ingested ${result.ingested}`);
+      }
+    } catch (err) {
+      console.error('[supervisor] intake poll failed', err);
+    }
+  }
+
   private async rescanProjects(): Promise<void> {
     if (Date.now() - this.lastProjectScan < 30 * 60_000) return;
     this.lastProjectScan = Date.now();

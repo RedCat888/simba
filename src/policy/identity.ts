@@ -85,6 +85,10 @@ export function hostAllowed(channel: Channel, host: string | undefined): boolean
 export function originAllowed(channel: Channel, origin: string | undefined): boolean {
   if (!origin) return true;
   if (channel === 'tunnel') return true;
+  // Electron loads UI from disk (`file://` or a null origin). The desktop app
+  // talks to the gateway over loopback via IPC, but if a renderer ever fetches
+  // directly, that origin must not look like a random website.
+  if (origin === 'null' || origin.toLowerCase().startsWith('file://')) return true;
   const allowed = [
     `http://127.0.0.1:${config.gateway.port}`,
     `http://localhost:${config.gateway.port}`,

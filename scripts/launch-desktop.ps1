@@ -1,32 +1,29 @@
-﻿# Opens Simba as a Windows app window (Edge app mode — no browser chrome,
-# no back-button-closes-the-site). The UI is the local control center.
+﻿# Opens the Simba desktop app (Electron) — its own windows, tray, and overlay.
+# Not a browser pointed at localhost.
 param(
-    [string]$Url = 'http://127.0.0.1:8787',
     [int]$Port = 8787,
     [int]$WaitSeconds = 40
 )
 
 $ErrorActionPreference = 'Stop'
-
-# Not $profile: that is a PowerShell automatic variable holding the path to the
-# user's profile script, and quietly reassigning it is the kind of thing that
-# breaks whatever runs next in the same session.
-$profileDir = Join-Path $env:LOCALAPPDATA 'Simba\edge-profile'
-New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
-
-$edge = @(
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-if (-not $edge) {
-    throw 'Microsoft Edge is required for the Simba desktop window.'
+$root = Split-Path -Parent $PSScriptRoot
+$desktop = Join-Path $root 'desktop'
+$electron = Join-Path $desktop 'node_modules\electron\dist\electron.exe'
+if (-not (Test-Path $electron)) {
+    $electron = Join-Path $desktop 'node_modules\.bin\electron.cmd'
+}
+if (-not (Test-Path $electron)) {
+    throw 'Desktop app is not installed. From the repo root run: npm install --prefix desktop'
 }
 
-# The desktop shortcut and the gateway both start at logon, and the shortcut can
-# win. Opening the window first shows Edge's connection-error page, which reads
-# as "Simba is broken" rather than "Simba is still starting" — and it does not
-# reload itself once the gateway comes up. So wait for the port instead.
+$dist = Join-Path $desktop 'dist\index.html'
+Push-Location $desktop
+npm run build
+Pop-Location
+if (-not (Test-Path $dist)) {
+    throw 'Desktop UI failed to build (desktop/dist/index.html missing).'
+}
+
 $ready = $false
 foreach ($i in 1..$WaitSeconds) {
     if (Test-NetConnection -ComputerName '127.0.0.1' -Port $Port `
@@ -40,8 +37,4 @@ if (-not $ready) {
     Write-Warning "Gateway not listening on $Port after ${WaitSeconds}s — opening anyway."
 }
 
-Start-Process -FilePath $edge -ArgumentList @(
-    "--app=$Url",
-    "--user-data-dir=$profileDir",
-    '--new-window'
-)
+Start-Process -FilePath $electron -ArgumentList @('.') -WorkingDirectory $desktop

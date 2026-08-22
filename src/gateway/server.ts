@@ -17,6 +17,7 @@ import { scanProjects } from '../inventory/scan.js';
 import { allowedRoots, confine, listDir, readTextFile } from '../inventory/files.js';
 import { transcribe, speak, classify, voiceAvailable, workerStatus } from '../voice/index.js';
 import { getHomeSessionId, sayToSimba, loadToday } from '../ops/simba-home.js';
+import { intakeStatuses, pollIntakes } from '../ops/intakes.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -1753,13 +1754,13 @@ app.get('/api/actions/pending', async (c) => {
 });
 
 app.post('/api/actions/:id/confirm', async (c) => {
-  // Desktop-only. At the previous threshold of 60 the phone could confirm its
-  // own confirmations, which made the entire confirm_action_classes mechanism
-  // decorative for the one surface it was written to constrain.
+  // Phone (trust 60) and desktop (trust 100) can both answer. The overlay on
+  // either surface is how the operator unblocks a stopped agent; requiring the PC
+  // window made the phone bubble decorative. Automation (trust 20) still cannot.
   const surface = surfaceOf(c);
-  if (surface.trust_level < 100) {
+  if (surface.trust_level < 60) {
     return c.json(
-      { error: 'confirmations must be approved from the desktop, not the surface that raised them' },
+      { error: 'confirmations must be approved from a trusted surface (desktop or phone)' },
       403,
     );
   }
@@ -1828,6 +1829,17 @@ app.post('/api/panic', async (c) => {
  */
 app.get('/api/today', async (c) => {
   return c.json(await loadToday());
+});
+
+app.get('/api/intakes', async (c) => {
+  return c.json({ sources: intakeStatuses() });
+});
+
+app.post('/api/intakes/poll', async (c) => {
+  if (surfaceOf(c).trust_level < 60) {
+    return c.json({ error: 'intake poll is a trusted-surface action' }, 403);
+  }
+  return c.json(await pollIntakes());
 });
 
 /**

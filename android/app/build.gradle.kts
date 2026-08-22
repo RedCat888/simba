@@ -110,7 +110,14 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
-            all { it.systemProperty("robolectric.graphicsMode", "NATIVE") }
+            all {
+                it.systemProperty("robolectric.graphicsMode", "NATIVE")
+                // Left alone, the test JVM takes a quarter of physical RAM as its
+                // ceiling and then fails to reserve it on a machine also running
+                // the gateway, an IDE and a browser — the suite died with a JVM
+                // crash rather than a test result, which reads as a broken build.
+                it.maxHeapSize = "2g"
+            }
         }
     }
 }

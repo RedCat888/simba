@@ -17,7 +17,8 @@
     "migrate": "powershell -ExecutionPolicy Bypass -File scripts/migrate.ps1",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "desktop": "npm start --prefix desktop"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

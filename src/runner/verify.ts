@@ -1,15 +1,22 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
-import { one } from '../db/index.js';
+import { one, query, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
+import {
+  PAID_BRAIN_SLUGS,
+  isAuthFailureMessage,
+  isHardAuthFailure,
+  isRateLimitedMessage,
+  parseUsageResetAt,
+} from '../policy/brains.js';
 import { resolveExecutor, buildSpawn } from './discovery.js';
 
 /**
  * Ask a brain whether it works, right now.
  *
  * Written because two working subscriptions sat benched for days behind a stale
- * status. Cursor was recorded as logged_out when it was logged in and fine — the
+ * status. Cursor was recorded as logged_out when it was logged in and fine � the
  * real fault was that Simba had it configured for model ids that did not exist
  * in its catalog, so every request was refused and the refusal was filed as an
  * entitlement problem. A status is only a claim about whenever something last
@@ -17,7 +24,7 @@ import { resolveExecutor, buildSpawn } from './discovery.js';
  *
  * So this asks. One trivial turn per CLI, using the brain's own configured
  * model, because a brain that answers on some other model is not the thing
- * being tested — the configured id is exactly what was wrong last time.
+ * being tested � the configured id is exactly what was wrong last time.
  */
 
 export interface VerifyResult {
@@ -37,18 +44,20 @@ export interface VerifyResult {
    * limit is over when the window rolls; an auth failure and a CLI that will
    * not answer both need a person. Collapsing them to one status meant a brain
    * that happened to be rate limited at the moment it was verified got recorded
-   * as broken — and `clearExpiredLimits` only revives accounts marked 'limited',
+   * as broken � and `clearExpiredLimits` only revives accounts marked 'limited',
    * so it stayed benched with a limit that had long since expired.
    */
   failure?: 'limited' | 'auth' | 'unresponsive';
+  /** ISO timestamp when a limit rolls, if the CLI said. */
+  resetsAt?: string | null;
 }
 
 export function isAuthFailure(body: string): boolean {
-  return /not logged in|unauthor|forbidden|not licensed|\b40[13]\b/i.test(body);
+  return isAuthFailureMessage(body);
 }
 
 export function isRateLimited(body: string): boolean {
-  return /rate limit|quota|usage limit|\b429\b/i.test(body);
+  return isRateLimitedMessage(body);
 }
 
 /**
@@ -59,15 +68,20 @@ export function isRateLimited(body: string): boolean {
  * verify route wrote 'error' for every failure, and the supervisor's recovery
  * sweep only ever revives accounts marked 'limited'.
  *
- * Auth is tested first. A body can carry both signals — an account that is out
- * of entitlement often says something quota-shaped on the way out — and of the
+ * Auth is tested first. A body can carry both signals � an account that is out
+ * of entitlement often says something quota-shaped on the way out � and of the
  * two possible mistakes, calling a limit an auth problem merely waits for a
  * person, while calling an auth problem a limit retries forever against an
  * account that will never work.
  */
 export function classifyFailure(body: string): 'limited' | 'auth' | 'unresponsive' {
-  if (isAuthFailure(body)) return 'auth';
-  if (isRateLimited(body)) return 'limited';
+  // Hard auth first: "401 + no quota" is a plan problem, not a window that rolls.
+  // Usage limit before a bare 403: Cursor's team cap arrives as HTTP 403 plus
+  // "usage limit" / "return on 8/22/2026", and treating that as logout benches
+  // a logged-in account until a person re-auths, which cannot help.
+  if (isHardAuthFailure(body)) return 'auth';
+  if (isRateLimitedMessage(body)) return 'limited';
+  if (isAuthFailureMessage(body)) return 'auth';
   return 'unresponsive';
 }
 
@@ -76,12 +90,12 @@ export function classifyFailure(body: string): 'limited' | 'auth' | 'unresponsiv
  *
  * This exists because aliases lie by omission. Simba's top tier was configured
  * as 'opus', which reads as "the best Opus" and actually resolved to
- * claude-opus-4-7 — so the most capable agent in the system ran a generation
+ * claude-opus-4-7 � so the most capable agent in the system ran a generation
  * behind for weeks while the configuration looked entirely correct. Nothing was
  * wrong enough to notice. 'sonnet' had drifted to claude-sonnet-4-6 the same way.
  *
  * Every one of these CLIs echoes the real model in its JSON output, so the
- * discrepancy is detectable — it simply was not being looked at.
+ * discrepancy is detectable � it simply was not being looked at.
  */
 export function reportedModels(out: string): string[] {
   const seen = new Set<string>();
@@ -89,8 +103,8 @@ export function reportedModels(out: string): string[] {
   // Two shapes, because Claude emits different ones depending on config.
   //
   // With the default config it prints an init event carrying "model". With
-  // CLAUDE_CONFIG_DIR pointed at an isolated brain directory — which is how
-  // every Claude account here actually runs — it prints only a result object,
+  // CLAUDE_CONFIG_DIR pointed at an isolated brain directory � which is how
+  // every Claude account here actually runs � it prints only a result object,
   // and the init event is gone. Reading just "model" therefore found nothing on
   // precisely the accounts that had the alias problem, so drift detection was
   // blind exactly where it was needed. The model survives in that shape as a
@@ -109,7 +123,7 @@ export function reportedModels(out: string): string[] {
   // A turn legitimately touches more than one model: Claude Code runs
   // background work on Haiku alongside the main model, so both land in
   // modelUsage. Picking whichever appeared first reported claude-haiku-4-5 for
-  // a session correctly running claude-opus-5 — a false alarm, which in a
+  // a session correctly running claude-opus-5 � a false alarm, which in a
   // checker is as damaging as missing the real thing.
   return [...seen];
 }
@@ -126,7 +140,7 @@ export function looksLikeSameModel(asked: string, got: string): boolean {
   if (a === g || g.startsWith(a) || a.startsWith(g)) return true;
 
   // An alias like "opus" is a substring of the family but carries no version,
-  // so a bare family name can never confirm a version — treat it as unknown
+  // so a bare family name can never confirm a version � treat it as unknown
   // rather than as agreement.
   const askedVersion = asked.match(/\d+(?:[.-]\d+)?/)?.[0]?.replace('-', '.') ?? null;
   const gotVersion = got.match(/\d+(?:[.-]\d+)?/)?.[0]?.replace('-', '.') ?? null;
@@ -146,6 +160,7 @@ async function runOnce(
   bin: { path: string; prefixArgs: string[] },
   args: string[],
   timeoutMs: number,
+  extraEnv?: Record<string, string>,
 ): Promise<{ code: number | null; out: string; ms: number }> {
   const started = Date.now();
   // A .cmd shim is not an executable image; spawning it directly gives EINVAL.
@@ -154,6 +169,7 @@ async function runOnce(
   return new Promise((resolve) => {
     const proc = spawn(invocation.command, invocation.args, {
       cwd: tmpdir(),
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
       windowsHide: true,
       windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     });
@@ -188,7 +204,7 @@ async function runOnce(
  * "Say OK", not "Reply with exactly OK".
  *
  * The phrasing matters, which is not obvious and cost an hour to find. Claude
- * Code recognises "reply with exactly …" as a trivial instruction-following
+ * Code recognises "reply with exactly �" as a trivial instruction-following
  * pattern and serves it from a cheap path: the same account, same
  * `--model claude-opus-5` flag, reports claude-haiku-4-5 for that wording and
  * claude-opus-5 for "Say OK" or "hi". Verifying with the first phrasing measures
@@ -202,8 +218,8 @@ async function runOnce(
  * Pulls the human-readable part out of a failure.
  *
  * Taking the last 220 characters is the obvious approach and produces things
- * like `auth/entitlement: ,"x-github-edge-region":"iad","x-github-request-id":…`
- * — the tail of a failure is usually response headers, not the reason. These
+ * like `auth/entitlement: ,"x-github-edge-region":"iad","x-github-request-id":�`
+ * � the tail of a failure is usually response headers, not the reason. These
  * CLIs all put the reason in a `message` or `responseBody` field somewhere in
  * the middle, so prefer those and fall back to the tail only when neither is
  * present.
@@ -226,6 +242,32 @@ export function extractMessage(body: string): string {
 }
 
 const PROMPT = 'Say OK';
+
+async function claudeAuthLoggedIn(
+  bin: { path: string; prefixArgs: string[] },
+  configDir: string | null,
+): Promise<boolean | null> {
+  const extra = configDir ? { CLAUDE_CONFIG_DIR: configDir } : undefined;
+  const r = await runOnce(bin, ['auth', 'status'], 15_000, extra);
+  const jsonStart = r.out.indexOf('{');
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(r.out.slice(jsonStart)) as { loggedIn?: unknown };
+      if (typeof parsed.loggedIn === 'boolean') return parsed.loggedIn;
+    } catch {
+      /* not JSON */
+    }
+  }
+  if (/loggedIn"?\s*:\s*false|not logged in|logged out/i.test(r.out)) return false;
+  return null;
+}
+
+function spawnEnvFor(cli: string, configDir: string | null): Record<string, string> | undefined {
+  if (!configDir) return undefined;
+  if (cli === 'claude') return { CLAUDE_CONFIG_DIR: configDir };
+  if (cli === 'codex') return { CODEX_HOME: configDir };
+  return undefined;
+}
 
 export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<VerifyResult> {
   const brain = await one<{
@@ -265,6 +307,22 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
   const bin = await resolveExecutor(brain.cli);
   if (!bin) return { ok: false, detail: `${brain.cli} is not installed`, ms: 0, model };
 
+  const extraEnv = spawnEnvFor(brain.cli, brain.config_dir);
+
+  if (brain.cli === 'claude') {
+    const started = Date.now();
+    const loggedIn = await claudeAuthLoggedIn(bin, brain.config_dir);
+    if (loggedIn === false) {
+      return {
+        ok: false,
+        detail: 'auth/entitlement: not logged in (OAuth session expired or missing)',
+        ms: Date.now() - started,
+        model,
+        failure: 'auth',
+      };
+    }
+  }
+
   let args: string[];
   switch (brain.cli) {
     case 'claude':
@@ -292,14 +350,7 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
       return { ok: false, detail: `no verification defined for ${brain.cli}`, ms: 0, model };
   }
 
-  const env = brain.config_dir
-    ? brain.cli === 'claude'
-      ? { CLAUDE_CONFIG_DIR: brain.config_dir }
-      : { CODEX_HOME: brain.config_dir }
-    : {};
-  Object.assign(process.env, env);
-
-  const r = await runOnce(bin, args, timeoutMs);
+  const r = await runOnce(bin, args, timeoutMs, extraEnv);
   const body = clean(r.out);
 
   // Exit code alone is not the signal. Codex prints MCP handshake warnings and
@@ -307,16 +358,15 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
   // The question is whether a real answer came back.
   const answered = /\bOK\b/i.test(body);
   // Status codes need word boundaries. Without them "403" matched inside a
-  // request UUID — `18611643-764a-4033-...` — and a cursor turn that returned
+  // request UUID � `18611643-764a-4033-...` � and a cursor turn that returned
   // "result":"OK" with is_error:false was reported as an entitlement failure.
   // A verifier that invents auth problems is worse than none, because the whole
   // point of it is to correct a wrong stored status.
-  const authFailure = isAuthFailure(body);
-  const limited = isRateLimited(body);
+  const authFailure = classifyFailure(body) === 'auth';
 
   if (answered && !authFailure) {
     // Drift is "the model I asked for never appears in what the CLI reported
-    // using" — not "the first model reported differs". The weaker question
+    // using" � not "the first model reported differs". The weaker question
     // false-alarms on every Claude turn, since background work runs on Haiku.
     const reported = reportedModels(r.out);
     const matched = model ? reported.find((got) => looksLikeSameModel(model, got)) : undefined;
@@ -325,12 +375,12 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
 
     // Answering is not the same as answering on the model you configured, and
     // the difference is exactly what hid Opus 4.7 behind the 'opus' alias. A
-    // drifting brain is still usable, so this stays ok:true — but it says so.
+    // drifting brain is still usable, so this stays ok:true � but it says so.
     return {
       ok: true,
       detail: drift
         ? `answered in ${r.ms}ms, but reported using ${reported.map((m) => `"${m}"`).join(', ')} ` +
-          `— never the configured "${model}". Pin an explicit id; aliases drift silently.`
+          `� never the configured "${model}". Pin an explicit id; aliases drift silently.`
         : `answered in ${r.ms}ms on ${resolved ?? model ?? 'default model'}`,
       ms: r.ms,
       model,
@@ -339,11 +389,109 @@ export async function verifyBrain(slug: string, timeoutMs = 120_000): Promise<Ve
     };
   }
 
-  const detail = authFailure
-    ? `auth/entitlement: ${extractMessage(body)}`
-    : limited
-      ? `rate limited: ${extractMessage(body)}`
-      : `no answer (exit ${r.code}): ${extractMessage(body)}`;
+  const failure = classifyFailure(body);
+  const excerpt = extractMessage(body);
+  const detail =
+    failure === 'auth'
+      ? `auth/entitlement: ${excerpt}`
+      : failure === 'limited'
+        ? `rate limited: ${excerpt}`
+        : `no answer (exit ${r.code}): ${excerpt}`;
+  const reset = failure === 'limited' ? parseUsageResetAt(body) : null;
 
-  return { ok: false, detail, ms: r.ms, model, failure: classifyFailure(body) };
+  return {
+    ok: false,
+    detail,
+    ms: r.ms,
+    model,
+    failure,
+    resetsAt: reset ? reset.toISOString() : null,
+  };
+}
+
+/**
+ * Write a verify result onto the roster the way the supervisor already
+ * understands: 'limited' with a reset time, 'logged_out' for auth, 'error'
+ * only when the CLI will not answer. Collapsing those to 'error' is how a
+ * rate-limited Claude sat benched for two days.
+ */
+export async function applyVerifyResult(slug: string, result: VerifyResult): Promise<void> {
+  const brain = await one<{ id: string }>(`SELECT id FROM brain_accounts WHERE slug = $1`, [slug]);
+  if (!brain) return;
+
+  let status: string;
+  let resetsAt: string | null = null;
+  if (result.ok) {
+    status = 'available';
+  } else if (result.failure === 'limited') {
+    status = 'limited';
+    resetsAt = result.resetsAt ?? new Date(Date.now() + 60 * 60_000).toISOString();
+  } else if (result.failure === 'auth') {
+    status = 'logged_out';
+  } else {
+    status = 'error';
+  }
+
+  await query(
+    `UPDATE brain_accounts
+        SET status = $2, last_error = $3, limit_resets_at = $4,
+            last_checked_at = now(), updated_at = now()
+      WHERE id = $1`,
+    [brain.id, status, result.detail, resetsAt],
+  );
+  await recordEvent({
+    type: 'brain.verified',
+    severity: result.ok ? 'info' : 'warn',
+    brainAccountId: brain.id,
+    message: `${slug}: ${result.ok ? 'available' : result.failure ?? 'failed'}`,
+    data: {
+      slug,
+      detail: result.detail,
+      ms: result.ms,
+      failure: result.failure ?? null,
+      resetsAt,
+    },
+  });
+}
+
+const PROBE_MAX_AGE_MS = 2 * 60_000;
+
+/**
+ * Ask every paid brain whether it still has usage, and record the answers.
+ *
+ * Called immediately before launching OpenCode or Ollama so a stale
+ * 'limited' / 'logged_out' row cannot send work to the free floor while a
+ * subscription would have answered.
+ */
+export async function refreshPaidBrainStatuses(opts?: {
+  skipIds?: Iterable<string>;
+  skipSlugs?: Iterable<string>;
+  maxAgeMs?: number;
+}): Promise<VerifyResult[]> {
+  const skipIds = new Set(opts?.skipIds ?? []);
+  const skipSlugs = new Set(opts?.skipSlugs ?? []);
+  const maxAgeMs = opts?.maxAgeMs ?? PROBE_MAX_AGE_MS;
+
+  const rows = await query<{
+    id: string;
+    slug: string;
+    last_checked_at: Date | null;
+  }>(`SELECT id, slug, last_checked_at FROM brain_accounts WHERE slug = ANY($1)`, [
+    [...PAID_BRAIN_SLUGS],
+  ]);
+
+  const now = Date.now();
+  const targets = rows.filter((r) => {
+    if (skipIds.has(r.id) || skipSlugs.has(r.slug)) return false;
+    if (r.last_checked_at && now - new Date(r.last_checked_at).getTime() < maxAgeMs) return false;
+    return true;
+  });
+
+  return Promise.all(
+    targets.map(async (r) => {
+      const result = await verifyBrain(r.slug);
+      await applyVerifyResult(r.slug, result);
+      return result;
+    }),
+  );
 }

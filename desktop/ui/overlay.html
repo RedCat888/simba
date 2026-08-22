@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Simba overlay</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div id="bubble" class="bubble ok" title="Simba">0</div>
+  <div id="panel" class="panel hidden">
+    <header>
+      <strong>Simba</strong>
+      <button id="close" type="button">×</button>
+    </header>
+    <section id="pending"></section>
+    <textarea id="note" placeholder="Capture a thought…"></textarea>
+    <div class="row">
+      <button id="save" type="button">Save</button>
+      <button id="talk" type="button">Open Simba</button>
+    </div>
+    <textarea id="say" placeholder="Tell Simba…"></textarea>
+    <div class="row">
+      <button id="send" type="button">Send</button>
+      <button id="ptt" type="button">Hold to talk</button>
+    </div>
+    <p id="status"></p>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>

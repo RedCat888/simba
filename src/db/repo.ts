@@ -1,4 +1,5 @@
 import { query, one } from './index.js';
+import { mergeBrainChains } from '../policy/brains.js';
 import type { BrainAccount, ModelTier } from '../runner/types.js';
 
 /** Typed accessors over the roster tables. Everything here is data, not code. */
@@ -94,28 +95,29 @@ export async function listBrains(): Promise<BrainRow[]> {
 }
 
 /**
- * The ordered fallback chain for an agent: its own chain if set, otherwise the
- * highest-priority routing policy matching its tier. Only enabled brains that
- * are not currently limited are returned, so an exhausted account simply
- * disappears from the chain until its reset time passes.
+ * The ordered fallback chain for an agent.
+ *
+ * Preference is `agents.brain_chain`, then rungs from the matching routing
+ * policy that the agent row omitted. Only enabled brains that are not currently
+ * limited or logged out are returned, so an exhausted account disappears until
+ * its reset time passes — and Cursor still remains reachable after both Claudes.
  */
 export async function resolveBrainChain(
   agent: AgentRow,
   availableClis?: string[],
 ): Promise<BrainRow[]> {
-  let ids: string[] = agent.brain_chain ?? [];
+  const policy = await one<{ brain_chain: string[] }>(
+    `SELECT brain_chain FROM routing_policies
+      WHERE enabled
+        AND (applies_to_agent_id = $1 OR (applies_to_agent_id IS NULL AND applies_to_tier = $2))
+      ORDER BY (applies_to_agent_id IS NOT NULL) DESC, priority
+      LIMIT 1`,
+    [agent.id, agent.tier],
+  );
 
-  if (ids.length === 0) {
-    const policy = await one<{ brain_chain: string[] }>(
-      `SELECT brain_chain FROM routing_policies
-        WHERE enabled
-          AND (applies_to_agent_id = $1 OR (applies_to_agent_id IS NULL AND applies_to_tier = $2))
-        ORDER BY (applies_to_agent_id IS NOT NULL) DESC, priority
-        LIMIT 1`,
-      [agent.id, agent.tier],
-    );
-    ids = policy?.brain_chain ?? [];
-  }
+  // Agent chain is preference, not a cage. Rungs the policy lists that the
+  // agent row omitted still have to be reachable or failover stops at Claude.
+  const ids = mergeBrainChains(agent.brain_chain ?? [], policy?.brain_chain ?? []);
 
   const clis = availableClis ?? null;
 
@@ -151,7 +153,15 @@ export async function resolveBrainChain(
 
 /** Earliest moment any brain in the chain becomes usable again. */
 export async function nextChainResetAt(agent: AgentRow): Promise<Date | null> {
-  const ids = agent.brain_chain?.length ? agent.brain_chain : null;
+  const policy = await one<{ brain_chain: string[] }>(
+    `SELECT brain_chain FROM routing_policies
+      WHERE enabled
+        AND (applies_to_agent_id = $1 OR (applies_to_agent_id IS NULL AND applies_to_tier = $2))
+      ORDER BY (applies_to_agent_id IS NOT NULL) DESC, priority
+      LIMIT 1`,
+    [agent.id, agent.tier],
+  );
+  const ids = mergeBrainChains(agent.brain_chain ?? [], policy?.brain_chain ?? []);
   const row = await one<{ next_reset: Date | null }>(
     `SELECT min(limit_resets_at) AS next_reset
        FROM brain_accounts
@@ -159,7 +169,7 @@ export async function nextChainResetAt(agent: AgentRow): Promise<Date | null> {
         AND status = 'limited'
         AND limit_resets_at IS NOT NULL
         AND ($1::uuid[] IS NULL OR id = ANY($1::uuid[]))`,
-    [ids],
+    [ids.length ? ids : null],
   );
   return row?.next_reset ?? null;
 }
@@ -168,12 +178,14 @@ export async function markBrainLimited(
   brainId: string,
   resetsAt: Date | null,
   status = 'limited',
+  error?: string | null,
 ): Promise<void> {
   await query(
     `UPDATE brain_accounts
-        SET status = $2, limit_resets_at = $3, last_checked_at = now(), updated_at = now()
+        SET status = $2, limit_resets_at = $3, last_checked_at = now(), updated_at = now(),
+            last_error = COALESCE($4, last_error)
       WHERE id = $1`,
-    [brainId, status, resetsAt],
+    [brainId, status, resetsAt, error ?? null],
   );
 }
 

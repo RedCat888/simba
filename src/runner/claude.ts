@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 
 import { AsyncQueue } from './queue.js';
 import { resolveExecutor } from './discovery.js';
+import { isAuthFailureMessage } from '../policy/brains.js';
 import type {
   BrainAccount,
   LaunchSpec,
@@ -134,7 +135,7 @@ class ClaudeSession implements RunnerSession {
           raw: { stderr: stderrBuf },
           at: new Date(),
           message: stderrBuf.trim().slice(0, 4000),
-          authFailure: /not logged in|please run \/login|unauthor/i.test(stderrBuf),
+          authFailure: isAuthFailureMessage(stderrBuf),
         });
       }
       this.emit({
@@ -346,7 +347,7 @@ class ClaudeSession implements RunnerSession {
           },
         });
 
-        if (isError && typeof obj.result === 'string' && /not logged in|\/login/i.test(obj.result)) {
+        if (isError && typeof obj.result === 'string' && isAuthFailureMessage(obj.result)) {
           this.emit({
             ...base,
             kind: 'error',

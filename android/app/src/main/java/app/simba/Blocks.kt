@@ -195,16 +195,23 @@ private fun BoundedBody(
     monospace: Boolean,
     color: Color,
     maxHeight: Dp = ExpandedMaxHeight,
+    markdown: Boolean = false,
 ) {
     val base = MaterialTheme.typography.bodySmall
+    val bounds = Modifier
+        .fillMaxWidth()
+        .heightIn(max = maxHeight)
+        .verticalScroll(rememberScrollState())
+
+    if (markdown) {
+        MarkdownText(text, modifier = bounds, color = color, style = base)
+        return
+    }
     Text(
         text,
         style = if (monospace) base.copy(fontFamily = FontFamily.Monospace) else base,
         color = color,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = maxHeight)
-            .verticalScroll(rememberScrollState()),
+        modifier = bounds,
     )
 }
 
@@ -257,6 +264,13 @@ fun ExpandableBody(
     color: Color = MaterialTheme.colorScheme.onSurface,
     initiallyExpanded: Boolean = false,
     summaryPrefix: String? = null,
+    /**
+     * Off by default. Tool output, stack traces and knowledge bodies are raw
+     * text that happens to contain punctuation — running markdown over them
+     * would eat an underscore out of a path or bold a glob pattern. Only a
+     * message body, which was written as markdown, opts in.
+     */
+    markdown: Boolean = false,
 ) {
     if (text.isBlank()) {
         if (summaryPrefix != null) {
@@ -273,19 +287,32 @@ fun ExpandableBody(
     }
 
     if (!isLong(text) && summaryPrefix == null) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = color,
-            modifier = modifier,
-        )
+        if (markdown) {
+            MarkdownText(
+                text,
+                modifier = modifier,
+                color = color,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = color,
+                modifier = modifier,
+            )
+        }
         return
     }
 
     var expanded by remember(text) { mutableStateOf(initiallyExpanded) }
     Column(modifier.fillMaxWidth()) {
         SummaryRow(
-            summary = summaryPrefix ?: firstMeaningfulLine(text),
+            // A collapsed body is one line of plain text by definition, so the
+            // markers have to come off it — otherwise the summary reads "## Plan"
+            // and the formatting shows up only once you expand.
+            summary = summaryPrefix
+                ?: firstMeaningfulLine(text).let { if (markdown) stripMarkdown(it) else it },
             sizeHint = sizeLabel(text),
             expanded = expanded,
             accent = color,
@@ -294,15 +321,22 @@ fun ExpandableBody(
         )
         if (expanded) {
             Spacer(Modifier.height(6.dp))
-            BoundedBody(text, monospace = monospace, color = color)
+            BoundedBody(text, monospace = monospace, color = color, markdown = markdown)
             CopyAction(text, Modifier.align(Alignment.End))
         }
     }
 }
 
 /**
- * A whole message body: prose runs bounded as above, fenced code as real code
- * blocks. This is what replaces the unbounded raw [Text].
+ * A whole message body: prose as markdown, fenced code as real code blocks.
+ *
+ * Prose here is deliberately NOT run through [ExpandableBody]. The collapse is
+ * right for a tool's output — a 400-line stack trace is reference material you
+ * open when you want it — and wrong for a reply, which is the thing you asked
+ * for. Routing messages through it meant almost every answer over six lines
+ * arrived as "first line · 335 chars" behind a chevron, so the formatting was
+ * not the only thing missing from the chat: so was the message. The list this
+ * sits in scrolls; a long answer is allowed to be long.
  */
 @Composable
 fun MessageBody(
@@ -314,12 +348,15 @@ fun MessageBody(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(space.tight)) {
         segments.forEach { seg ->
             when (seg) {
-                is BodySegment.Prose -> ExpandableBody(seg.text, color = color)
+                is BodySegment.Prose -> MarkdownText(seg.text, color = color)
                 is BodySegment.Code -> CodeBlock(seg.lang, seg.code)
             }
         }
         // A body with code in it is usually wanted whole, not fence by fence.
-        if (segments.size > 1) CopyAction(text, Modifier.align(Alignment.End))
+        // Long prose gets the affordance too: it used to arrive with the copy
+        // that came free with the collapse, and dropping the collapse must not
+        // quietly take copying with it.
+        if (segments.size > 1 || isLong(text)) CopyAction(text, Modifier.align(Alignment.End))
     }
 }
 

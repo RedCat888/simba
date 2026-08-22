@@ -338,6 +338,12 @@
   .msg pre.code code{background:none;padding:0;font-size:12.5px;line-height:1.5}
   .msg strong{font-weight:650}
   .msg a{color:var(--link)}
+  .msg.streaming::after{
+    content:"";display:inline-block;width:7px;height:1em;margin-left:4px;
+    background:var(--accent);vertical-align:text-bottom;
+    animation:pulse 0.9s ease-in-out infinite;
+  }
+  @keyframes pulse{50%{opacity:.35}}
 
   /* Prose and search results read, so they get a measure. */
   .reading{max-width:var(--read);margin:0 auto}
@@ -703,11 +709,13 @@ function appendLive(e) {
     let stream = $('stream');
     if (!stream) {
       stream = document.createElement('div');
-      stream.className = 'msg assistant';
+      stream.className = 'msg assistant streaming';
       stream.id = 'stream';
+      stream.dataset.raw = '';
       box.appendChild(stream);
     }
-    stream.textContent += e.text;
+    stream.dataset.raw += e.text;
+    stream.innerHTML = md(stream.dataset.raw);
     if (atBottom) box.scrollTop = box.scrollHeight;
     return;
   }

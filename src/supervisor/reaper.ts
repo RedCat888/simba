@@ -39,7 +39,15 @@ export class Reaper {
           -- Never reap a session a mission is actively depending on.
           AND NOT EXISTS (
             SELECT 1 FROM mission_steps ms
-             WHERE ms.session_id = s.id AND ms.status = 'running')`,
+             WHERE ms.session_id = s.id AND ms.status = 'running')
+          -- A failover child that never produced a token is not "idle waiting
+          -- for the user". It is a swap that failed to continue. Reaping it
+          -- is how Cursor never got the job after Claude ran out of headroom.
+          AND NOT (
+            s.swap_count > 0
+            AND NOT EXISTS (
+              SELECT 1 FROM messages m
+               WHERE m.session_id = s.id AND m.role = 'assistant'))`,
       [String(this.idleMinutes)],
     );
 

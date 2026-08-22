@@ -212,8 +212,16 @@ export function classify(said: string): Intent {
   }
   // "remember that…", "note that…", "capture…" — the thing you say when you do
   // not want an answer, you want it written down.
-  const capture = s.match(/^(remember|note|capture|save|jot down)\b[:,]?\s*(that\s+)?(.+)$/);
-  if (capture) return { kind: 'capture', text: said.replace(/^\s*\w+\b[:,]?\s*(that\s+)?/i, '') };
+  // Matched against the original rather than the lowercased copy, and the note
+  // is taken from the capture group rather than by stripping a prefix off the
+  // front. The strip was /^\s*\w+\b/, which removes exactly one word - so
+  // "jot down buy milk" was stored as the note "down buy milk", because the
+  // trigger is two words and only the first came off.
+  const capture = said.trim().match(/^(remember|note|capture|save|jot down)\b[:,]?\s*(that\s+)?(.+)$/i);
+  // capture[3] is the (.+) group, so a match guarantees it; noUncheckedIndexedAccess
+  // does not know that, and asserting is worse than falling through to `ask`.
+  const note = capture?.[3]?.trim();
+  if (note) return { kind: 'capture', text: note };
 
   return { kind: 'ask', text: said };
 }

@@ -15,6 +15,7 @@ import { samePath } from '../src/session/worktree.js';
 import { maskSecrets } from '../src/inventory/files.js';
 import { parseSchedule } from '../src/missions/schedule.js';
 import { tickDecision } from '../src/supervisor/tick-guard.js';
+import { classify } from '../src/voice/index.js';
 import {
   isAuthFailureMessage,
   mergeBrainChains,
@@ -433,5 +434,36 @@ describe('the supervisor guard that became a permanent stop', () => {
     const now = 1_000_000;
     assert.equal(tickDecision(true, now - (WEDGE - 1), now, WEDGE), 'skip');
     assert.equal(tickDecision(true, now - WEDGE, now, WEDGE), 'forced');
+  });
+});
+
+describe('what a spoken sentence is taken to mean', () => {
+  test('a two-word trigger does not leave half of itself in the note', () => {
+    // "jot down buy milk" was stored as "down buy milk": the extraction stripped
+    // one word off the front while the trigger was two.
+    assert.deepEqual(classify('jot down buy milk'), { kind: 'capture', text: 'buy milk' });
+  });
+
+  test('single-word triggers still work, with and without "that"', () => {
+    assert.deepEqual(classify('remember that I need milk'), { kind: 'capture', text: 'I need milk' });
+    assert.deepEqual(classify('note the door code is 4821'), { kind: 'capture', text: 'the door code is 4821' });
+    assert.deepEqual(classify('capture: call the dentist'), { kind: 'capture', text: 'call the dentist' });
+  });
+
+  test('the note keeps the casing it was said in', () => {
+    // The trigger match is case-insensitive; the stored text is not lowercased,
+    // because a note is read by a person later.
+    assert.deepEqual(classify('Remember That the operator prefers Postgres'),
+                     { kind: 'capture', text: 'the operator prefers Postgres' });
+  });
+
+  test('a question is a question, not a note that happens to contain a verb', () => {
+    assert.equal(classify('what needs me').kind, 'needs_me');
+    assert.equal(classify('status').kind, 'status');
+    assert.equal(classify('how do I remember my password').kind, 'ask');
+  });
+
+  test('empty speech asks rather than capturing nothing', () => {
+    assert.deepEqual(classify('   '), { kind: 'ask', text: '   ' });
   });
 });

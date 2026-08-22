@@ -61,11 +61,18 @@ export interface RecallHit {
  * with hydration is that it never fails a bundle, and changing that to serve the
  * search box would trade a visible problem for an invisible one somewhere else.
  */
-let lastEmbedFailure: { at: number; reason: string } | null = null;
+let lastRecallFailure: { at: number; reason: string; stage: 'embed' | 'query' } | null = null;
 
-/** Null when embeddings are working. Cleared by the next success. */
-export function embeddingFailure(): { at: number; reason: string } | null {
-  return lastEmbedFailure;
+/**
+ * Null when recall is working. Cleared by the next success.
+ *
+ * `stage` matters to whoever reads it: an embed failure means start Ollama, a
+ * query failure means something is wrong with Postgres or pgvector, and telling
+ * someone to start Ollama when the database is the problem sends them away from
+ * the fault.
+ */
+export function recallFailure(): { at: number; reason: string; stage: 'embed' | 'query' } | null {
+  return lastRecallFailure;
 }
 
 /**
@@ -88,11 +95,11 @@ export async function recall(
     // and every search answered "No matches", which is a different sentence
     // from "the search engine is not running" and sent the reader looking for
     // the wrong problem.
-    lastEmbedFailure = { at: Date.now(), reason: String((err as Error).message ?? err) };
+    lastRecallFailure = { at: Date.now(), reason: String((err as Error).message ?? err), stage: 'embed' };
     return [];
   }
   if (!vector) return [];
-  lastEmbedFailure = null;
+  lastRecallFailure = null;
 
   const limit = opts.limit ?? 8;
   const kinds = opts.ownerKinds ?? null;
@@ -118,7 +125,15 @@ export async function recall(
         LIMIT $4`,
       [toVectorLiteral(vector), kinds, opts.agentId ?? null, limit],
     );
-  } catch {
+  } catch (err) {
+    // Recorded for the same reason the embed failure above is, and it was not.
+    //
+    // Half of this function reported why it came back empty and half of it did
+    // not. A failing recall query - pgvector unavailable, a bad parameter, the
+    // connection dropping - produced exactly the sentence the embed path was
+    // fixed to stop producing: "No matches", against thirty thousand vectors,
+    // with nothing to say otherwise.
+    lastRecallFailure = { at: Date.now(), reason: String((err as Error).message ?? err), stage: 'query' };
     return [];
   }
 }

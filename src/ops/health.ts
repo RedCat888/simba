@@ -65,13 +65,46 @@ async function checkPostgres(): Promise<Dependency> {
 }
 
 async function checkOllama(): Promise<Dependency> {
+  const impact = 'Knowledge search cannot embed a query, so it finds nothing in thirty thousand vectors.';
   const { ok, detail } = await reach(`${config.embedding.endpoint}/api/tags`);
-  return {
-    name: 'ollama',
-    state: ok ? 'up' : 'degraded',
-    detail,
-    impact: 'Knowledge search returns nothing and reports it as no matches, not as an outage.',
-  };
+  if (!ok) return { name: 'ollama', state: 'degraded', detail, impact };
+
+  // Running is not the same as usable, and the difference is not academic.
+  //
+  // On 22 August Ollama was serving /api/tags perfectly while the embedding
+  // model was simply absent from the model store - so this check said "up",
+  // and every knowledge search failed. Only two models were installed and
+  // neither could embed. The dependency worth reporting is the model, not the
+  // process that would serve it if it were there.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${config.embedding.endpoint}/api/show`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: config.embedding.model }),
+      signal: abort.signal,
+    });
+    if (!res.ok) {
+      return {
+        name: 'ollama',
+        state: 'degraded',
+        detail: `running, but the embedding model "${config.embedding.model}" is not installed ` +
+                `(ollama pull ${config.embedding.model})`,
+        impact,
+      };
+    }
+    return { name: 'ollama', state: 'up', detail: `serving ${config.embedding.model}`, impact };
+  } catch (err) {
+    return {
+      name: 'ollama',
+      state: 'degraded',
+      detail: err instanceof Error ? err.message : String(err),
+      impact,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function checkVoiceWorker(): Promise<Dependency> {

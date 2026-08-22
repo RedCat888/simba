@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { query, one, recordEvent } from '../db/index.js';
 import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
-import { recall, embeddingFailure } from '../knowledge/embed.js';
+import { recall, recallFailure } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
 import { applyVerifyResult, verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
@@ -513,13 +513,17 @@ app.get('/api/knowledge/search', async (c) => {
   // every query for an unknown stretch, which reads as "you have nothing about
   // that" — the opposite of the truth, since there are thirty thousand vectors.
   if (hits.length === 0) {
-    const failure = embeddingFailure();
+    const failure = recallFailure();
     if (failure) {
       return c.json(
         {
           error: 'search is unavailable',
-          detail: `the local embedding model did not answer: ${failure.reason}`,
-          fix: 'start Ollama — the gateway reaches it at ' + config.embedding.endpoint,
+          detail: failure.stage === 'embed'
+            ? `the local embedding model did not answer: ${failure.reason}`
+            : `the vector query failed: ${failure.reason}`,
+          fix: failure.stage === 'embed'
+            ? 'start Ollama — the gateway reaches it at ' + config.embedding.endpoint
+            : 'check Postgres and the pgvector extension',
         },
         503,
       );

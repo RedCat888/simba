@@ -19,6 +19,7 @@ import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
 import { chunkText } from '../src/ingest/chunk.js';
 import { parseFields } from '../src/hydration/checkpoint.js';
+import { googleAccessToken, microsoftAccessToken, clearTokenCache } from '../src/ops/oauth.js';
 import { pressureLevel } from '../src/ops/commit-charge.js';
 import { surfaceForPrincipal, describePrincipal } from '../src/policy/access.js';
 import { config } from '../src/config.js';
@@ -693,5 +694,88 @@ describe('the handoff record a successor actually reads', () => {
     const f = parseFields('{"task_statement": 42, "failures": ["a","b"]}');
     assert.equal(typeof f.task_statement, 'string');
     assert.equal(typeof f.failures, 'string');
+  });
+});
+
+describe('the token that has to outlive an hour', () => {
+  // The intakes read a raw *_ACCESS_TOKEN from the environment. Those expire in
+  // about sixty minutes, so setting one connects the source for an hour and
+  // then 401s forever - which reads as a broken integration rather than an
+  // expired paste, and is the difference between a demo and something running.
+  const KEYS = [
+    'GOOGLE_ACCESS_TOKEN', 'GMAIL_ACCESS_TOKEN', 'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN',
+    'MICROSOFT_ACCESS_TOKEN', 'MS_GRAPH_TOKEN', 'MICROSOFT_CLIENT_ID',
+    'MICROSOFT_REFRESH_TOKEN', 'MICROSOFT_CLIENT_SECRET',
+  ];
+  const saved: Record<string, string | undefined> = {};
+  const wipe = () => { for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; } clearTokenCache(); };
+  const restore = () => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    clearTokenCache();
+  };
+
+  test('unconfigured says which variables to set, not just "not connected"', async () => {
+    wipe();
+    try {
+      const g = await googleAccessToken();
+      assert.equal(g.ok, false);
+      if (g.ok) return;
+      // The reason lands in the intake status and in a reminder capture, so it
+      // is the whole of what a reader gets.
+      assert.match(g.reason, /GOOGLE_CLIENT_ID/);
+      assert.match(g.reason, /GOOGLE_REFRESH_TOKEN/);
+    } finally { restore(); }
+  });
+
+  test('a pasted access token still wins, because it is how a scope gets checked', async () => {
+    wipe();
+    try {
+      process.env.GOOGLE_ACCESS_TOKEN = 'pasted-from-the-playground';
+      clearTokenCache();
+      const g = await googleAccessToken();
+      assert.equal(g.ok, true);
+      if (!g.ok) return;
+      assert.equal(g.source, 'static');
+      assert.equal(g.token, 'pasted-from-the-playground');
+    } finally { restore(); }
+  });
+
+  test('the older GMAIL_ACCESS_TOKEN name still works', async () => {
+    wipe();
+    try {
+      process.env.GMAIL_ACCESS_TOKEN = 'legacy-name';
+      clearTokenCache();
+      const g = await googleAccessToken();
+      assert.equal(g.ok && g.token, 'legacy-name');
+    } finally { restore(); }
+  });
+
+  test('partial Google config is refused rather than half-attempted', async () => {
+    // A client id with no refresh token cannot mint anything, and trying would
+    // spend a request to be told so.
+    wipe();
+    try {
+      process.env.GOOGLE_CLIENT_ID = 'id-only';
+      clearTokenCache();
+      const g = await googleAccessToken();
+      assert.equal(g.ok, false);
+    } finally { restore(); }
+  });
+
+  test('Microsoft needs only a client id and refresh token, since public clients have no secret', async () => {
+    wipe();
+    try {
+      const missing = await microsoftAccessToken();
+      assert.equal(missing.ok, false);
+      if (!missing.ok) assert.match(missing.reason, /MICROSOFT_CLIENT_ID/);
+      process.env.MICROSOFT_ACCESS_TOKEN = 'graph-explorer-token';
+      clearTokenCache();
+      const m = await microsoftAccessToken();
+      assert.equal(m.ok && m.source, 'static');
+    } finally { restore(); }
   });
 });

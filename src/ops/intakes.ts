@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { one, query, recordEvent } from '../db/index.js';
 import { getSurface } from '../policy/surface.js';
 import { config } from '../config.js';
+import { googleAccessToken, microsoftAccessToken } from './oauth.js';
 
 const run = promisify(execFile);
 
@@ -154,17 +155,21 @@ async function pollDiscord(): Promise<{ ingested: number; status: IntakeStatus }
 }
 
 async function pollGoogle(): Promise<{ ingested: number; status: IntakeStatus }> {
-  const token = process.env.GOOGLE_ACCESS_TOKEN ?? process.env.GMAIL_ACCESS_TOKEN;
-  if (!token) {
+  // A refresh token where there is one, a pasted access token otherwise. The
+  // second is fine for checking a scope and useless for running: it lapses in
+  // an hour and then every poll 401s, which reads as a broken integration.
+  const auth = await googleAccessToken();
+  if (!auth.ok) {
     await remindOnce(
       'google-setup',
-      'Google (Gmail + Calendar) is not connected. Set GOOGLE_ACCESS_TOKEN for the sample-account account so mail and events land in Today.',
+      'Google (Gmail + Calendar) is not connected. ' + auth.reason,
     );
     return {
       ingested: 0,
-      status: { source: 'google', connected: false, note: 'Set GOOGLE_ACCESS_TOKEN for Gmail and Calendar.' },
+      status: { source: 'google', connected: false, note: auth.reason },
     };
   }
+  const token = auth.token;
 
   let ingested = 0;
   try {
@@ -215,17 +220,18 @@ async function pollGoogle(): Promise<{ ingested: number; status: IntakeStatus }>
 }
 
 async function pollMicrosoft(): Promise<{ ingested: number; status: IntakeStatus }> {
-  const token = process.env.MICROSOFT_ACCESS_TOKEN ?? process.env.MS_GRAPH_TOKEN;
-  if (!token) {
+  const auth = await microsoftAccessToken();
+  if (!auth.ok) {
     await remindOnce(
       'microsoft-setup',
-      'Outlook and Teams are not connected. Set MICROSOFT_ACCESS_TOKEN (Graph) so mail and chats land in Today.',
+      'Outlook and Teams are not connected. ' + auth.reason,
     );
     return {
       ingested: 0,
-      status: { source: 'microsoft', connected: false, note: 'Set MICROSOFT_ACCESS_TOKEN for Outlook and Teams.' },
+      status: { source: 'microsoft', connected: false, note: auth.reason },
     };
   }
+  const token = auth.token;
 
   let ingested = 0;
   try {

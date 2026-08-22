@@ -294,6 +294,25 @@ export async function inspectWorktree(path: string): Promise<WorktreeState | nul
  * Returns what it decided and why, because "kept" is a result the caller should
  * report rather than treat as failure.
  */
+/**
+ * When each path was last reported as kept, and in what state.
+ *
+ * reclaimCleanWorktrees calls releaseWorktree for every finished session that
+ * still has a worktree, on every supervisor tick - every fifteen seconds. A
+ * worktree that is dirty is kept, correctly, and used to record an event saying
+ * so each time.
+ *
+ * Two worktrees left dirty in August produced 88,333 events between them:
+ * 11,514 a day, which is exactly two paths times four ticks a minute. That is
+ * 98.7% of every event in the database and 45 MB, and it buries the feed Today
+ * reads - a real event became one row in eight hundred.
+ *
+ * So the event fires when the answer changes, not when it is asked. The state
+ * is part of the key because dirty becoming 3-commits-ahead is news; dirty
+ * still being dirty a quarter of a minute later is not.
+ */
+const lastKeptReport = new Map<string, string>();
+
 export async function releaseWorktree(
   sessionId: string,
   path: string,
@@ -308,13 +327,17 @@ export async function releaseWorktree(
     const reason = state.dirty
       ? 'uncommitted changes — kept for review'
       : `${state.ahead} unmerged commit(s) — kept for review`;
-    await recordEvent({
-      type: 'worktree.kept',
-      severity: 'info',
-      sessionId,
-      message: `${path}: ${reason}`,
-      data: { path, branch: state.branch, dirty: state.dirty, ahead: state.ahead },
-    });
+    const signature = `${state.dirty}:${state.ahead}:${state.branch ?? ''}`;
+    if (lastKeptReport.get(path) !== signature) {
+      lastKeptReport.set(path, signature);
+      await recordEvent({
+        type: 'worktree.kept',
+        severity: 'info',
+        sessionId,
+        message: `${path}: ${reason}`,
+        data: { path, branch: state.branch, dirty: state.dirty, ahead: state.ahead },
+      });
+    }
     return { removed: false, reason };
   }
 
@@ -356,6 +379,7 @@ export async function releaseWorktree(
   // The branch has nothing on it by definition of reaching here.
   if (root && state.branch) await gitQuiet(root, ['branch', '-D', state.branch]);
 
+  lastKeptReport.delete(path);
   await query(`UPDATE sessions SET worktree_path = NULL WHERE id = $1`, [sessionId]);
   await recordEvent({
     type: 'worktree.removed',

@@ -648,17 +648,41 @@ export class SessionManager extends EventEmitter {
     await setSessionStatus(sessionId, 'killed');
   }
 
-  /** Panic button: stop everything, immediately. */
+  /**
+   * Panic button: stop everything, immediately.
+   *
+   * allSettled rather than all. kill() ends in a setSessionStatus write, so a
+   * database hiccup while stopping one session would reject the whole sweep
+   * under Promise.all — abandoning every session after it, skipping the agents
+   * reset, and never recording that the panic happened.
+   *
+   * That is the worst place in the system for partial failure, because of why
+   * someone presses this: they have decided things are out of control and want
+   * them stopped. "Stopped some of it, told you nothing" is the one outcome
+   * worse than not having the button.
+   *
+   * Returns the number actually stopped, not the number attempted, and says in
+   * the event when those differ.
+   */
   async killAll(): Promise<number> {
     const ids = [...this.live.keys()];
-    await Promise.all(ids.map((id) => this.kill(id)));
-    await query(`UPDATE agents SET status = 'idle' WHERE status = 'running'`);
+    const settled = await Promise.allSettled(ids.map((id) => this.kill(id)));
+    const failed = settled
+      .map((r, i) => (r.status === 'rejected' ? { id: ids[i], reason: String(r.reason) } : null))
+      .filter((x): x is { id: string; reason: string } => x !== null);
+    const killed = ids.length - failed.length;
+
+    // Each of these can fail on its own and neither should stop the other.
+    await query(`UPDATE agents SET status = 'idle' WHERE status = 'running'`).catch(() => {});
     await recordEvent({
       type: 'system.panic',
       severity: 'critical',
-      message: `panic stop: killed ${ids.length} live sessions`,
-    });
-    return ids.length;
+      message: failed.length
+        ? `panic stop: killed ${killed} of ${ids.length} live sessions; ${failed.length} would not stop`
+        : `panic stop: killed ${killed} live sessions`,
+      data: { attempted: ids.length, killed, failed },
+    }).catch(() => {});
+    return killed;
   }
 
   private async brainsUsedInLineage(sessionId: string): Promise<Set<string>> {

@@ -700,6 +700,35 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
         const steps = (args.steps ?? []) as Array<Record<string, unknown>>;
         if (steps.length === 0) return text('No steps supplied.');
 
+        // Refuse to replan over work that has already happened.
+        //
+        // This handler deletes every mission_steps row and reinserts from
+        // scratch, which is right for a planning session writing the first plan
+        // and destructive for anything else. Those rows carry `result`,
+        // `failures`, `attempts` and the session that ran them - the record of
+        // what was tried and what did not work. Deleting it does not just lose
+        // history, it removes the thing that stops the next attempt walking
+        // straight back into the same dead end, which is the entire point of
+        // keeping failures.
+        //
+        // Any agent can call this with any mission id, and an autonomous one
+        // that decides to rethink a stuck mission is exactly the caller that
+        // would reach for it. So the guard is on started work rather than on
+        // status: a plan nobody has begun is fine to replace.
+        const started = await one<{ n: number }>(
+          `SELECT count(*)::int AS n FROM mission_steps
+            WHERE mission_id = $1 AND status <> 'pending'`,
+          [args.mission_id],
+        );
+        if ((started?.n ?? 0) > 0) {
+          return text(
+            `Refusing to replan: ${started?.n} step(s) on this mission have already run, and ` +
+            `replanning deletes every step including their results and recorded failures. ` +
+            `Use mission_add_step to add work, or mission_step_complete to close out what is ` +
+            `still open.`,
+          );
+        }
+
         await transaction(async (client) => {
           await client.query(`DELETE FROM mission_steps WHERE mission_id = $1`, [args.mission_id]);
           let seq = 0;
@@ -805,7 +834,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
           `INSERT INTO mission_log (mission_id, message) VALUES ($1,$2)`,
           [args.mission_id, `step inserted at ${seq}: ${String(args.title)}`],
         );
-        return text(`Added step ${seq}.`);
+
+        // Adding a step to a finished mission means it is not finished.
+        //
+        // Without this the row keeps status 'completed' while holding pending
+        // steps, and runnable_steps only considers missions that are running -
+        // so the step is invisible to the executor and the mission's own status
+        // contradicts its contents. That happened twice tonight to this
+        // repository's own worklog mission.
+        //
+        // Only from completed, and only because the caller has just said there
+        // is more to do. A blocked or cancelled mission stays where it is:
+        // those were stopped for a reason that adding a step does not answer.
+        const reopened = await query<{ id: string }>(
+          `UPDATE missions SET status = 'running', completed_at = NULL, updated_at = now()
+            WHERE id = $1 AND status = 'completed' RETURNING id`,
+          [args.mission_id],
+        );
+        return text(
+          reopened.length > 0
+            ? `Added step ${seq}. The mission was completed, so it has been reopened.`
+            : `Added step ${seq}.`,
+        );
       }
 
       case 'mission_status': {

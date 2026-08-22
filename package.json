@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "check": "npm run typecheck && npm test",
-    "desktop": "npm start --prefix desktop"
+    "desktop": "npm start --prefix desktop",
+    "sync:obsidian": "tsx src/tools/obsidian-sync.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

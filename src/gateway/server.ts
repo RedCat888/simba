@@ -851,6 +851,17 @@ app.post('/api/agents/:slug/model', async (c) => {
  * way to exercise the failover path without waiting to actually hit a limit.
  */
 app.post('/api/sessions/:id/failover', async (c) => {
+  // Same rule as send and kill, which both had it and this did not.
+  //
+  // Moving a session onto a different brain is driving it: it changes which
+  // subscription pays for the rest of the work, and hands the transcript to a
+  // different provider. A surface that is refused `send` on a session should
+  // not be able to reach the same session sideways through failover.
+  const allowed = await mayDriveSession(surfaceOf(c), c.req.param('id'));
+  if (!allowed.ok) {
+    await logDenial(surfaceOf(c), 'session.failover', allowed.reason);
+    return c.json({ error: allowed.reason }, 403);
+  }
   const live = manager.getLive(c.req.param('id'));
   if (!live) return c.json({ error: 'session is not live' }, 409);
   await manager.failover(live, 'manual');
@@ -1810,10 +1821,16 @@ app.get('/api/today', async (c) => {
 /**
  * Whether the things Simba leans on are actually there.
  *
- * Unauthenticated on purpose: this is the endpoint you reach for when something
- * is wrong, and requiring a working auth path to ask "is anything working"
- * fails exactly when it is needed. It reports only liveness and impact — no
- * counts, no content, nothing about what Simba knows or is doing.
+ * Behind the same `app.use('*')` authentication as everything else — an earlier
+ * version of this comment claimed otherwise, which was simply wrong. In
+ * practice that means loopback reaches it with no credential (the local channel
+ * is granted the desktop surface) and the phone reaches it through Access like
+ * any other route.
+ *
+ * That is the right split rather than a limitation. Both surfaces that would
+ * ask "is anything working" can ask; nothing on the public internet can. It
+ * reports only liveness and impact anyway — no counts, no content, nothing
+ * about what Simba knows or is doing.
  */
 app.get('/api/health', async (c) => {
   const health = await systemHealth();

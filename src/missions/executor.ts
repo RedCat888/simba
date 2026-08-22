@@ -49,6 +49,7 @@ export class MissionExecutor {
     await this.reapFinishedStepSessions();
     stats.reopened += await this.reopenOrphanedSteps();
     stats.blocked += await this.enforceBudgets();
+    await this.blockDeadlockedMissions();
     stats.planned += await this.planMissions();
     stats.started += await this.runSteps();
     stats.completed += await this.finishMissions();
@@ -176,6 +177,63 @@ export class MissionExecutor {
         type: 'mission.blocked',
         severity: 'warn',
         message: `"${r.title}" blocked: ${r.reason}`,
+      });
+    }
+    return rows.length;
+  }
+
+
+  /**
+   * A mission that can never make progress should say so, not sit there.
+   *
+   * runnable_steps requires every dependency to be 'succeeded'. A step that is
+   * skipped, failed or blocked therefore holds its dependents pending forever -
+   * and that is arguably the right call, since running a step whose prerequisite
+   * never happened can do real damage. What is not right is doing it silently:
+   * the mission stays 'running', nothing is in flight, no budget is exceeded, and
+   * no event ever fires. It simply stops, and looks healthy while stopped.
+   *
+   * Steps that have exhausted their attempts strand their dependents the same
+   * way, since they never reach 'succeeded' either.
+   *
+   * Detected rather than resolved. Whether to skip the dependent, re-run the
+   * prerequisite or abandon the mission is a judgement about the work, which is
+   * exactly the kind of thing to hand back rather than guess at.
+   */
+  private async blockDeadlockedMissions(): Promise<number> {
+    const rows = await query<{ id: string; title: string; detail: string }>(
+      `UPDATE missions m
+          SET status = 'blocked',
+              blocked_reason = 'deadlocked: ' || sub.detail
+         FROM (
+           SELECT s.mission_id,
+                  string_agg(DISTINCT 'step ' || s.seq || ' waits on step ' || d.seq ||
+                             ' (' || d.status || ')', '; ' ORDER BY 'step ' || s.seq || ' waits on step ' || d.seq ||
+                             ' (' || d.status || ')') AS detail
+             FROM mission_steps s
+             JOIN unnest(s.depends_on) AS dep(seq) ON true
+             JOIN mission_steps d ON d.mission_id = s.mission_id AND d.seq = dep.seq
+            WHERE s.status = 'pending'
+              AND d.status IN ('skipped', 'failed', 'blocked')
+            GROUP BY s.mission_id
+         ) sub
+        WHERE m.id = sub.mission_id
+          AND m.status = 'running'
+          -- Nothing in flight that could still change the picture.
+          AND NOT EXISTS (
+            SELECT 1 FROM mission_steps r
+             WHERE r.mission_id = m.id AND r.status = 'running')
+          -- And nothing else that could run on its own.
+          AND NOT EXISTS (SELECT 1 FROM runnable_steps rs WHERE rs.mission_id = m.id)
+        RETURNING m.id, m.title, sub.detail`,
+    );
+
+    for (const r of rows) {
+      await this.log(r.id, `mission deadlocked: ${r.detail}`, 'error');
+      await recordEvent({
+        type: 'mission.blocked',
+        severity: 'warn',
+        message: `"${r.title}" cannot progress: ${r.detail}`,
       });
     }
     return rows.length;

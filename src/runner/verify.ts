@@ -519,11 +519,50 @@ export async function refreshPaidBrainStatuses(opts?: {
     return true;
   });
 
-  return Promise.all(
+  // allSettled, not all.
+  //
+  // verifyBrain has several unprotected awaits - the brain row lookup,
+  // resolveExecutor, the Claude auth check - and applyVerifyResult writes to
+  // Postgres. Any of them throwing rejected the whole sweep under Promise.all,
+  // and that rejection propagates out of chainForLaunch into launch(), so the
+  // session simply fails to start.
+  //
+  // Which is the worst possible place for it, because of when this runs: it is
+  // called only when the chain's head is already the floor - when every paid
+  // brain looks unavailable and Simba is trying to find one that will answer.
+  // One brain erroring should not be able to prevent the other three from being
+  // asked.
+  const settled = await Promise.allSettled(
     targets.map(async (r) => {
       const result = await verifyBrain(r.slug);
       await applyVerifyResult(r.slug, result);
       return result;
     }),
+  );
+  return settledVerifyResults(settled, targets.map((t) => t.slug));
+}
+
+/**
+ * Turns a rejected probe into a failed result rather than losing it.
+ *
+ * A brain whose verification threw is not verified, and it is certainly not
+ * available - so it reads as a failure with the throw as its detail, which is
+ * both true and the thing a reader needs.
+ */
+export function settledVerifyResults(
+  settled: PromiseSettledResult<VerifyResult>[],
+  slugs: string[],
+): VerifyResult[] {
+  return settled.map((s, i) =>
+    s.status === 'fulfilled'
+      ? s.value
+      : {
+          ok: false,
+          detail: `probe threw for ${slugs[i] ?? 'unknown'}: ${
+            s.reason instanceof Error ? s.reason.message : String(s.reason)
+          }`,
+          ms: 0,
+          model: null,
+        },
   );
 }

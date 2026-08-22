@@ -11,6 +11,7 @@ import {
   classifyFailure,
 } from '../src/runner/verify.js';
 import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js';
+import { settledVerifyResults } from '../src/runner/verify.js';
 import { samePath } from '../src/session/worktree.js';
 import { maskSecrets } from '../src/inventory/files.js';
 import { parseSchedule } from '../src/missions/schedule.js';
@@ -593,5 +594,58 @@ describe('which surface a verified caller becomes', () => {
     // A denial that says only "denied" is not worth writing down.
     assert.equal(describePrincipal({ kind: 'service', commonName: 'reelagent' }), 'service:reelagent');
     assert.equal(describePrincipal({ kind: 'user', email: 'a@b.c' }), 'user:a@b.c');
+  });
+});
+
+describe('one brain failing should not stop the others being asked', () => {
+  // refreshPaidBrainStatuses runs only when the chain's head is already the
+  // floor - when every paid brain looks unavailable and Simba is trying to find
+  // one that will answer. Under Promise.all, a single throw rejected the sweep,
+  // and that propagates out of chainForLaunch into launch(), so the session
+  // fails to start at the exact moment recovery was being attempted.
+
+  const okResult = { ok: true, detail: 'fine', ms: 10, model: 'm' };
+
+  test('a thrown probe becomes a failed result, not a lost one', () => {
+    const out = settledVerifyResults(
+      [{ status: 'rejected', reason: new Error('ECONNREFUSED') } as PromiseSettledResult<never>],
+      ['claude-a'],
+    );
+    assert.equal(out.length, 1);
+    assert.equal(out[0]?.ok, false);
+    assert.match(out[0]?.detail ?? '', /claude-a/);
+    assert.match(out[0]?.detail ?? '', /ECONNREFUSED/);
+  });
+
+  test('the survivors are still returned alongside it', () => {
+    const out = settledVerifyResults(
+      [
+        { status: 'fulfilled', value: okResult },
+        { status: 'rejected', reason: new Error('boom') },
+        { status: 'fulfilled', value: okResult },
+      ] as PromiseSettledResult<typeof okResult>[],
+      ['claude-a', 'claude-b', 'codex'],
+    );
+    assert.equal(out.length, 3);
+    assert.deepEqual(out.map((r) => r.ok), [true, false, true]);
+  });
+
+  test('a non-Error rejection still produces a readable detail', () => {
+    const out = settledVerifyResults(
+      [{ status: 'rejected', reason: 'plain string' } as PromiseSettledResult<never>],
+      ['cursor'],
+    );
+    assert.match(out[0]?.detail ?? '', /plain string/);
+  });
+
+  test('a failed probe is never reported as available', () => {
+    // applyVerifyResult keys off ok, so this is the property that keeps a brain
+    // that could not be reached out of the routing chain.
+    const out = settledVerifyResults(
+      [{ status: 'rejected', reason: new Error('x') } as PromiseSettledResult<never>],
+      ['codex'],
+    );
+    assert.equal(out[0]?.ok, false);
+    assert.equal(out[0]?.model, null);
   });
 });

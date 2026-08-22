@@ -1,4 +1,5 @@
 import { query, recordEvent } from '../db/index.js';
+import { tickDecision } from './tick-guard.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { FAILOVER_CONTINUE_PROMPT } from '../policy/brains.js';
@@ -35,6 +36,17 @@ export class Supervisor {
   private lastProjectScan = 0;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private runningSince = 0;
+  private wedgeReported = false;
+
+  /**
+   * How long one tick may take before the guard stops being believed.
+   *
+   * cheapComplete tries up to four backends at 90s each, so a slow-but-honest
+   * tick can legitimately run several minutes. Past this it is not slow, it is
+   * stuck.
+   */
+  private static readonly WEDGE_MS = 8 * 60_000;
   private readonly router: Router;
   private readonly missions: MissionExecutor;
   private readonly reaper: Reaper;
@@ -86,8 +98,39 @@ export class Supervisor {
   }
 
   private async tick(): Promise<void> {
-    if (this.running) return;
+    // The reentrancy guard exists to stop two ticks overlapping. It was also,
+    // accidentally, a way to stop scheduling forever: `finally` never runs for
+    // a promise that never settles, so a single await that hangs leaves
+    // `running` true and every later tick returns at this line.
+    //
+    // That happened. Telemetry has a 37-hour hole in it — 20 August 13:16 to
+    // 22 August 01:56 — during which the gateway served HTTP normally and
+    // looked healthy in every way anyone could see, while missions, the router,
+    // the reaper, intake polling and telemetry had all silently stopped. It
+    // only recovered because the process was restarted for an unrelated reason.
+    //
+    // So the guard now expires. A tick that has been running past WEDGE_MS is
+    // treated as lost rather than in-progress: say so loudly, and schedule
+    // anyway. Overlapping with a hung tick is strictly better than joining it.
+    const decision = tickDecision(this.running, this.runningSince, Date.now(), Supervisor.WEDGE_MS);
+    if (decision === 'skip') return;
+    if (decision === 'forced') {
+      const stuckMs = Date.now() - this.runningSince;
+      if (!this.wedgeReported) {
+        this.wedgeReported = true;
+        console.error(`[supervisor] tick wedged for ${Math.round(stuckMs / 1000)}s - scheduling anyway`);
+        await recordEvent({
+          type: 'supervisor.wedged',
+          message:
+            `A supervisor tick has been running for ${Math.round(stuckMs / 60_000)} minutes and is ` +
+            `assumed hung. Scheduled work resumed alongside it. Missions, router, reaper, intakes ` +
+            `and telemetry all stop while this is stuck.`,
+          data: { stuckMs },
+        }).catch(() => {});
+      }
+    }
     this.running = true;
+    this.runningSince = Date.now();
     try {
       await this.clearExpiredLimits();
       await this.resumeAfterReset();
@@ -127,6 +170,7 @@ export class Supervisor {
       console.error('[supervisor] tick failed', err);
     } finally {
       this.running = false;
+      this.wedgeReported = false;
     }
   }
 

@@ -14,6 +14,7 @@ import { hostAllowed, originAllowed, channelOf } from '../src/policy/identity.js
 import { samePath } from '../src/session/worktree.js';
 import { maskSecrets } from '../src/inventory/files.js';
 import { parseSchedule } from '../src/missions/schedule.js';
+import { tickDecision } from '../src/supervisor/tick-guard.js';
 import {
   isAuthFailureMessage,
   mergeBrainChains,
@@ -399,5 +400,38 @@ describe('brain failover classification', () => {
     const chain = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     assert.equal(nextBrainInChain(chain, 'a')?.id, 'b');
     assert.equal(nextBrainInChain(chain, 'c')?.id, 'a');
+  });
+});
+
+describe('the supervisor guard that became a permanent stop', () => {
+  const WEDGE = 8 * 60_000;
+
+  test('an idle supervisor runs', () => {
+    assert.equal(tickDecision(false, 0, 1_000_000, WEDGE), 'run');
+  });
+
+  test('a tick already in flight is skipped, which is the whole point of the guard', () => {
+    const now = 1_000_000;
+    assert.equal(tickDecision(true, now - 5_000, now, WEDGE), 'skip');
+  });
+
+  test('a slow tick is still a running tick, not a wedged one', () => {
+    // cheapComplete tries four backends at 90s each, so minutes are legitimate.
+    const now = 1_000_000;
+    assert.equal(tickDecision(true, now - 5 * 60_000, now, WEDGE), 'skip');
+  });
+
+  test('past the threshold the guard stops being believed', () => {
+    // The 37-hour telemetry hole: one await never settled, so `finally` never
+    // ran, so `running` stayed true and every later tick returned at the guard.
+    const now = 1_000_000;
+    assert.equal(tickDecision(true, now - WEDGE, now, WEDGE), 'forced');
+    assert.equal(tickDecision(true, now - 37 * 60 * 60_000, now, WEDGE), 'forced');
+  });
+
+  test('the boundary is inclusive, so an exactly-threshold tick is not skipped forever', () => {
+    const now = 1_000_000;
+    assert.equal(tickDecision(true, now - (WEDGE - 1), now, WEDGE), 'skip');
+    assert.equal(tickDecision(true, now - WEDGE, now, WEDGE), 'forced');
   });
 });

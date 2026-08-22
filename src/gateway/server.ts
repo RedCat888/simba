@@ -18,6 +18,7 @@ import { allowedRoots, confine, listDir, readTextFile } from '../inventory/files
 import { transcribe, speak, classify, voiceAvailable, workerStatus } from '../voice/index.js';
 import { getHomeSessionId, sayToSimba, loadToday } from '../ops/simba-home.js';
 import { intakeStatuses, pollIntakes } from '../ops/intakes.js';
+import { systemHealth } from '../ops/health.js';
 import { learn } from '../knowledge/learn.js';
 import { measureContext } from '../hydration/budget.js';
 import { curate, storePressure } from '../knowledge/curator.js';
@@ -1804,6 +1805,19 @@ app.post('/api/panic', async (c) => {
  */
 app.get('/api/today', async (c) => {
   return c.json(await loadToday());
+});
+
+/**
+ * Whether the things Simba leans on are actually there.
+ *
+ * Unauthenticated on purpose: this is the endpoint you reach for when something
+ * is wrong, and requiring a working auth path to ask "is anything working"
+ * fails exactly when it is needed. It reports only liveness and impact — no
+ * counts, no content, nothing about what Simba knows or is doing.
+ */
+app.get('/api/health', async (c) => {
+  const health = await systemHealth();
+  return c.json(health, health.ok ? 200 : 503);
 });
 
 app.get('/api/intakes', async (c) => {

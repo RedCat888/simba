@@ -10,7 +10,7 @@ import { SessionManager } from '../session/manager.js';
 import { Supervisor } from '../supervisor/index.js';
 import { recall, embeddingFailure } from '../knowledge/embed.js';
 import { askDecisions } from '../knowledge/decisions.js';
-import { verifyBrain } from '../runner/verify.js';
+import { applyVerifyResult, verifyBrain } from '../runner/verify.js';
 import { captureSessionDiff } from '../hydration/git.js';
 import { unreapedWorktrees } from '../session/worktree.js';
 import { scanProjects } from '../inventory/scan.js';
@@ -375,34 +375,7 @@ app.post('/api/brains/:slug/verify', async (c) => {
   if (!brain) return c.json({ error: 'no such brain' }, 404);
 
   const result = await verifyBrain(slug);
-
-  // A rate limit is not a broken account, and recording it as one is how a
-  // perfectly good brain stays benched. 'limited' is the status the supervisor
-  // already knows how to undo: it clears the moment the reset passes and parked
-  // sessions resume on their own. 'error' has no such path back and waits for a
-  // person — which is right for auth and for a CLI that will not answer, and
-  // wrong for the one failure that fixes itself.
-  //
-  // Without a reset timestamp from the CLI, give it an hour. Claude's windows
-  // are five hours, so an hour is a re-check rather than a guess at the answer:
-  // if it is still limited the next verify says so, and if it recovered early
-  // the brain is back rather than waiting out a window that already rolled.
-  const status = result.ok ? 'available' : result.failure === 'limited' ? 'limited' : 'error';
-  const resetsAt =
-    status === 'limited' ? new Date(Date.now() + 60 * 60_000).toISOString() : null;
-  await query(
-    `UPDATE brain_accounts
-        SET status = $2, last_error = $3, limit_resets_at = $4,
-            last_checked_at = now(), updated_at = now()
-      WHERE id = $1`,
-    [brain.id, status, result.detail, resetsAt],
-  );
-  await recordEvent({
-    type: 'brain.verified',
-    severity: result.ok ? 'info' : 'warn',
-    message: `${slug}: ${result.ok ? 'available' : 'failed'}`,
-    data: { slug, detail: result.detail, ms: result.ms },
-  });
+  await applyVerifyResult(slug, result);
   return c.json({ slug, ...result });
 });
 
@@ -751,6 +724,7 @@ app.post('/api/agents/:slug/start', async (c) => {
     cwd?: string;
     modelTier?: 'high' | 'mid' | 'cheap' | 'free';
     brain?: string;
+    continuingSessionId?: string;
   }>();
 
   const slug = c.req.param('slug');
@@ -774,6 +748,7 @@ app.post('/api/agents/:slug/start', async (c) => {
     cwd: body.cwd,
     modelTier: body.modelTier ? tier : undefined,
     brain: body.brain,
+    continuingSessionId: body.continuingSessionId ?? null,
     surfaceId: surface.id,
   });
 

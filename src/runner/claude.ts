@@ -166,9 +166,16 @@ class ClaudeSession implements RunnerSession {
       resolveModel(s.brain, s.modelTier),
     ];
 
-    if (s.resumeSessionId) {
+    if (s.resumeSessionId && canResumeNative(s.cwd, s.resumeSessionId)) {
       args.push('--resume', s.resumeSessionId);
     } else {
+      if (s.resumeSessionId) {
+        // Asked to resume something the CLI has no transcript for. Starting
+        // fresh is what happens either way; saying so is the point.
+        console.error(
+          `[claude] no native transcript for ${s.resumeSessionId} under ${s.cwd} - starting a fresh session instead of resuming`,
+        );
+      }
       args.push('--session-id', s.sessionId);
     }
 
@@ -412,6 +419,46 @@ class ClaudeSession implements RunnerSession {
       }
     }, 3000).unref();
   }
+}
+
+/**
+ * Where the CLI keeps a session's own transcript.
+ *
+ * Project directories are the working directory with the drive colon and every
+ * separator flattened to a dash, so C:\Users\operator\simba becomes
+ * C--Users-operator-simba.
+ */
+export function nativeTranscriptPath(cwd: string, nativeSessionId: string): string {
+  // Split and join rather than a regex character class. The escape for a
+  // literal backslash has not survived this repository's tooling reliably,
+  // and a class that silently matches only half the separators produces a
+  // path that looks right and points nowhere - which is exactly the failure
+  // this function exists to detect.
+  const mangled = cwd
+    .split(':').join('-')
+    .split('/').join('-')
+    .split(String.fromCharCode(92)).join('-');
+  return join(homedir(), '.claude', 'projects', mangled, `${nativeSessionId}.jsonl`);
+}
+
+/**
+ * Whether a recorded native session can actually be resumed.
+ *
+ * README and CLAUDE.md both describe revival as reattaching transparently via
+ * native resume, and 95 sessions carry a native_session_id on the strength of
+ * that. None of the twelve most recent have a transcript on disk. Passing
+ * --resume for an id the CLI cannot find does not fail loudly - the session
+ * starts anyway, with none of the history the resume was for, and the only
+ * visible trace is a bill for re-establishing context that was supposed to be
+ * cached.
+ *
+ * So the existence of the file is checked before claiming to resume from it.
+ * The behaviour is the same either way; the difference is that a resume which
+ * cannot happen now says so instead of looking like one that did.
+ */
+export function canResumeNative(cwd: string, nativeSessionId: string | null | undefined): boolean {
+  if (!nativeSessionId) return false;
+  return existsSync(nativeTranscriptPath(cwd, nativeSessionId));
 }
 
 export class ClaudeRunner implements Runner {

@@ -19,6 +19,7 @@ import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
 import { chunkText } from '../src/ingest/chunk.js';
 import { parseFields } from '../src/hydration/checkpoint.js';
+import { canResumeNative, nativeTranscriptPath } from '../src/runner/claude.js';
 import { googleAccessToken, microsoftAccessToken, clearTokenCache } from '../src/ops/oauth.js';
 import { pressureLevel } from '../src/ops/commit-charge.js';
 import { surfaceForPrincipal, describePrincipal } from '../src/policy/access.js';
@@ -777,5 +778,42 @@ describe('the token that has to outlive an hour', () => {
       const m = await microsoftAccessToken();
       assert.equal(m.ok && m.source, 'static');
     } finally { restore(); }
+  });
+});
+
+describe('resuming a session that is not there', () => {
+  // README and CLAUDE.md both say revival reattaches transparently via native
+  // resume, and 95 sessions carry a native_session_id on that basis. None of
+  // the twelve most recent had a transcript on disk. Passing --resume for an id
+  // the CLI cannot find does not fail loudly: the session starts anyway with
+  // none of the history, and the only visible trace is paying to re-establish
+  // context that was supposed to be cached.
+
+  // Built rather than written, because a literal backslash in this file has not
+  // survived the tooling three times tonight.
+  const BS = String.fromCharCode(92);
+  const winCwd = ['C:', 'Users', 'operator', 'simba'].join(BS);
+
+  test('the project directory is the cwd with colons and separators flattened', () => {
+    // C:\Users\operator\simba becomes C--Users-operator-simba, which is how the
+    // directories on disk are actually named.
+    const p = nativeTranscriptPath(winCwd, 'abc-123').split(BS).join('/');
+    assert.match(p, /\/projects\/C--Users-operator-simba\/abc-123\.jsonl$/);
+  });
+
+  test('forward slashes mangle the same way, since cwd can arrive either shape', () => {
+    const p = nativeTranscriptPath('C:/workspace/simba', 'abc-123').split(BS).join('/');
+    assert.match(p, /\/projects\/C--Users-operator-simba\/abc-123\.jsonl$/);
+  });
+
+  test('no id means nothing to resume', () => {
+    assert.equal(canResumeNative(winCwd, null), false);
+    assert.equal(canResumeNative(winCwd, undefined), false);
+    assert.equal(canResumeNative(winCwd, ''), false);
+  });
+
+  test('an id with no transcript is not resumable', () => {
+    // The real case: 95 sessions record one of these.
+    assert.equal(canResumeNative(winCwd, '00000000-0000-0000-0000-000000000000'), false);
   });
 });

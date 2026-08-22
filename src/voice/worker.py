@@ -132,9 +132,38 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
 
+class SingleInstanceServer(ThreadingHTTPServer):
+    """A second worker on this port must fail, not quietly join in.
+
+    socketserver.TCPServer sets allow_reuse_address = 1, which on Windows maps
+    to SO_REUSEADDR - and Windows lets that *hijack* a port already in use
+    rather than refusing it. So two workers both bound 4878 successfully and
+    both served requests, with the kernel choosing between them per connection.
+
+    That is how a duplicate start went unnoticed on 22 August: the supervisor
+    launched two workers a second apart, neither reported an error, the health
+    check answered normally because *a* worker answered, and the machine
+    silently carried two copies of a CUDA Whisper model. Loud failure is the
+    whole point here - the caller can then decide whether the running one is
+    fine, which it almost always is.
+    """
+
+    allow_reuse_address = False
+
+
 if __name__ == "__main__":
     # Warm on start rather than on the first request, because the first request
     # is usually a person waiting.
     threading.Thread(target=load, daemon=True).start()
+    try:
+        server = SingleInstanceServer((HOST, PORT), Handler)
+    except OSError as e:
+        print(
+            f"voice worker: cannot bind {HOST}:{PORT} ({e}). "
+            "Another worker is already running - leaving it alone.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(0)
     print(f"voice worker on http://{HOST}:{PORT}", flush=True)
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    server.serve_forever()

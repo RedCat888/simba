@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { query, one, closePool } from '../db/index.js';
+import { query, one, closePool, recordEvent } from '../db/index.js';
 import { config } from '../config.js';
 
 const execFileAsync = promisify(execFile);
@@ -189,6 +189,47 @@ export async function saveHandoff(): Promise<void> {
      ON CONFLICT (document_id, revision) DO UPDATE SET content = EXCLUDED.content`,
     [doc.id, doc.current_revision, content, 'auto-generated handoff'],
   );
+
+  // Keep a window, not the whole history.
+  //
+  // The handoff is a regenerated snapshot of current state, written every
+  // fifteen minutes by the supervisor. Its revisions are not edits by anyone -
+  // a copy from 12:22 differs from 12:37 only in timestamps and counts - so the
+  // history reconstructs nothing that the current revision does not already
+  // say.
+  //
+  // Left alone it had accumulated 1,257 revisions since 3 August: 99.2% of
+  // every document revision in the database and 6.3 MB against roughly 185 KB
+  // for every other document combined, growing about 400 KB a day forever.
+  //
+  // Safe to drop because nothing reads them. Every consumer - the gateway's
+  // document route, the MCP doc_read tool, buildHandoff itself - joins on
+  // `dr.revision = d.current_revision`, and there is no revision-history API or
+  // UI anywhere. KEEP is generous at twelve hours for the same reason the cap
+  // is not one: cheap insurance against wanting to look back at a bad morning.
+  const KEEP = 48;
+  // Cutoff computed here rather than as `$2 - $3` in SQL: both parameters
+  // arrive untyped, so Postgres cannot resolve which minus operator is meant
+  // and fails with "operator is not unique: unknown - unknown". The supervisor
+  // calls saveHandoff().catch(() => {}), so that error would have been
+  // swallowed and the pruning would simply never have happened.
+  const cutoff = doc.current_revision - KEEP;
+  const pruned = cutoff > 0
+    ? await query<{ revision: number }>(
+        `DELETE FROM document_revisions
+          WHERE document_id = $1 AND revision <= $2
+          RETURNING revision`,
+        [doc.id, cutoff],
+      )
+    : [];
+  if (pruned.length > 0) {
+    await recordEvent({
+      type: 'handoff.pruned',
+      severity: 'debug',
+      message: `pruned ${pruned.length} handoff revision(s), keeping the most recent ${KEEP}`,
+      data: { removed: pruned.length, keep: KEEP },
+    });
+  }
 }
 
 if (process.argv[1]?.includes('handoff')) {

@@ -16,6 +16,7 @@ import { maskSecrets } from '../src/inventory/files.js';
 import { parseSchedule } from '../src/missions/schedule.js';
 import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
+import { chunkText } from '../src/ingest/chunk.js';
 import {
   isAuthFailureMessage,
   mergeBrainChains,
@@ -465,5 +466,52 @@ describe('what a spoken sentence is taken to mean', () => {
 
   test('empty speech asks rather than capturing nothing', () => {
     assert.deepEqual(classify('   '), { kind: 'ask', text: '   ' });
+  });
+});
+
+describe('chunking, which decides what is findable later', () => {
+  // Not a bug that shipped - the opposite. This is the one place where a silent
+  // fault is unrecoverable: a chunk that never gets built is a fact that can
+  // never be retrieved, and nothing downstream can tell that apart from a fact
+  // that was never written down. Worth pinning before it changes.
+
+  const headingDoc = (n: number, bodyLen: number) =>
+    Array.from({ length: n }, (_, i) => `## Heading ${i}\n` + 'x'.repeat(bodyLen)).join('\n');
+
+  test('indices are contiguous from zero, because they are how a chunk is addressed', () => {
+    const chunks = chunkText(headingDoc(40, 200));
+    assert.ok(chunks.length > 1);
+    assert.deepEqual(chunks.map((c) => c.index), chunks.map((_, i) => i));
+  });
+
+  test('a short note stays one chunk and is neither split nor padded', () => {
+    assert.deepEqual(chunkText('the door code is 4821'),
+                     [{ index: 0, content: 'the door code is 4821', tokenEstimate: 6 }]);
+  });
+
+  test('empty input produces nothing rather than one empty chunk', () => {
+    assert.deepEqual(chunkText(''), []);
+    assert.deepEqual(chunkText('   \n\n  '), []);
+  });
+
+  test('every heading in a structured document stays retrievable', () => {
+    const joined = chunkText(headingDoc(30, 200)).map((c) => c.content).join('\n');
+    for (let i = 0; i < 30; i += 1) {
+      assert.ok(joined.includes(`## Heading ${i}`), `lost heading ${i}`);
+    }
+  });
+
+  test('an oversized block with no boundary is split rather than dropped', () => {
+    // Nothing structural to split on, so the hard-split path is the only one
+    // that can run; dropping it would lose the document in silence.
+    const chunks = chunkText('z'.repeat(9000));
+    assert.ok(chunks.length > 1);
+    assert.ok(chunks.map((c) => c.content).join('').length >= 9000);
+  });
+
+  test('CRLF chunks identically to LF, because notes arrive from Windows', () => {
+    const body = headingDoc(20, 150);
+    assert.deepEqual(chunkText(body.replace(/\n/g, '\r\n')).map((c) => c.content),
+                     chunkText(body).map((c) => c.content));
   });
 });

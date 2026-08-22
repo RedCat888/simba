@@ -111,15 +111,41 @@ function Ensure-Dependencies {
     # none.
     $pgUp = Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue
     if (-not $pgUp -and (Should-Start 'postgres' 180)) {
+        $pgCtl  = 'C:\Users\operator\scoop\apps\postgresql\current\bin\pg_ctl.exe'
+        $pgData = 'C:\Users\operator\scoop\persist\postgresql\data'
+        $started = $false
+
+        # Try the service first, but do not assume it worked.
+        #
+        # This task runs as operator, not elevated, and the service DACL grants
+        # Interactive Users only CCLCSWLOCRRC - query and enumerate, with no RP
+        # (start) and no WP (stop). So Start-Service here is denied, silently
+        # when ErrorAction is SilentlyContinue.
+        #
+        # That matters more than it sounds. Registering the service on 22 August
+        # was the right fix for the boot case, and it also made this branch
+        # reachable for the first time - which took the working pg_ctl path out
+        # of reach, because it sat in the else. The service has no failure
+        # actions configured either, so for a while Postgres had no automatic
+        # recovery at all: worse than before it was a service.
+        #
+        # Hence: try the service, verify by the port rather than by the absence
+        # of an exception, and fall back to starting the server directly. A
+        # running database beats a tidy one.
         $svc = Get-Service -Name 'PostgreSQL' -ErrorAction SilentlyContinue
         if ($svc) {
-            Write-Log 'postgres not listening - starting the PostgreSQL service'
-            Start-Service -Name 'PostgreSQL' -ErrorAction SilentlyContinue
-        } else {
-            $pgCtl  = 'C:\Users\operator\scoop\apps\postgresql\current\bin\pg_ctl.exe'
-            $pgData = 'C:\Users\operator\scoop\persist\postgresql\data'
+            try {
+                Write-Log 'postgres not listening - starting the PostgreSQL service'
+                Start-Service -Name 'PostgreSQL' -ErrorAction Stop
+                $started = $true
+            } catch {
+                Write-Log "could not start the PostgreSQL service ($($_.Exception.Message.Trim())) - falling back to pg_ctl"
+            }
+        }
+
+        if (-not $started) {
             if (Test-Path $pgCtl) {
-                Write-Log 'postgres not listening and no service registered - starting it directly'
+                Write-Log 'starting postgres directly with pg_ctl'
                 $pgLog = Join-Path $root 'var\logs\pg.log'
                 New-Item -ItemType Directory -Force -Path (Split-Path $pgLog) | Out-Null
                 Start-Process -FilePath $pgCtl `

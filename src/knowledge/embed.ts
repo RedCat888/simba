@@ -108,14 +108,26 @@ export async function recall(
     return await query<RecallHit>(
       `SELECT e.owner_kind,
               e.owner_id,
-              COALESCE(kc.content, s.summary, dr.content, cp.work_done, '') AS content,
-              COALESCE(ki.title, s.title)                                    AS title,
+              COALESCE(kc.content, dc.statement, s.summary, dr.content, cp.work_done, '') AS content,
+              COALESCE(ki.title, dc.topic, s.title)                                        AS title,
               COALESCE(ks.slug, 'simba')                                     AS source,
               (e.embedding <=> $1::vector)                                   AS distance
          FROM embeddings e
          LEFT JOIN knowledge_chunks   kc ON e.owner_kind = 'knowledge_chunk'   AND kc.id = e.owner_id
          LEFT JOIN knowledge_items    ki ON ki.id = kc.item_id
          LEFT JOIN knowledge_sources  ks ON ks.id = ki.source_id
+         -- decisions were embedded and never joined.
+         --
+         -- The embeddings table holds exactly two owner kinds: knowledge_chunk
+         -- and decision. This query had joins for four, and decision was not
+         -- among them, so every one of the 1,049 decision vectors returned an
+         -- empty content string and a null title. They are searchable, rank
+         -- normally against the chunks, and then render as a blank row.
+         --
+         -- askDecisions escaped it by re-fetching each hit by id and using
+         -- recall only for ranking, which is why the dedicated feature works
+         -- and the general search box does not.
+         LEFT JOIN decisions          dc ON e.owner_kind = 'decision'          AND dc.id = e.owner_id
          LEFT JOIN summaries          s  ON e.owner_kind = 'summary'           AND s.id  = e.owner_id
          LEFT JOIN document_revisions dr ON e.owner_kind = 'document_revision' AND dr.id = e.owner_id
          LEFT JOIN checkpoints        cp ON e.owner_kind = 'checkpoint'        AND cp.id = e.owner_id

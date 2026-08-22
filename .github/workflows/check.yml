@@ -1,0 +1,48 @@
+# The definition of done, run somewhere that is not this laptop.
+#
+# `npm run check` has existed for months and nothing ran it but a person
+# remembering to. That is fine until the run that matters is the one skipped
+# because the machine was out of memory, which happened on 17 August: Gradle
+# could not start a JVM, the Android suite went unrun for hours, and the only
+# reason anyone noticed was that a human went looking.
+name: check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # typecheck + tsx --test. Neither touches Postgres: every test imports a
+      # pure function from src/, deliberately, so the suite stays runnable
+      # anywhere rather than only where a database happens to exist.
+      - run: npm run check
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      # local.properties is machine-specific and deliberately untracked; the
+      # Android plugin finds the SDK through ANDROID_HOME on a runner instead.
+      - run: ./gradlew testDebugUnitTest --console=plain
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-test-results
+          path: android/app/build/reports/tests/

@@ -57,49 +57,69 @@ foreach ($i in 1..60) {
     Start-Sleep -Seconds 2
 }
 
-# Ollama, because search silently depends on it.
+# Ollama and the voice worker, checked on every pass rather than once at boot.
 #
-# Every knowledge search answered "No matches" for an unknown stretch because
-# Ollama was not running: embed() throws, recall() catches and returns nothing,
-# and an empty result is indistinguishable from a genuine miss. There are thirty
-# thousand vectors in the database, so "no matches" was never true. Starting it
-# here rather than in its own task keeps the dependency visible — the thing that
-# needs it is the thing that starts it.
-$ollama = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
-if (Test-Path $ollama) {
-    $running = Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue
-    if (-not $running) {
-        Write-Log 'starting ollama (embeddings for search)'
-        Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden
-    }
-} else {
-    Write-Log 'ollama not installed — knowledge search will report unavailable'
+# Both used to be started here exactly once, before the loop, and never looked
+# at again. Both were dead on 20 August with the keepalive still running and
+# perfectly healthy by its own account, because the only thing it supervised
+# was the gateway. That is the same mistake the gateway's own supervision was
+# written to fix, left in place one layer down.
+#
+# The cost of being wrong is asymmetric and quiet. Ollama down means embed()
+# throws, recall() catches, and every knowledge search returns "No matches"
+# against thirty thousand vectors — an answer indistinguishable from a genuine
+# miss. The voice worker down means every spoken sentence silently pays a
+# two-second interpreter start instead of 0.16s. Neither announces itself.
+$script:lastStart = @{}
+
+# Whisper needs several seconds to load its model and bind 4878, and the first
+# pass through the loop happens immediately after the pre-loop call. Without a
+# cooldown the port is still unbound on that second look, so a second worker is
+# launched into the same port and the same 8GB of VRAM. Seen in the log as two
+# identical "starting it" lines in the same second.
+function Should-Start([string]$name, [int]$cooldownSeconds = 90) {
+    $now = Get-Date
+    $prev = $script:lastStart[$name]
+    if ($null -ne $prev -and ($now - $prev).TotalSeconds -lt $cooldownSeconds) { return $false }
+    $script:lastStart[$name] = $now
+    return $true
 }
 
-# The voice worker: Whisper held warm on the 3070.
-#
-# Without it every spoken sentence pays an interpreter start and a full model
-# load — measured at two seconds for four words, of which the transcription
-# itself is a small fraction. With it, 0.16s. That gap is the difference between
-# talking to Simba and submitting requests to it.
-#
-# It borrows ReelAgent's interpreter because that is where faster-whisper and
-# its downloaded model already live; a second virtualenv would be a second copy
-# of a 2GB dependency to keep in step.
-$voiceWorker = Join-Path $root 'src\voice\worker.py'
-$reelPython  = Join-Path $env:USERPROFILE 'ReelAgent\.venv\Scripts\python.exe'
-if ((Test-Path $voiceWorker) -and (Test-Path $reelPython)) {
-    $voiceUp = Get-NetTCPConnection -LocalPort 4878 -State Listen -ErrorAction SilentlyContinue
-    if (-not $voiceUp) {
-        Write-Log 'starting the voice worker (whisper, held warm)'
-        Start-Process -FilePath $reelPython -ArgumentList $voiceWorker -WindowStyle Hidden
+function Ensure-Dependencies {
+    $ollama = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
+    if (Test-Path $ollama) {
+        if (-not (Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue) -and (Should-Start 'ollama')) {
+            Write-Log 'ollama not running - starting it (embeddings for search)'
+            Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden
+        }
+    } elseif (-not $script:warnedOllama) {
+        $script:warnedOllama = $true
+        Write-Log 'ollama not installed - knowledge search will report unavailable'
     }
-} else {
-    Write-Log 'voice worker not startable — speech falls back to the slow per-request path'
+
+    # Borrows ReelAgent's interpreter because faster-whisper and its downloaded
+    # model already live there; a second virtualenv would be a second copy of a
+    # 2GB dependency to keep in step.
+    $voiceWorker = Join-Path $root 'src\voice\worker.py'
+    $reelPython  = Join-Path $env:USERPROFILE 'ReelAgent\.venv\Scripts\python.exe'
+    if ((Test-Path $voiceWorker) -and (Test-Path $reelPython)) {
+        $voiceUp = Get-NetTCPConnection -LocalPort 4878 -State Listen -ErrorAction SilentlyContinue
+        if (-not $voiceUp -and (Should-Start 'voice')) {
+            Write-Log 'voice worker not listening on 4878 - starting it (whisper, held warm)'
+            Start-Process -FilePath $reelPython -ArgumentList $voiceWorker -WindowStyle Hidden
+        }
+    } elseif (-not $script:warnedVoice) {
+        $script:warnedVoice = $true
+        Write-Log 'voice worker not startable - speech falls back to the slow per-request path'
+    }
 }
+
+Ensure-Dependencies
 
 $backoff = 2
 while ($true) {
+    Ensure-Dependencies
+
     # Something else already holding the port means a manual run is in progress.
     # Restarting over the top of it would be the more destructive choice.
     $held = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue

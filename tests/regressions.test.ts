@@ -18,6 +18,7 @@ import { parseSchedule } from '../src/missions/schedule.js';
 import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
 import { chunkText } from '../src/ingest/chunk.js';
+import { parseFields } from '../src/hydration/checkpoint.js';
 import { pressureLevel } from '../src/ops/commit-charge.js';
 import { surfaceForPrincipal, describePrincipal } from '../src/policy/access.js';
 import { config } from '../src/config.js';
@@ -647,5 +648,50 @@ describe('one brain failing should not stop the others being asked', () => {
     );
     assert.equal(out[0]?.ok, false);
     assert.equal(out[0]?.model, null);
+  });
+});
+
+describe('the handoff record a successor actually reads', () => {
+  // 17 of 79 checkpoints in this database are wholly blank, and on 19 August ten
+  // of eleven were - two of them written at brain_swap, which is exactly when a
+  // successor depends on the handoff. Every one of those was a write that
+  // succeeded, so nothing reported anything wrong.
+  const blank = (f: ReturnType<typeof parseFields>) =>
+    Object.values(f).every((v) => !String(v).trim());
+
+  test('a model that answered nothing yields a blank record', () => {
+    assert.ok(blank(parseFields(null)));
+    assert.ok(blank(parseFields('')));
+  });
+
+  test('prose with no JSON at all yields a blank record', () => {
+    // The failure mode when a model ignores the format instruction entirely.
+    assert.ok(blank(parseFields('I could not summarise this session, sorry.')));
+  });
+
+  test('malformed JSON yields a blank record rather than throwing', () => {
+    assert.ok(blank(parseFields('{"task_statement": "half a str')));
+  });
+
+  test('JSON wrapped in prose or fences is still extracted', () => {
+    // Models routinely wrap the object; losing the handoff to a code fence
+    // would be an expensive way to be strict.
+    const f = parseFields('Here you go:\n```json\n{"task_statement":"fix the reaper"}\n```\nHope that helps.');
+    assert.equal(f.task_statement, 'fix the reaper');
+    assert.ok(!blank(f));
+  });
+
+  test('missing keys become empty strings, not undefined', () => {
+    // These go straight into NOT NULL-ish text columns and into a prompt.
+    const f = parseFields('{"task_statement":"x"}');
+    assert.equal(f.work_done, '');
+    assert.equal(f.failures, '');
+    assert.equal(typeof f.open_questions, 'string');
+  });
+
+  test('non-string values are coerced rather than leaking a shape', () => {
+    const f = parseFields('{"task_statement": 42, "failures": ["a","b"]}');
+    assert.equal(typeof f.task_statement, 'string');
+    assert.equal(typeof f.failures, 'string');
   });
 });

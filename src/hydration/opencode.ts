@@ -84,6 +84,13 @@ export async function opencodeComplete(
   const bin = findBin();
   if (!bin) return null;
 
+  // opencode takes the prompt as an argv element, and Windows refuses a command
+  // line past ~32,767 characters with ENAMETOOLONG. Spawning anyway costs a
+  // process launch to learn that, on the path that exists to be cheap - and the
+  // caller only sees null either way, so the failure teaches nothing. Declining
+  // early lets cheapComplete move straight to a backend that reads stdin.
+  if (prompt.length > 24_000) return null;
+
   try {
     // spawn, not execFile, specifically so stdin can be closed.
     //

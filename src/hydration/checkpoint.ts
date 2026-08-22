@@ -58,7 +58,14 @@ Transcript follows.
 ---
 `;
 
-function parseFields(raw: string | null): CheckpointFields {
+/**
+ * Exported so the blank-checkpoint path can be tested directly.
+ *
+ * Every branch here returns EMPTY, and an EMPTY result for a session that had a
+ * transcript is a failed handoff rather than an uneventful one - see
+ * writeCheckpoint, which now tells those apart.
+ */
+export function parseFields(raw: string | null): CheckpointFields {
   if (!raw) return { ...EMPTY };
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
@@ -144,14 +151,26 @@ export async function writeCheckpoint(
 
   const transcript = await renderRecentTranscript(sessionId);
 
-  // A session with no transcript yet still gets a checkpoint row: the git state
-  // alone is worth preserving, and an empty checkpoint is better than none when
-  // recovery has to reason about what existed.
+  // Two different things used to look identical here, and only one of them is
+  // benign.
+  //
+  // A session with no transcript yet genuinely has nothing to hand over, and the
+  // git state alone is worth a row - that is the case the comment below the
+  // original code described. But a session *with* a transcript whose extraction
+  // came back null or unparseable is a failed handoff, and writing it as a set
+  // of empty strings makes it indistinguishable from having nothing to say.
+  //
+  // It happened: 17 of 79 checkpoints in this database are wholly blank, and on
+  // 19 August ten of eleven were - including two written at brain_swap, which is
+  // precisely the moment a successor depends on the handoff. Nothing reported it,
+  // because a row existed and the write succeeded.
+  //
   // Speed tier: a checkpoint is written after every turn, so a ~30s free-tier
-  // call would tax the whole system continuously. Quality matters less here
-  // than in extraction — the checkpoint is read by the next session minutes
-  // later, not stored permanently.
-  const fields = transcript.trim()
+  // call would tax the whole system continuously. Quality matters less here than
+  // in extraction - the checkpoint is read by the next session minutes later,
+  // not stored permanently.
+  const hasTranscript = transcript.trim().length > 0;
+  const fields = hasTranscript
     ? parseFields(
         await cheapComplete(PROMPT + transcript, {
           configDir: opts.configDir,
@@ -159,6 +178,29 @@ export async function writeCheckpoint(
         }),
       )
     : { ...EMPTY };
+
+  const extractionFailed =
+    hasTranscript && Object.values(fields).every((v) => !String(v).trim());
+
+  if (extractionFailed) {
+    // Say so in the record the successor actually reads. A blank handoff reads
+    // as "nothing happened here"; this reads as "the summary is missing, go to
+    // the source", which is the difference between misleading and merely
+    // incomplete.
+    fields.task_statement =
+      'Handoff summary could not be generated for this session. ' +
+      'Read the transcript and git state directly rather than assuming no work was done.';
+    await recordEvent({
+      type: 'checkpoint.extraction_failed',
+      severity: 'warn',
+      sessionId,
+      message:
+        `Checkpoint written for ${sessionId} with no summary: the model returned nothing ` +
+        `usable for a ${Math.ceil(transcript.length / 4)}-token transcript. ` +
+        `A brain swap or revival from this point starts without a handoff.`,
+      data: { reason, transcriptChars: transcript.length },
+    }).catch(() => {});
+  }
 
   const row = await one<{ id: string }>(
     `INSERT INTO checkpoints

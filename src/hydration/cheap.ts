@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -78,6 +78,54 @@ async function ollamaComplete(prompt: string, timeoutMs: number): Promise<string
   }
 }
 
+/**
+ * Windows caps a command line at about 32,767 characters, and a prompt is not a
+ * small argument.
+ *
+ * Checkpoints were failing with `spawn ENAMETOOLONG` for exactly the sessions
+ * that most needed one: a long transcript makes a long prompt, the spawn is
+ * refused before the model is ever reached, and the caller sees null - which is
+ * indistinguishable from "the model had nothing to say". 17 of 79 checkpoints in
+ * this database are blank, and on 19 August ten of eleven were.
+ *
+ * So the prompt goes down stdin, which `claude -p` reads when given no prompt
+ * argument, and the limit stops applying at all.
+ */
+function runWithStdin(
+  bin: string,
+  args: string[],
+  input: string,
+  opts: { env: NodeJS.ProcessEnv; timeoutMs: number },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(bin, args, { env: opts.env, windowsHide: true });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`timed out after ${opts.timeoutMs}ms`));
+    }, opts.timeoutMs);
+
+    proc.stdout.on('data', (c: Buffer) => (out += c.toString()));
+    proc.stderr.on('data', (c: Buffer) => (err += c.toString()));
+    proc.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`exit ${code}: ${err.slice(0, 300)}`));
+    });
+
+    proc.stdin.on('error', () => {
+      /* the child may close stdin early; the close handler reports the outcome */
+    });
+    proc.stdin.write(input);
+    proc.stdin.end();
+  });
+}
+
 /** Cheapest subscription tier. Used only when Ollama is unavailable. */
 async function claudeCheapComplete(
   prompt: string,
@@ -88,10 +136,12 @@ async function claudeCheapComplete(
     const env = { ...process.env };
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
 
-    const { stdout } = await execFileAsync(
+    const stdout = await runWithStdin(
       CLAUDE_BIN,
       [
-        '-p', prompt,
+        // No prompt argument: it goes down stdin instead, so the length of a
+        // transcript stops being able to refuse the spawn.
+        '-p',
         '--model', 'haiku',
         '--output-format', 'json',
         '--permission-mode', 'bypassPermissions',
@@ -105,7 +155,8 @@ async function claudeCheapComplete(
         // the cheap path.
         '--strict-mcp-config',
       ],
-      { env, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+      prompt,
+      { env, timeoutMs },
     );
     // `--output-format json` emits an ARRAY of stream events, not a single
     // result object. Reading `.result` off the array yielded undefined, so this

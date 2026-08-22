@@ -166,6 +166,17 @@ while ($true) {
     # were never the problem.
     while ($true) {
         Start-Sleep -Seconds 5
+        # Also here, and this is the whole point rather than belt-and-braces.
+        #
+        # The outer loop only comes round again when the gateway dies, so while
+        # the gateway is healthy this inner poll is where the keepalive actually
+        # lives - for days at a time. Checking dependencies only at the top of
+        # the outer loop meant checking them only on a gateway restart, which is
+        # a strictly smaller bug than the original but the same one: verified by
+        # killing ollama and watching it stay dead while the supervisor
+        # correctly reported it degraded. Should-Start's cooldown is what makes
+        # calling this every five seconds cheap.
+        Ensure-Dependencies
         $alive = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
         if (-not $alive) { break }
     }

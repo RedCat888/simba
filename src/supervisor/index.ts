@@ -1,5 +1,6 @@
 import { query, recordEvent } from '../db/index.js';
 import { tickDecision } from './tick-guard.js';
+import { systemHealth } from '../ops/health.js';
 import { config } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import { FAILOVER_CONTINUE_PROMPT } from '../policy/brains.js';
@@ -37,6 +38,7 @@ export class Supervisor {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private runningSince = 0;
+  private readonly lastDependencyWarning = new Map<string, number>();
   private wedgeReported = false;
 
   /**
@@ -166,6 +168,7 @@ export class Supervisor {
       await this.rollUpMissionCost();
       await generateBrief(this.briefIntervalMinutes);
       await this.pullIntakes();
+      await this.reportDegradedDependencies();
     } catch (err) {
       console.error('[supervisor] tick failed', err);
     } finally {
@@ -386,6 +389,48 @@ export class Supervisor {
    * for a quiet inbox. Missing a mention by a few minutes is fine; missing
    * it until someone opens a website is the failure this exists to close.
    */
+  /**
+   * Says a dependency is degraded, rather than waiting to be asked.
+   *
+   * /api/health answers the question well, but it only answers when someone
+   * thinks to ask — and the whole reason Ollama and the voice worker went down
+   * for days is that nobody had a reason to. An event puts it in Today, next to
+   * the other things wanting attention.
+   *
+   * No model call: the check already produces the exact sentence worth sending,
+   * so putting a model in the path would add cost and a failure mode without
+   * adding information.
+   *
+   * Rate-limited per dependency. A degraded dependency stays degraded until
+   * someone fixes it, and repeating that every fifteen seconds would bury the
+   * feed it is trying to appear in.
+   */
+  private async reportDegradedDependencies(): Promise<void> {
+    let health;
+    try {
+      health = await systemHealth();
+    } catch {
+      return; // The health check failing is not itself worth an event storm.
+    }
+    const now = Date.now();
+    for (const dep of health.dependencies) {
+      if (dep.state === 'up') {
+        // Recovery clears the throttle, so the next outage reports immediately
+        // instead of waiting out a window started by the previous one.
+        this.lastDependencyWarning.delete(dep.name);
+        continue;
+      }
+      const last = this.lastDependencyWarning.get(dep.name) ?? 0;
+      if (now - last < 60 * 60_000) continue;
+      this.lastDependencyWarning.set(dep.name, now);
+      await recordEvent({
+        type: 'dependency.degraded',
+        message: `${dep.name} is ${dep.state}${dep.detail ? ` (${dep.detail})` : ''}. ${dep.impact}`,
+        data: { dependency: dep.name, state: dep.state, detail: dep.detail },
+      }).catch(() => {});
+    }
+  }
+
   private async pullIntakes(): Promise<void> {
     if (Date.now() - this.lastIntakePoll < 5 * 60_000) return;
     this.lastIntakePoll = Date.now();

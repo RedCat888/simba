@@ -1,5 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pjoin } from 'node:path';
 
 import { denyRulesFor } from '../src/runner/opencode.js';
 import { denyNotice } from '../src/runner/boundary.js';
@@ -19,7 +22,7 @@ import { tickDecision } from '../src/supervisor/tick-guard.js';
 import { classify } from '../src/voice/index.js';
 import { chunkText } from '../src/ingest/chunk.js';
 import { parseFields } from '../src/hydration/checkpoint.js';
-import { canResumeNative, nativeTranscriptPath } from '../src/runner/claude.js';
+import { canResumeNative } from '../src/runner/claude.js';
 import { googleAccessToken, microsoftAccessToken, clearTokenCache } from '../src/ops/oauth.js';
 import { pressureLevel } from '../src/ops/commit-charge.js';
 import { surfaceForPrincipal, describePrincipal } from '../src/policy/access.js';
@@ -781,39 +784,43 @@ describe('the token that has to outlive an hour', () => {
   });
 });
 
-describe('resuming a session that is not there', () => {
-  // README and CLAUDE.md both say revival reattaches transparently via native
-  // resume, and 95 sessions carry a native_session_id on that basis. None of
-  // the twelve most recent had a transcript on disk. Passing --resume for an id
-  // the CLI cannot find does not fail loudly: the session starts anyway with
-  // none of the history, and the only visible trace is paying to re-establish
-  // context that was supposed to be cached.
-
-  // Built rather than written, because a literal backslash in this file has not
-  // survived the tooling three times tonight.
-  const BS = String.fromCharCode(92);
-  const winCwd = ['C:', 'Users', 'operator', 'simba'].join(BS);
-
-  test('the project directory is the cwd with colons and separators flattened', () => {
-    // C:\Users\operator\simba becomes C--Users-operator-simba, which is how the
-    // directories on disk are actually named.
-    const p = nativeTranscriptPath(winCwd, 'abc-123').split(BS).join('/');
-    assert.match(p, /\/projects\/C--Users-operator-simba\/abc-123\.jsonl$/);
-  });
-
-  test('forward slashes mangle the same way, since cwd can arrive either shape', () => {
-    const p = nativeTranscriptPath('C:/workspace/simba', 'abc-123').split(BS).join('/');
-    assert.match(p, /\/projects\/C--Users-operator-simba\/abc-123\.jsonl$/);
-  });
+describe('whether a session can actually be resumed', () => {
+  // --resume for an id the CLI cannot find does not fail loudly: it starts a
+  // session with none of the history and bills for re-establishing it. So the
+  // transcript is checked first.
+  //
+  // The check has to look in the *brain's* config directory. Each brain runs
+  // with its own CLAUDE_CONFIG_DIR - claude-b lives under .simba-brains/claude-b
+  // - so searching the home directory finds nothing for it, which is exactly the
+  // mistake that made me believe ninety-five sessions had dangling resume
+  // points. They did not.
 
   test('no id means nothing to resume', () => {
-    assert.equal(canResumeNative(winCwd, null), false);
-    assert.equal(canResumeNative(winCwd, undefined), false);
-    assert.equal(canResumeNative(winCwd, ''), false);
+    assert.equal(canResumeNative(null, null), false);
+    assert.equal(canResumeNative(null, undefined), false);
+    assert.equal(canResumeNative(null, ''), false);
   });
 
-  test('an id with no transcript is not resumable', () => {
-    // The real case: 95 sessions record one of these.
-    assert.equal(canResumeNative(winCwd, '00000000-0000-0000-0000-000000000000'), false);
+  test('a config directory that does not exist is false, not a throw', () => {
+    assert.equal(canResumeNative('C:/nowhere/at/all', 'abc-123'), false);
+  });
+
+  test('a real directory with no projects inside is false', () => {
+    assert.equal(canResumeNative(process.cwd(), '00000000-0000-0000-0000-000000000000'), false);
+  });
+
+  test('it scans project subdirectories rather than guessing the slug', () => {
+    // The project directory is the working directory slugified, which this
+    // function is not given - so a transcript is found wherever it sits.
+    const root = mkdtempSync(pjoin(tmpdir(), 'simba-resume-'));
+    try {
+      const proj = pjoin(root, 'projects', 'some--slugified--cwd');
+      mkdirSync(proj, { recursive: true });
+      writeFileSync(pjoin(proj, 'aaaa-bbbb.jsonl'), '{}');
+      assert.equal(canResumeNative(root, 'aaaa-bbbb'), true);
+      assert.equal(canResumeNative(root, 'cccc-dddd'), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

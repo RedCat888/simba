@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -166,14 +166,14 @@ class ClaudeSession implements RunnerSession {
       resolveModel(s.brain, s.modelTier),
     ];
 
-    if (s.resumeSessionId && canResumeNative(s.cwd, s.resumeSessionId)) {
+    if (s.resumeSessionId && canResumeNative(s.brain.configDir, s.resumeSessionId)) {
       args.push('--resume', s.resumeSessionId);
     } else {
       if (s.resumeSessionId) {
         // Asked to resume something the CLI has no transcript for. Starting
         // fresh is what happens either way; saying so is the point.
         console.error(
-          `[claude] no native transcript for ${s.resumeSessionId} under ${s.cwd} - starting a fresh session instead of resuming`,
+          `[claude] no native transcript for ${s.resumeSessionId} under ${s.brain.configDir ?? '~/.claude'} - starting a fresh session instead of resuming`,
         );
       }
       args.push('--session-id', s.sessionId);
@@ -422,43 +422,38 @@ class ClaudeSession implements RunnerSession {
 }
 
 /**
- * Where the CLI keeps a session's own transcript.
- *
- * Project directories are the working directory with the drive colon and every
- * separator flattened to a dash, so C:\Users\operator\simba becomes
- * C--Users-operator-simba.
- */
-export function nativeTranscriptPath(cwd: string, nativeSessionId: string): string {
-  // Split and join rather than a regex character class. The escape for a
-  // literal backslash has not survived this repository's tooling reliably,
-  // and a class that silently matches only half the separators produces a
-  // path that looks right and points nowhere - which is exactly the failure
-  // this function exists to detect.
-  const mangled = cwd
-    .split(':').join('-')
-    .split('/').join('-')
-    .split(String.fromCharCode(92)).join('-');
-  return join(homedir(), '.claude', 'projects', mangled, `${nativeSessionId}.jsonl`);
-}
-
-/**
  * Whether a recorded native session can actually be resumed.
  *
- * README and CLAUDE.md both describe revival as reattaching transparently via
- * native resume, and 95 sessions carry a native_session_id on the strength of
- * that. None of the twelve most recent have a transcript on disk. Passing
- * --resume for an id the CLI cannot find does not fail loudly - the session
- * starts anyway, with none of the history the resume was for, and the only
- * visible trace is a bill for re-establishing context that was supposed to be
- * cached.
+ * Scans rather than computes the path, and scans the *brain's* config
+ * directory rather than the home one. Both matter, and I got both wrong first:
  *
- * So the existence of the file is checked before claiming to resume from it.
- * The behaviour is the same either way; the difference is that a resume which
- * cannot happen now says so instead of looking like one that did.
+ * Each brain runs with its own CLAUDE_CONFIG_DIR - claude-b lives under
+ * .simba-brains/claude-b - so its transcripts are not in ~/.claude at all.
+ * Looking there found nothing and concluded that ninety-five sessions had
+ * dangling resume points. They were fine; I was searching one account's
+ * directory for another account's files. A version of this check that answers
+ * "no" for every claude-b session would skip a resume that would have worked,
+ * which is worse than not checking.
+ *
+ * And the project subdirectory is the working directory slugified, so it is
+ * derived from state this function does not have. findTranscript scans for that
+ * reason; this is its synchronous twin, because buildArgs is not async.
+ *
+ * The check still earns its place: --resume for an id the CLI cannot find does
+ * not fail loudly, it starts a session with none of the history and bills for
+ * re-establishing it.
  */
-export function canResumeNative(cwd: string, nativeSessionId: string | null | undefined): boolean {
+export function canResumeNative(configDir: string | null, nativeSessionId: string | null | undefined): boolean {
   if (!nativeSessionId) return false;
-  return existsSync(nativeTranscriptPath(cwd, nativeSessionId));
+  const projectsDir = join(configDir ?? join(homedir(), '.claude'), 'projects');
+  if (!existsSync(projectsDir)) return false;
+  let entries: string[];
+  try {
+    entries = readdirSync(projectsDir);
+  } catch {
+    return false;
+  }
+  return entries.some((entry) => existsSync(join(projectsDir, entry, `${nativeSessionId}.jsonl`)));
 }
 
 export class ClaudeRunner implements Runner {

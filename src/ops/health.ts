@@ -1,6 +1,7 @@
 import { query } from '../db/index.js';
 import { workerStatus } from '../voice/index.js';
 import { config } from '../config.js';
+import { sampleDisk, diskPressure } from './disk.js';
 
 /**
  * What Simba depends on, and whether each of those things is actually there.
@@ -134,8 +135,19 @@ async function checkVoiceWorker(): Promise<Dependency> {
   }
 }
 
+async function checkDisk(): Promise<Dependency> {
+  const disk = await sampleDisk();
+  const p = diskPressure(disk);
+  const impact = 'Postgres cannot write, and a database that cannot write is a system that cannot remember.';
+  if (!disk) return { name: 'disk', state: 'unknown', detail: 'could not read free space', impact };
+  const detail = `${(disk.freeMb / 1024).toFixed(1)} GB free of ${(disk.totalMb / 1024).toFixed(0)} GB`;
+  if (p.level === 'critical') return { name: 'disk', state: 'down', detail, impact };
+  if (p.level === 'warn') return { name: 'disk', state: 'degraded', detail, impact };
+  return { name: 'disk', state: 'up', detail, impact };
+}
+
 export async function systemHealth(): Promise<Health> {
-  const dependencies = await Promise.all([checkPostgres(), checkOllama(), checkVoiceWorker()]);
+  const dependencies = await Promise.all([checkPostgres(), checkOllama(), checkVoiceWorker(), checkDisk()]);
   // `ok` tracks whether anything is actually broken, not whether everything is
   // perfect — a degraded dependency is a real answer, and flipping ok to false
   // for a slow voice worker would make the flag useless for spotting an outage.

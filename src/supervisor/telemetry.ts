@@ -4,6 +4,7 @@ import os from 'node:os';
 
 import { query, recordEvent } from '../db/index.js';
 import { sampleCommit } from '../ops/commit-charge.js';
+import { sampleDisk } from '../ops/disk.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -89,7 +90,7 @@ export class Telemetry {
     if (Date.now() - this.lastSample < intervalMs) return;
     this.lastSample = Date.now();
 
-    const [g, commit] = await Promise.all([sampleProcesses(), sampleCommit()]);
+    const [g, commit, disk] = await Promise.all([sampleProcesses(), sampleCommit(), sampleDisk()]);
     const freeMb = Math.round(os.freemem() / 1024 / 1024);
     const totalMb = Math.round(os.totalmem() / 1024 / 1024);
 
@@ -97,14 +98,15 @@ export class Telemetry {
       `INSERT INTO system_samples
          (free_mb, total_mb, claude_desktop_mb, claude_code_mb, simba_mb,
           ollama_mb, postgres_mb, other_top_mb, process_count, detail,
-          commit_used_mb, commit_limit_mb)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          commit_used_mb, commit_limit_mb, disk_free_mb, disk_total_mb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         freeMb, totalMb,
         g?.claudeDesktop ?? null, null, g?.simba ?? null,
         g?.ollama ?? null, g?.postgres ?? null, g?.otherTop ?? null,
         g?.count ?? null, JSON.stringify({ top: g?.top ?? [] }),
         commit?.usedMb ?? null, commit?.limitMb ?? null,
+        disk?.freeMb ?? null, disk?.totalMb ?? null,
       ],
     );
 

@@ -25,6 +25,7 @@ import { parseFields } from '../src/hydration/checkpoint.js';
 import { canResumeNative } from '../src/runner/claude.js';
 import { googleAccessToken, microsoftAccessToken, clearTokenCache } from '../src/ops/oauth.js';
 import { pressureLevel } from '../src/ops/commit-charge.js';
+import { diskPressure } from '../src/ops/disk.js';
 import { surfaceForPrincipal, describePrincipal } from '../src/policy/access.js';
 import { config } from '../src/config.js';
 import {
@@ -822,5 +823,39 @@ describe('whether a session can actually be resumed', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the disk nobody was watching', () => {
+  // C: reached zero on 22 August. git failed with "No space left on device" and
+  // could not write its own index lock, so a commit was lost; Postgres was one
+  // write away from the same wall. Telemetry sampled free RAM, commit charge and
+  // per-process memory every five minutes and had nothing to say about it.
+  const gb = (n: number) => Math.round(n * 1024);
+
+  test('a large disk with plenty free is fine', () => {
+    assert.equal(diskPressure({ freeMb: gb(329), totalMb: gb(1861) }).level, 'ok');
+  });
+
+  test('judged in gigabytes, not percent', () => {
+    // 5% of 1.8TB is 93GB, which is fine. 5% of a 256GB disk is 12GB, which is
+    // not. The unit that matters is how much room is left for a checkpoint or a
+    // build, and that does not scale with the volume.
+    assert.equal(diskPressure({ freeMb: gb(93), totalMb: gb(1861) }).level, 'ok');
+    assert.equal(diskPressure({ freeMb: gb(6), totalMb: gb(1861) }).level, 'warn');
+    assert.equal(diskPressure({ freeMb: gb(6), totalMb: gb(256) }).level, 'warn');
+  });
+
+  test('near zero is critical and says what breaks', () => {
+    const p = diskPressure({ freeMb: gb(0.5), totalMb: gb(1861) });
+    assert.equal(p.level, 'critical');
+    assert.match(p.reason ?? '', /Postgres|lock file/i);
+  });
+
+  test('an unreadable disk is not reported as full', () => {
+    // statfs can fail. Treating that as critical would cry wolf; treating it as
+    // ok is the honest default, since nothing is known to be wrong.
+    assert.equal(diskPressure(null).level, 'ok');
+    assert.equal(diskPressure({ freeMb: 0, totalMb: 0 }).level, 'ok');
   });
 });

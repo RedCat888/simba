@@ -1,5 +1,6 @@
 import { query, recordEvent } from '../db/index.js';
 import { sampleCommit, pressureLevel } from '../ops/commit-charge.js';
+import { sampleDisk, diskPressure } from '../ops/disk.js';
 import type { SessionManager } from '../session/manager.js';
 
 /**
@@ -30,6 +31,8 @@ export class Reaper {
   /** When the last pressure event was written, and at what severity. */
   private lastPressureAt = 0;
   private lastPressureLevel: 'ok' | 'warn' | 'critical' = 'ok';
+  private lastDiskAt = 0;
+  private lastDiskLevel: 'ok' | 'warn' | 'critical' = 'ok';
 
   async tick(): Promise<ReapStats> {
     const stats: ReapStats = { idleReaped: 0, freedEstimateMb: 0 };
@@ -102,6 +105,27 @@ export class Reaper {
     const totalMb = Math.round(os.totalmem() / 1024 / 1024);
     const commit = await sampleCommit();
     const pressure = pressureLevel(freeMb, totalMb, commit);
+
+    // Disk is judged alongside memory because it is the one that stops writes
+    // rather than merely slowing them, and it reached zero on this machine
+    // while the memory alarm had nothing to say.
+    const disk = await sampleDisk();
+    const onDisk = diskPressure(disk);
+    if (onDisk.level !== 'ok') {
+      const escalatedDisk = onDisk.level === 'critical' && this.lastDiskLevel !== 'critical';
+      if (escalatedDisk || Date.now() - this.lastDiskAt >= 60 * 60_000) {
+        this.lastDiskAt = Date.now();
+        this.lastDiskLevel = onDisk.level;
+        await recordEvent({
+          type: 'system.disk_pressure',
+          severity: onDisk.level === 'critical' ? 'critical' : 'warn',
+          message: onDisk.reason ?? 'disk pressure',
+          data: { freeMb: disk?.freeMb ?? null, totalMb: disk?.totalMb ?? null },
+        });
+      }
+    } else {
+      this.lastDiskLevel = 'ok';
+    }
 
     // Throttled, because this runs on every supervisor tick - every fifteen
     // seconds. Unthrottled it produced nineteen near-identical events in one

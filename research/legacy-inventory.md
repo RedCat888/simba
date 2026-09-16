@@ -10,7 +10,7 @@ what should be left alone.
 Both were found and read. They are **not duplicates**; they are complementary,
 and the merge is not a diff-and-pick so much as taking the better half of each.
 
-### `C:\Users\operator\ReelAgent` (Claude-built, Python)
+### `C:\example-workspace\ReelAgent` (Claude-built, Python)
 
 This is a working miniature of Simba and it is the more important of the two.
 From its own README it already implements: agents with short ids, a focus model

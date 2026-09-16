@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import android.app.Application
 import android.app.NotificationChannel

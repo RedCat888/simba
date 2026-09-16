@@ -102,7 +102,7 @@ export async function googleAccessToken(): Promise<TokenResult> {
  * Outlook and Teams, through Microsoft Graph.
  *
  * Tenant defaults to `consumers` for a personal Microsoft account, which is
- * what sample-account is; a work or school account needs its tenant id instead.
+ * what operator is; a work or school account needs its tenant id instead.
  * The secret is optional because a public client registration does not have
  * one, and sending an empty string is not the same as omitting it.
  */

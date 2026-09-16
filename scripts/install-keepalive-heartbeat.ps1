@@ -23,7 +23,7 @@ $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host 'This needs an elevated PowerShell - the SimbaGateway task was registered with elevation.' -ForegroundColor Yellow
     Write-Host 'Run PowerShell as administrator, then:' -ForegroundColor Yellow
-    Write-Host '  powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\operator\simba\scripts\install-keepalive-heartbeat.ps1'
+    Write-Host '  powershell -NoProfile -ExecutionPolicy Bypass -File C:\example-workspace\simba\scripts\install-keepalive-heartbeat.ps1'
     exit 1
 }
 

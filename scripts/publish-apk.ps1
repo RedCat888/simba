@@ -19,11 +19,11 @@ param([switch]$SkipBuild)
 
 $ErrorActionPreference = 'Stop'
 $repo = 'PROJECT_OWNER/simba'
-$apk  = 'C:/workspace/simba/android/app/build/outputs/apk/release/app-release.apk'
+$apk  = 'C:/example-workspace/simba/android/app/build/outputs/apk/release/app-release.apk'
 $aapt = (Get-ChildItem "$env:LOCALAPPDATA/Android/Sdk/build-tools/*/aapt2.exe" | Select-Object -Last 1).FullName
 
 if (-not $SkipBuild) {
-    Push-Location C:/workspace/simba/android
+    Push-Location C:/example-workspace/simba/android
     $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
     ./gradlew.bat assembleRelease --console=plain | Select-String -Pattern '^e: |BUILD'
     Pop-Location

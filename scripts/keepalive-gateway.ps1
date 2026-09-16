@@ -111,8 +111,8 @@ function Ensure-Dependencies {
     # none.
     $pgUp = Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue
     if (-not $pgUp -and (Should-Start 'postgres' 180)) {
-        $pgCtl  = 'C:\Users\operator\scoop\apps\postgresql\current\bin\pg_ctl.exe'
-        $pgData = 'C:\Users\operator\scoop\persist\postgresql\data'
+        $pgCtl  = 'C:\example-workspace\scoop\apps\postgresql\current\bin\pg_ctl.exe'
+        $pgData = 'C:\example-workspace\scoop\persist\postgresql\data'
         $started = $false
 
         # Try the service first, but do not assume it worked.

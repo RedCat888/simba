@@ -37,7 +37,7 @@ const spec: LaunchSpec = {
     '1. What Postgres user should be used on this machine, and which one does NOT exist? ' +
     'Answer from what you already know.\n' +
     '2. Then call memory_add to record this fact: kind "environment", content ' +
-    '"The Android SDK is at C:/workspace/AppData/Local/Android/Sdk and the JDK ships with Android Studio at C:/Program Files/Android/Android Studio/jbr." ' +
+    '"The Android SDK is at C:/example-workspace/AppData/Local/Android/Sdk and the JDK ships with Android Studio at C:/Program Files/Android/Android Studio/jbr." ' +
     'Report what memory_add told you.',
 };
 

@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -78,7 +78,7 @@ class FindRenderTest(
             ),
             Found(
                 kind = "project", id = "p1", live = false, status = "repo",
-                title = "home_surveillance", subtitle = "C:/workspace/home_surveillance",
+                title = "home_surveillance", subtitle = "C:/example-workspace/home_surveillance",
                 whenAt = "2018-03-26T11:02:00Z", score = 0.09,
             ),
             Found(

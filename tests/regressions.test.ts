@@ -256,11 +256,11 @@ describe('worktree path identity', () => {
   // directory and its uncollected work would be reported as nothing to collect.
   test('matches across separator and case differences', () => {
     assert.equal(
-      samePath('C:/workspace/simba/var/worktrees/a', 'C:\\Users\\operator\\simba\\var\\worktrees\\a'),
+      samePath('C:/example-workspace/simba/var/worktrees/a', 'C:\\example-workspace\\simba\\var\\worktrees\\a'),
       true,
     );
-    assert.equal(samePath('C:/example-workspace/Simba', 'c:/users/operator/simba'), true);
-    assert.equal(samePath('C:/workspace/simba/', 'C:/workspace/simba'), true);
+    assert.equal(samePath('C:/example-workspace/Simba', 'c:/example-workspace/simba'), true);
+    assert.equal(samePath('C:/example-workspace/simba/', 'C:/example-workspace/simba'), true);
   });
 
   // The case that mattered: an empty leftover directory makes git walk up to
@@ -268,7 +268,7 @@ describe('worktree path identity', () => {
   // are different places and must not compare equal.
   test('a parent repository is not the worktree', () => {
     assert.equal(
-      samePath('C:/workspace/simba', 'C:/workspace/simba/var/worktrees/mobile-app-19ca077f'),
+      samePath('C:/example-workspace/simba', 'C:/example-workspace/simba/var/worktrees/mobile-app-19ca077f'),
       false,
     );
   });
@@ -594,7 +594,7 @@ describe('which surface a verified caller becomes', () => {
   });
 
   test('a verified human is the phone, because that is who is holding it', () => {
-    assert.equal(surfaceForPrincipal({ kind: 'user', email: 'sample-account@gmail.com' }), 'phone');
+    assert.equal(surfaceForPrincipal({ kind: 'user', email: 'operator@example.invalid' }), 'phone');
   });
 
   test('principals describe themselves distinguishably in the audit log', () => {

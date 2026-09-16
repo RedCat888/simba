@@ -13,7 +13,7 @@ works; it tracks which "brains" (claude-a/claude-b/codex/cursor) are live.
 - **Postgres 18.4 + pgvector 0.8.1** — single source of truth, 41 tables, monthly
   partitioning on transcripts. Built from source; no Windows binary exists.
 - `@modelcontextprotocol/sdk` — Simba exposes its own MCP server.
-- Android client in `android/` (Gradle, Kotlin, `com.operator.simba`).
+- Android client in `android/` (Gradle, Kotlin, `app.simba`).
   Electron-style desktop client in `desktop/`.
 
 ## Commands

@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

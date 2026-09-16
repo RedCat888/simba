@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

@@ -9,11 +9,11 @@ plugins {
 }
 
 android {
-    namespace = "com.operator.simba"
+    namespace = "app.simba"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.operator.simba"
+        applicationId = "app.simba"
         minSdk = 26
         targetSdk = 34
         // Minutes since 2024-01-01, so every build is a higher number than the

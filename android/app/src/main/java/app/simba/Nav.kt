@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt

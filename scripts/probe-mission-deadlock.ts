@@ -24,7 +24,7 @@ try {
   const m = await one<{ id: string }>(
     `INSERT INTO missions (slug, title, objective, status, working_dir,
                            max_sessions, max_cost_usd, max_concurrent_sessions)
-     VALUES ($1,'probe deadlock','probe','running','C:\Users\operator\simba',99,99,0)
+     VALUES ($1,'probe deadlock','probe','running','C:\example-workspace\simba',99,99,0)
      RETURNING id`, [SLUG]);
   const id = m!.id;
 

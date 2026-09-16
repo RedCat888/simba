@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay

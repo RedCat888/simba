@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -8,13 +8,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Every model, against what the gateway actually sends.
+ * Every model, against representative gateway response shapes.
  *
- * The fixtures in `resources/wire` are real responses captured from the running
- * gateway, not hand-written examples — which matters, because the failures worth
- * catching are the ones nobody would think to write down: a column that is null
- * on one row out of eighty, a numeric id where a string was assumed, a field
- * added server-side that the app has never seen.
+ * The fixtures in `resources/wire` are synthetic and contain no captured
+ * sessions, machine paths, account data, or operator instructions. They retain
+ * nulls and representative field types so schema-decoding failures still show
+ * up without turning test data into a runtime-data archive.
  *
  * The app and the gateway ship independently. The gateway is redeployed by
  * editing a file; the app requires building an APK, uploading it and installing

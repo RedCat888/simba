@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable

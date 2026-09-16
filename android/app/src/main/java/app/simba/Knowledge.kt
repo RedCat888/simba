@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape

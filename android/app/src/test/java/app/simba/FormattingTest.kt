@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -57,7 +57,7 @@ class FormattingTest {
 
     @Test
     fun `windows separators are understood`() {
-        val short = shortPath("""C:\Users\operator\simba\src\gateway\server.ts""", 24)
+        val short = shortPath("""C:\example-workspace\simba\src\gateway\server.ts""", 24)
         assertTrue("lost the filename: $short", short.endsWith("server.ts"))
     }
 

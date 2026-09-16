@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -351,7 +351,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
 
     companion object {
         const val CHANNEL = "simba-overlay"
-        const val ACTION_STOP = "com.operator.simba.OVERLAY_STOP"
+        const val ACTION_STOP = "app.simba.OVERLAY_STOP"
         private const val NOTIFICATION_ID = 4242
         private const val TOUCH_SLOP = 12
 

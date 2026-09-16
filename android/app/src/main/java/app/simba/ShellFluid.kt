@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize

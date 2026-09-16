@@ -29,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 $cf = 'C:\ProgramData\chocolatey\bin\cloudflared.exe'
 
 Write-Host '=== 1. Sanity: the tunnel must not point at the trusted local port ===' -ForegroundColor Cyan
-$cfg = Get-Content 'C:\Users\operator\.cloudflared\config.yml' -Raw
+$cfg = Get-Content 'C:\example-workspace\.cloudflared\config.yml' -Raw
 if ($cfg -match '127\.0\.0\.1:8787' -or $cfg -match 'localhost:8787') {
     throw "config.yml routes traffic to 8787, the trusted local channel. Refusing to activate."
 }

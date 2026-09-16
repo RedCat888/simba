@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -156,7 +156,7 @@ fun NowBusyFixture() {
         pending = listOf(
             PendingAction(
                 id = "a1", actionClass = "write_outside_worktree",
-                target = "C:/workspace/OneDrive/Documents/Obsidian Vault/Daily/2026-08-05.md",
+                target = "C:/example-workspace/OneDrive/Documents/Obsidian Vault/Daily/2026-08-05.md",
                 summary = "Append today's brief to the vault daily note",
                 status = "pending", agent = "simba",
             ),
@@ -212,12 +212,12 @@ fun NowBusyFixture() {
         exposed = listOf(
             Project(
                 id = "x1", slug = "reelagent", name = "Instagram intake (legacy)",
-                rootPath = "C:/workspace/ReelAgent", gitRemote = null,
+                rootPath = "C:/example-workspace/ReelAgent", gitRemote = null,
                 branch = "master", unpushed = 2, atRisk = true,
             ),
             Project(
                 id = "x2", slug = "simba", name = "Simba itself",
-                rootPath = "C:/workspace/simba",
+                rootPath = "C:/example-workspace/simba",
                 gitRemote = "https://github.com/PROJECT_OWNER/simba.git",
                 branch = "master", dirtyFiles = 5, unpushed = 6, atRisk = true,
             ),
@@ -441,7 +441,7 @@ fun MemoryFixture() {
                 MemoryEntry(
                     id = "1", kind = "environment",
                     content = "Postgres runs on the scoop install at " +
-                        "C:/workspace/scoop/apps/postgresql/current, not a service.",
+                        "C:/example-workspace/scoop/apps/postgresql/current, not a service.",
                     source = "session 5b970b4d", confirmations = 3,
                 ),
                 MemoryEntry(

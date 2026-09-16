@@ -98,7 +98,7 @@ person walks between them and none when the room is empty. Everything past that
 - Any shell command over three lines goes in a script file first. PowerShell
   strings must be ASCII.
 - No credentials in tracked files. Env var names only.
-- Simba lives at C:\Users\operator\simba. `npm run check` must exit 0 before any
+- Simba lives at C:\example-workspace\simba. `npm run check` must exit 0 before any
   work counts as done.
 
 ## Open request

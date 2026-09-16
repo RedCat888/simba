@@ -90,17 +90,5 @@ CREATE TRIGGER agent_memory_cap
   BEFORE INSERT ON agent_memory
   FOR EACH ROW EXECUTE FUNCTION enforce_memory_cap();
 
--- Seed with what this build has already established and keeps re-discovering.
-INSERT INTO agent_memory (agent_id, kind, content, source) VALUES
-(NULL, 'environment', 'This machine is Windows 11. Shell commands run under PowerShell or Git Bash, not a POSIX shell — /dev/null, $VAR and here-strings behave differently.', 'observed repeatedly'),
-(NULL, 'environment', 'Postgres is at 127.0.0.1:5432, database simba, user postgres. There is no "simba" role; using it fails with "role does not exist".', 'cost two failed commands'),
-(NULL, 'environment', 'psql lives at C:\Users\operator\scoop\apps\postgresql\current\bin\psql.exe and is not on PATH.', 'observed'),
-(NULL, 'environment', 'The gateway runs on 127.0.0.1:8787 (local, trusted) and 8788 (tunnel, Access-verified). Restarting it also restarts the supervisor.', 'architecture'),
-(NULL, 'convention', 'Postgres is the only source of truth. Never write state, plans or handoffs to markdown files — research notes are the sole exception.', 'standing instruction from the operator'),
-(NULL, 'convention', 'Subscriptions only. Never introduce API-key spending. Free tiers and local models are fine.', 'standing instruction from the operator'),
-(NULL, 'convention', 'Verify through the front door: check the outcome in the system of record, never trust a tool reporting its own success.', 'repeatedly necessary'),
-(NULL, 'convention', 'Pin explicit model ids, never aliases. "opus" silently resolved to claude-opus-4-7 for weeks.', 'real incident'),
-(NULL, 'person', 'the operator prefers being told plainly what is broken over reassurance, and wants work done rather than proposed. Do not ask permission for ordinary work.', 'stated directly, several times'),
-(NULL, 'person', 'the operator owns a Windows PC, a MacBook, and a Samsung S24 which is the primary way he drives Simba.', 'stated'),
-(NULL, 'convention', 'Never touch the an external project Supabase project (rqfpsvzigiyljcucoouk).', 'standing instruction from the operator')
-ON CONFLICT (agent_id, content) DO NOTHING;
+-- Deliberately no seed memories. Add environment facts and operator preferences
+-- only in the local database after deployment; they must never be committed.

@@ -7,7 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$bin  = 'C:\Users\operator\scoop\apps\postgresql\current\bin'
+$bin  = 'C:\example-workspace\scoop\apps\postgresql\current\bin'
 $psql = Join-Path $bin 'psql.exe'
 $root = Split-Path -Parent $PSScriptRoot
 $migrationDir = Join-Path $root 'migrations'

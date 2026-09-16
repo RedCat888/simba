@@ -27,8 +27,8 @@ if ($pgUp) {
         catch { Write-Host '  postgres               service start denied, falling back to pg_ctl' -ForegroundColor Yellow }
     }
     if (-not $started) {
-        $pgCtl  = 'C:\Users\operator\scoop\apps\postgresql\current\bin\pg_ctl.exe'
-        $pgData = 'C:\Users\operator\scoop\persist\postgresql\data'
+        $pgCtl  = 'C:\example-workspace\scoop\apps\postgresql\current\bin\pg_ctl.exe'
+        $pgData = 'C:\example-workspace\scoop\persist\postgresql\data'
         if (Test-Path $pgCtl) {
             $pgLog = Join-Path $root 'var\logs\pg.log'
             New-Item -ItemType Directory -Force -Path (Split-Path $pgLog) | Out-Null

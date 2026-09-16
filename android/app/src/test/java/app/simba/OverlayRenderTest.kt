@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import android.graphics.Bitmap
 import android.graphics.Canvas

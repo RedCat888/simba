@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import android.content.Intent
 import android.os.Build

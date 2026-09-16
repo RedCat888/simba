@@ -1,4 +1,4 @@
-package com.operator.simba
+package app.simba
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background

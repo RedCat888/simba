@@ -30,8 +30,8 @@ Write-Host '=== Simba elevated setup ===' -ForegroundColor Cyan
 # takes the whole system down until someone notices. A service starts it before
 # anyone logs in, which also means Simba survives an unattended restart.
 # ---------------------------------------------------------------------------
-$pgBin  = 'C:\Users\operator\scoop\apps\postgresql\current\bin'
-$pgData = 'C:\Users\operator\scoop\persist\postgresql\data'
+$pgBin  = 'C:\example-workspace\scoop\apps\postgresql\current\bin'
+$pgData = 'C:\example-workspace\scoop\persist\postgresql\data'
 
 $existing = Get-Service -Name 'PostgreSQL' -ErrorAction SilentlyContinue
 if ($existing) {
@@ -61,7 +61,7 @@ try {
 } catch {
     Write-Host "  Could not start service: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host '  Falling back to a manual start so the database stays up.' -ForegroundColor Yellow
-    & "$pgBin\pg_ctl.exe" -D $pgData -l 'C:\Users\operator\simba\var\logs\pg.log' start | Out-Null
+    & "$pgBin\pg_ctl.exe" -D $pgData -l 'C:\example-workspace\simba\var\logs\pg.log' start | Out-Null
 }
 
 # ---------------------------------------------------------------------------

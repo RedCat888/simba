@@ -349,7 +349,7 @@ export async function releaseWorktree(
   // else. That is an argument about the current callers rather than about this
   // function, and the failure it protects against is losing a repository:
   // inspectWorktree accepts any directory that is its own git toplevel, which
-  // includes a main checkout, so a worktree_path of C:\Users\operator\simba would
+  // includes a main checkout, so a worktree_path of C:\example-workspace\simba would
   // pass every check above and then be handed to rm -rf.
   //
   // confine() resolves symlinks before comparing, which a prefix test on the

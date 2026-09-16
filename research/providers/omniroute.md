@@ -1,6 +1,6 @@
 # OmniRoute — evaluated, not adopted
 
-Repo: `C:\Users\operator\ReelAgent\repos\OmniRoute` (github: diegosouzapw/OmniRoute, MIT)
+Repo: `C:\example-workspace\ReelAgent\repos\OmniRoute` (github: diegosouzapw/OmniRoute, MIT)
 
 ## What it claims
 
